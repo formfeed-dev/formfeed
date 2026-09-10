@@ -27,7 +27,7 @@
   },
   "type": "module",
   "bin": {
-    "formfeed": "./bin/formfeed.mjs"
+    "formfeed": "bin/formfeed.mjs"
   },
   "files": [
     "bin",

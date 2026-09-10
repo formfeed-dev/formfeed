@@ -28,7 +28,7 @@
   },
   "type": "module",
   "bin": {
-    "formfeed-mcp": "./bin/formfeed-mcp.mjs"
+    "formfeed-mcp": "bin/formfeed-mcp.mjs"
   },
   "files": [
     "bin",
