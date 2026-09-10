@@ -16,14 +16,20 @@
   },
   "dependencies": {
     "@date-fns/tz": "1.5.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@tailwindcss/browser": "4.3.3",
     "bwip-js": "4.11.4",
+    "chart.js": "4.5.1",
+    "commander": "^14.0.3",
     "date-fns": "4.4.0",
     "handlebars": "4.7.9",
     "liquidjs": "10.29.0",
     "marked": "18.0.11",
     "n2words": "^6.1.2",
     "nunjucks": "3.2.4",
-    "qrcode": "1.5.4"
+    "pagedjs": "0.4.3",
+    "qrcode": "1.5.4",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.8.0",
