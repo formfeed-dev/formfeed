@@ -1,7 +1,9 @@
 import { mapApitemplateSettings } from '@formfeed/api-types';
-import { getEngine } from '../engines';
 import type { TemplateSettings } from '../assemble';
-import type { Diagnostic } from '../types';
+import { checkTemplate, parseSample, positionOf, slugFromName, type ImportNote, type ImportResult } from './common';
+
+export { slugFromName } from './common';
+export type { ImportNote, ImportResult } from './common';
 
 /**
  * apitemplate.io importer (spec 10 §4, spec 05 §8): turns an exported template (HTML body, CSS,
@@ -19,54 +21,6 @@ export interface ApitemplateExport {
   sample_data?: unknown;
   /** Their template format; JPEG and PNG become image templates. */
   format?: string | null;
-}
-
-export interface ImportNote {
-  code: string;
-  message: string;
-  line?: number;
-  column?: number;
-  /** Path under docs.formfeed.dev with the details. */
-  docs?: string;
-}
-
-export interface ImportResult {
-  name: string;
-  slug: string;
-  kind: 'pdf' | 'image';
-  engine: 'jinja2';
-  html: string;
-  css: string;
-  head: string;
-  settings: TemplateSettings;
-  sampleData: unknown;
-  /** Compile or analysis errors: the draft is created, but it will not render as is. */
-  errors: ImportNote[];
-  /** Unknown filters, unsupported Python constructs, ignored settings. */
-  warnings: ImportNote[];
-  /** What the importer changed or mapped. */
-  changes: string[];
-}
-
-export function slugFromName(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
-  return slug.length >= 2 ? slug : `imported-${Date.now().toString(36)}`;
-}
-
-function parseSample(value: unknown): { data: unknown; error?: string } {
-  if (value === undefined || value === null || value === '') return { data: {} };
-  if (typeof value !== 'string') return { data: value };
-  try {
-    return { data: JSON.parse(value) };
-  } catch (e) {
-    return { data: {}, error: e instanceof Error ? e.message : String(e) };
-  }
 }
 
 /** Python Jinja2 constructs Nunjucks does not run (spec 05 §8), found by pattern with a position. */
@@ -103,13 +57,6 @@ const pythonisms: Array<{ pattern: RegExp; code: string; message: string; docs: 
   },
 ];
 
-function positionOf(source: string, index: number): { line: number; column: number } {
-  const before = source.slice(0, index);
-  const line = before.split('\n').length;
-  const column = index - before.lastIndexOf('\n');
-  return { line, column };
-}
-
 function setInLoop(source: string): ImportNote[] {
   const notes: ImportNote[] = [];
   const forRe = /\{%-?\s*for\b[\s\S]*?\{%-?\s*endfor\s*-?%\}/g;
@@ -129,18 +76,7 @@ function setInLoop(source: string): ImportNote[] {
   return notes;
 }
 
-function fromDiagnostic(d: Diagnostic): ImportNote {
-  const docs =
-    d.code === 'unknown-filter'
-      ? '/templates/helpers'
-      : d.code.startsWith('missing-')
-        ? '/migrate/apitemplate-io#sample-data'
-        : '/templates/languages#jinja2';
-  return { code: d.code, message: d.message, line: d.range.start.line, column: d.range.start.column, docs };
-}
-
 export function importApitemplate(input: ApitemplateExport): ImportResult {
-  const errors: ImportNote[] = [];
   const warnings: ImportNote[] = [];
   const changes: string[] = [];
   const name = (input.name ?? '').trim() || 'Imported template';
@@ -170,24 +106,18 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
   }
   warnings.push(...setInLoop(html));
 
-  const engine = getEngine('jinja2');
-  try {
-    engine.compile(html, { name });
-  } catch (e) {
-    const err = e as { message: string; line?: number; column?: number };
-    errors.push({ code: 'syntax-error', message: err.message, line: err.line, column: err.column, docs: '/templates/languages#jinja2' });
-  }
-  const analysis = engine.analyze(html, { sampleData: sample.data });
-  for (const d of analysis.diagnostics) {
-    const note = fromDiagnostic(d);
-    if (d.severity === 'error') {
-      if (!errors.some((x) => x.code === note.code && x.line === note.line)) errors.push(note);
-    } else warnings.push(note);
-  }
-  const aliasHits = analysis.filters.filter((f) => ['currency_format', 'table', 'page_break', 'raw', 'translate'].includes(f.name));
-  if (aliasHits.length) changes.push(`apitemplate.io filters kept through aliases: ${[...new Set(aliasHits.map((f) => f.name))].join(', ')}`);
+  const checked = checkTemplate('jinja2', html, sample.data, name, {
+    syntax: '/templates/languages#jinja2',
+    filters: '/templates/helpers',
+    sampleData: '/migrate/apitemplate-io#sample-data',
+  });
+  warnings.push(...checked.warnings);
+  const aliasHits = /\|\s*(currency_format|table|page_break|raw|translate)\b/g;
+  const aliases = [...new Set([...html.matchAll(aliasHits)].map((m) => m[1]))];
+  if (aliases.length) changes.push(`apitemplate.io filters kept through aliases: ${aliases.join(', ')}`);
 
   return {
+    source: 'apitemplate',
     name,
     slug: slugFromName(name),
     kind,
@@ -197,7 +127,7 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
     head: '',
     settings,
     sampleData: sample.data,
-    errors,
+    errors: checked.errors,
     warnings,
     changes,
   };

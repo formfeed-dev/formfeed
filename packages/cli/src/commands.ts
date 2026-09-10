@@ -2,7 +2,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { importApitemplate, type EngineId, type TemplateKind } from '@formfeed/engine';
+import {
+  importApitemplate,
+  importJsreport,
+  importPdfmonkey,
+  isScss,
+  jsreportTemplates,
+  type EngineId,
+  type ImportResult,
+  type TemplateKind,
+} from '@formfeed/engine';
 import type { FormfeedError, TemplateVersion } from '@formfeed/sdk-ts';
 import {
   createClient,
@@ -20,6 +29,7 @@ import { deviceLogin } from './lib/device-login';
 import { startDevServer } from './lib/dev-server';
 import { formatDiff } from './lib/diff';
 import { CliError, exitCodes } from './lib/errors';
+import { pdfmonkeyTemplate, pdfmonkeyTemplateIds, projectSassCompiler, readJsreportFile, readSnippets } from './lib/importers';
 import { emit, formatDiagnostic, printer, reportError, table, type Printer } from './lib/output';
 import { contentHash, defaultData, diagnose, listTemplateSlugs, readState, readTemplate, recordSync, renderLocal, templateDir, titleFromSlug, versionPayload, writeTemplate, type LocalTemplate, type TemplateMeta } from '@formfeed/devkit';
 
@@ -567,9 +577,30 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     });
 
   // --- import ---------------------------------------------------------------------------------
-  program
-    .command('import')
-    .description('Import templates from other services')
+  const importCmd = program.command('import').description('Import templates from other services (apitemplate.io, PDFMonkey, jsreport)');
+  const cwd = () => ctx.cwd ?? process.cwd();
+
+  /** Writes one converted template into the project and returns what `emit` reports. */
+  const writeImported = (result: ImportResult, slugOverride?: string) => {
+    const project = requireProject(settings());
+    const slug = slugOverride ?? result.slug;
+    const dir = writeTemplate(
+      project,
+      slug,
+      { name: result.name, kind: result.kind, engine: result.engine, description: null, tags: ['imported', result.source] },
+      { html: result.html, css: result.css, head: result.head, settings: result.settings as Record<string, unknown>, sample_data: (result.sampleData ?? {}) as Record<string, unknown>, data_schema: null, i18n: null },
+    );
+    return { ...result, slug, dir };
+  };
+  const reportLines = (results: Array<ImportResult & { dir: string }>) =>
+    results.flatMap((r) => [
+      `Imported ${r.name} (${r.engine}) -> ${r.dir}`,
+      ...r.errors.map((e) => `error  ${e.line ? `line ${e.line}: ` : ''}${e.message}`),
+      ...r.warnings.map((w) => `warn   ${w.line ? `line ${w.line}: ` : ''}${w.message}`),
+      ...r.changes.map((c) => `note   ${c}`),
+    ]);
+
+  importCmd
     .command('apitemplate')
     .description('Create a local template from files exported from apitemplate.io')
     .requiredOption('--html <file>', 'template body (HTML)')
@@ -579,9 +610,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .option('--name <name>', 'template name')
     .option('--slug <slug>', 'folder and slug (default: from the name)')
     .action((opts: { html: string; css?: string; settings?: string; sample?: string; name?: string; slug?: string }) => {
-      const s = settings();
-      const project = requireProject(s);
-      const read = (f?: string) => (f ? readFileSync(resolve(ctx.cwd ?? process.cwd(), f), 'utf8') : undefined);
+      const read = (f?: string) => (f ? readFileSync(resolve(cwd(), f), 'utf8') : undefined);
       const result = importApitemplate({
         name: opts.name ?? basename(opts.html, extname(opts.html)),
         html: read(opts.html) ?? '',
@@ -589,19 +618,57 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         settings: opts.settings ? (JSON.parse(read(opts.settings) ?? '{}') as Record<string, unknown>) : undefined,
         sample_data: opts.sample ? JSON.parse(read(opts.sample) ?? '{}') : undefined,
       });
-      const slug = opts.slug ?? result.slug;
-      const dir = writeTemplate(
-        project,
-        slug,
-        { name: result.name, kind: result.kind, engine: result.engine, description: null, tags: ['imported'] },
-        { html: result.html, css: result.css, head: result.head, settings: result.settings as Record<string, unknown>, sample_data: (result.sampleData ?? {}) as Record<string, unknown>, data_schema: null, i18n: null },
-      );
-      emit(p(), { ...result, slug, dir }, () => [
-        `Imported ${result.name} -> ${dir}`,
-        ...result.errors.map((e) => `error  ${e.message}`),
-        ...result.warnings.map((w) => `warn   ${w.message}`),
-        ...result.changes.map((c) => `note   ${c}`),
-      ]);
+      const written = writeImported(result, opts.slug);
+      emit(p(), written, () => reportLines([written]));
+    });
+
+  importCmd
+    .command('pdfmonkey')
+    .description('Create local templates from PDFMonkey code templates, read through their API')
+    .option('--key <key>', 'PDFMonkey secret API key (or PDFMONKEY_API_KEY)')
+    .option('--template <ids...>', 'template ids to import')
+    .option('--workspace-id <id>', 'import every code template of this PDFMonkey workspace')
+    .option('--snippet <name=file...>', 'snippet code for templates that load_snippets (repeatable)')
+    .option('--draft', 'import the unpublished drafts')
+    .action(async (opts: { key?: string; template?: string[]; workspaceId?: string; snippet?: string[]; draft?: boolean }) => {
+      const key = opts.key ?? (ctx.env ?? process.env)['PDFMONKEY_API_KEY'];
+      if (!key) throw new CliError('A PDFMonkey secret API key is required: --key or PDFMONKEY_API_KEY.', exitCodes.usage);
+      const fetchImpl = ctx.fetch ?? globalThis.fetch;
+      const ids = [...(opts.template ?? [])];
+      if (opts.workspaceId) {
+        const cards = await pdfmonkeyTemplateIds(fetchImpl, key, opts.workspaceId);
+        ids.push(...cards.filter((c) => c.edition_mode !== 'builder').map((c) => c.id));
+      }
+      if (!ids.length) throw new CliError('Name the templates with --template <id…> or --workspace-id <id>.', exitCodes.usage);
+      const snippets = readSnippets(opts.snippet ?? [], cwd());
+      const templates = await Promise.all([...new Set(ids)].map((id) => pdfmonkeyTemplate(fetchImpl, key, id)));
+      const compileScss = templates.some((t) => isScss(String((opts.draft ? t.scss_style_draft : t.scss_style) ?? '')))
+        ? await projectSassCompiler(cwd())
+        : undefined;
+      const written = templates.map((t) => writeImported(importPdfmonkey(t, { snippets, draft: opts.draft, compileScss })));
+      emit(p(), written, () => reportLines(written));
+    });
+
+  importCmd
+    .command('jsreport <file>')
+    .description('Create local templates from a jsreport export (.jsrexport)')
+    .option('--template <paths...>', 'templates to import by folder path or name (default: every Handlebars chrome-pdf/chrome-image template)')
+    .action((file: string, opts: { template?: string[] }) => {
+      const bundle = readJsreportFile(resolve(cwd(), file));
+      const refs = opts.template?.length
+        ? opts.template
+        : jsreportTemplates(bundle)
+            .filter((t) => t.engine === 'handlebars' && (t.recipe === 'chrome-pdf' || t.recipe === 'chrome-image'))
+            .map((t) => t.ref);
+      if (!refs.length) throw new CliError('The export has no Handlebars chrome-pdf or chrome-image template; name one with --template.', exitCodes.usage);
+      const written = refs.map((ref) => {
+        try {
+          return writeImported(importJsreport(bundle, ref));
+        } catch (e) {
+          throw new CliError(e instanceof Error ? e.message : String(e), exitCodes.usage);
+        }
+      });
+      emit(p(), written, () => reportLines(written));
     });
 
   return program;

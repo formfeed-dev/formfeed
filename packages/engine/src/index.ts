@@ -34,11 +34,13 @@ export {
 export { inferSchema, schemaPaths } from './lib/schema';
 export { mergeSampleData, snippets, snippetsFor } from './lib/snippets';
 export { importApitemplate, slugFromName } from './lib/import/apitemplate';
-export type {
-  ApitemplateExport,
-  ImportNote,
-  ImportResult,
-} from './lib/import/apitemplate';
+export type { ApitemplateExport } from './lib/import/apitemplate';
+export type { ImportNote, ImportResult, ImportSource } from './lib/import/common';
+export { importPdfmonkey, strftimeToDateFns } from './lib/import/pdfmonkey';
+export type { PdfmonkeyImportOptions, PdfmonkeySettings, PdfmonkeyTemplate } from './lib/import/pdfmonkey';
+export { importJsreport, jsreportTemplates, readJsreportExport } from './lib/import/jsreport';
+export type { JsreportBundle, JsreportImportOptions, JsreportTemplate } from './lib/import/jsreport';
+export { convertScss, isScss } from './lib/import/scss';
 export type { Snippet } from './lib/snippets';
 export type { JsonSchema } from './lib/schema';
 export {
