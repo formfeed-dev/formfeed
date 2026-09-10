@@ -1,0 +1,59 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "bundler",
+    "module": "esnext",
+    "target": "es2022",
+    "lib": [
+      "es2022",
+      "dom"
+    ],
+    "importHelpers": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "paths": {
+      "@formfeed/engine": [
+        "./packages/engine/src/index.ts"
+      ],
+      "@formfeed/api-types": [
+        "./packages/api-types/src/index.ts"
+      ],
+      "@formfeed/sdk-ts": [
+        "./packages/sdk-ts/src/index.ts"
+      ],
+      "@formfeed/cli": [
+        "./packages/cli/src/index.ts"
+      ],
+      "@formfeed/mcp": [
+        "./packages/mcp/src/index.ts"
+      ],
+      "@formfeed/devkit": [
+        "./packages/devkit/src/index.ts"
+      ],
+      "@formfeed/testing": [
+        "./packages/testing/src/index.ts"
+      ],
+      "@formfeed/testing/vitest": [
+        "./packages/testing/src/vitest.ts"
+      ],
+      "@formfeed/testing/jest": [
+        "./packages/testing/src/jest.ts"
+      ]
+    }
+  },
+  "exclude": [
+    "node_modules",
+    "tmp",
+    "dist"
+  ]
+}

@@ -1,0 +1,120 @@
+name: Release
+
+# A tag `v*` publishes every package at that version: npm with provenance, PyPI by trusted publishing.
+# Tags arrive together with the commit they point at, from Formfeed's main repository.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build, pack and check without publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NX_DAEMON: 'false'
+  NX_NO_CLOUD: 'true'
+  DRY_RUN: ${{ inputs.dry_run || 'false' }}
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # provenance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+
+      # A tag that does not match the package versions publishes the wrong thing silently.
+      - name: Check versions against the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          fail() { echo "$1 is $2 but the tag is $tag" >&2; exit 1; }
+          for dir in packages/cli packages/mcp packages/n8n-nodes-formfeed; do
+            version=$(node -p "require('./$dir/package.json').version")
+            [ "$version" = "$tag" ] || fail "$dir" "$version"
+          done
+          generated=$(node --input-type=module -e "console.log((await import('./tools/publish/packages.mjs')).VERSION)")
+          [ "$generated" = "$tag" ] || fail tools/publish/packages.mjs "$generated"
+          python_version=$(grep -m1 '^version = ' packages/sdk-python/pyproject.toml | cut -d'"' -f2)
+          [ "$python_version" = "$tag" ] || fail packages/sdk-python/pyproject.toml "$python_version"
+          module_version=$(grep -m1 '^__version__ = ' packages/sdk-python/src/formfeed/__init__.py | cut -d'"' -f2)
+          [ "$module_version" = "$tag" ] || fail packages/sdk-python/src/formfeed/__init__.py "$module_version"
+
+      - run: pnpm nx run-many -t bundle -p cli mcp n8n-nodes-formfeed publish
+      # installs every tarball into an empty project and runs the documented examples first
+      - run: pnpm nx run-many -t smoke -p cli mcp n8n-nodes-formfeed publish
+
+      - name: Publish to npm
+        run: |
+          set -euo pipefail
+          flags=(--access public --provenance)
+          if [ "$DRY_RUN" = "true" ]; then flags+=(--dry-run); fi
+          # dependency order: a package is never published before the ones it depends on
+          for dir in dist/packages/sdk-ts dist/packages/engine dist/packages/devkit dist/packages/testing \
+                     dist/packages/cli dist/packages/mcp dist/packages/n8n-nodes-formfeed; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            # a re-run after a partial failure skips what already went out
+            if [ "$DRY_RUN" != "true" ] && npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published"
+              continue
+            fi
+            npm publish "${flags[@]}" "./$dir"
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  pypi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install build twine
+      - run: python -m build
+        working-directory: packages/sdk-python
+      - run: python -m twine check --strict dist/*
+        working-directory: packages/sdk-python
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: env.DRY_RUN != 'true'
+        with:
+          packages-dir: packages/sdk-python/dist
+          skip-existing: true
+
+  github-release:
+    needs: [npm, pypi]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            Published to npm and PyPI from this tag. What changed: https://docs.formfeed.dev/changelog

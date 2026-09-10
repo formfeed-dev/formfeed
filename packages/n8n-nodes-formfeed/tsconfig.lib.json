@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../dist/packages/n8n-nodes-formfeed/dist",
+    "rootDir": "src",
+    "module": "commonjs",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "declaration": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts", "src/**/*.test.ts"]
+}

@@ -1,0 +1,46 @@
+{
+  "name": "@formfeed/mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for Formfeed: list templates, read data schemas, validate and render documents from AI agents.",
+  "license": "MIT",
+  "author": {
+    "name": "Formfeed",
+    "email": "support@formfeed.dev",
+    "url": "https://formfeed.dev"
+  },
+  "keywords": [
+    "formfeed",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "pdf",
+    "templates"
+  ],
+  "homepage": "https://docs.formfeed.dev/integrations/mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/formfeed-dev/formfeed.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/formfeed-dev/formfeed/issues",
+    "email": "support@formfeed.dev"
+  },
+  "type": "module",
+  "bin": {
+    "formfeed-mcp": "./bin/formfeed-mcp.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.0.0"
+  }
+}

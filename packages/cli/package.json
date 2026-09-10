@@ -1,0 +1,47 @@
+{
+  "name": "formfeed",
+  "version": "0.1.0",
+  "description": "Formfeed CLI: templates as files, offline validation and preview, true renders through the API.",
+  "license": "MIT",
+  "author": {
+    "name": "Formfeed",
+    "email": "support@formfeed.dev",
+    "url": "https://formfeed.dev"
+  },
+  "keywords": [
+    "formfeed",
+    "pdf",
+    "pdf-generation",
+    "templates",
+    "cli"
+  ],
+  "homepage": "https://docs.formfeed.dev/cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/formfeed-dev/formfeed.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/formfeed-dev/formfeed/issues",
+    "email": "support@formfeed.dev"
+  },
+  "type": "module",
+  "bin": {
+    "formfeed": "./bin/formfeed.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@tailwindcss/browser": "^4.1.0",
+    "chart.js": "^4.5.0",
+    "commander": "^14.0.3",
+    "pagedjs": "^0.4.3"
+  }
+}

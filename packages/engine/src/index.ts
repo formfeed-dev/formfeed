@@ -1,0 +1,72 @@
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference -- ambient typings for deep imports must reach every consumer of the package
+/// <reference path="./types/modules.d.ts" />
+export * from './lib/types';
+export { EngineSyntaxError, RenderError, RenderLimitError } from './lib/errors';
+export { defaultLimits, depthGuard, enforceLimits } from './lib/limits';
+export {
+  DefaultHelperRegistry,
+  builtinHelpers,
+  chartMarkup,
+  chartPayload,
+  createHelperRegistry,
+  defaultHelpers,
+  epcPayload,
+  escapeHtml,
+  helperDocs,
+  imageMarkup,
+  qrSvg,
+  toDate,
+  toNumber,
+} from './lib/helpers';
+export {
+  analyzeHandlebars,
+  analyzeJinja2,
+  analyzeLiquid,
+  engineIds,
+  engines,
+  getEngine,
+  handlebarsEngine,
+  jinja2Engine,
+  liquidEngine,
+  liquidBuiltinFilters,
+  nunjucksBuiltinFilters,
+} from './lib/engines';
+export { inferSchema, schemaPaths } from './lib/schema';
+export { mergeSampleData, snippets, snippetsFor } from './lib/snippets';
+export { importApitemplate, slugFromName } from './lib/import/apitemplate';
+export type {
+  ApitemplateExport,
+  ImportNote,
+  ImportResult,
+} from './lib/import/apitemplate';
+export type { Snippet } from './lib/snippets';
+export type { JsonSchema } from './lib/schema';
+export {
+  assembleDocument,
+  chartInitScript,
+  defaultSettings,
+  fontFaceCss,
+  mergeSettings,
+  pageSize,
+  printReset,
+  renderVersion,
+} from './lib/assemble';
+export type { ChartSpec, ImageOptions } from './lib/helpers';
+export { flowDocument, pagedDocument, pageNumberSpans, paperOf } from './lib/preview';
+export type { PagedOptions, RenderedDraft } from './lib/preview';
+export type {
+  AssembleExtras,
+  AssembleInput,
+  AssembleVendor,
+  FontFace,
+  RenderedDocument,
+  TemplateKind,
+  TemplateSettings,
+  VersionSource,
+} from './lib/assemble';
+export {
+  resolvePath,
+  scanBlocks,
+  jinjaTags,
+  liquidTags,
+} from './lib/analysis/tags';

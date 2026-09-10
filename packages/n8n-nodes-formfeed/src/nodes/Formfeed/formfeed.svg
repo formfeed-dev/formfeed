@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" width="60" height="60" role="img" aria-label="Formfeed">
+  <rect width="60" height="60" rx="14" fill="#4f46e5"/>
+  <path d="M20 16h22a2 2 0 0 1 0 4H24v8h14a2 2 0 0 1 0 4H24v12a2 2 0 0 1-4 0V18a2 2 0 0 1 2-2z" fill="#fff"/>
+  <circle cx="42" cy="42" r="5" fill="#fff" opacity=".85"/>
+</svg>

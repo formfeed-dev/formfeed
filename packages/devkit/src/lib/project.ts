@@ -1,0 +1,226 @@
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import type { EngineId, TemplateKind, TemplateSettings } from '@formfeed/engine';
+import type { TemplateVersion } from '@formfeed/sdk-ts';
+import { DevkitError } from './errors';
+import type { Project } from './project-config';
+
+/**
+ * The template folder of spec 15 §2. `template.json` (name, kind, engine, description, tags) is
+ * the one addition to the spec's layout: `push` needs it to create a template that does not exist
+ * remotely, `pull` writes it. Header and footer live in their own files and fold back into
+ * `settings.header.html` / `settings.footer.html`, as the editor's tabs do.
+ */
+export interface TemplateMeta {
+  name: string;
+  kind: TemplateKind;
+  engine: EngineId;
+  description?: string | null;
+  tags?: string[];
+}
+
+export interface LocalTemplate {
+  slug: string;
+  dir: string;
+  meta: TemplateMeta;
+  html: string;
+  css: string;
+  head: string;
+  /** Settings with header/footer html folded in. */
+  settings: TemplateSettings;
+  /** `data/<name>.json`, `default` first when present. */
+  dataSets: Record<string, unknown>;
+  dataSchema: Record<string, unknown> | null;
+  i18n: Record<string, Record<string, string>> | null;
+}
+
+export interface TemplateState {
+  /** Checksum of the remote version the folder was pulled from or pushed as. */
+  checksum: string;
+  number: number;
+  status: string;
+  /** Hash of the local files at that moment; a different hash means local edits. */
+  contentHash: string;
+  syncedAt: string;
+}
+
+export interface ProjectState {
+  templates: Record<string, TemplateState>;
+}
+
+const readText = (path: string): string | null => (existsSync(path) ? readFileSync(path, 'utf8') : null);
+
+function readJson<T>(path: string, what: string): T | null {
+  const text = readText(path);
+  if (text === null) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch (e) {
+    throw new DevkitError(`${what} is not valid JSON: ${path} (${e instanceof Error ? e.message : e})`, 'validation');
+  }
+}
+
+export function listTemplateSlugs(project: Project): string[] {
+  if (!existsSync(project.templatesDir)) return [];
+  return readdirSync(project.templatesDir)
+    .filter((name) => existsSync(join(project.templatesDir, name, 'template.html')))
+    .sort();
+}
+
+export function templateDir(project: Project, slug: string): string {
+  return join(project.templatesDir, slug);
+}
+
+export function readTemplate(project: Project, slug: string): LocalTemplate {
+  const dir = templateDir(project, slug);
+  const html = readText(join(dir, 'template.html'));
+  if (html === null) throw new DevkitError(`No template "${slug}" in ${project.templatesDir} (template.html missing)`);
+  const metaFile = readJson<Partial<TemplateMeta>>(join(dir, 'template.json'), 'template.json') ?? {};
+  const meta: TemplateMeta = {
+    name: metaFile.name ?? titleFromSlug(slug),
+    kind: metaFile.kind ?? 'pdf',
+    engine: metaFile.engine ?? project.config.engine,
+    description: metaFile.description ?? null,
+    tags: metaFile.tags ?? [],
+  };
+  const settings: TemplateSettings = { ...(readJson<TemplateSettings>(join(dir, 'settings.json'), 'settings.json') ?? {}) };
+  const header = readText(join(dir, 'header.html'));
+  const footer = readText(join(dir, 'footer.html'));
+  if (header !== null && header.trim()) settings.header = { ...(settings.header ?? {}), html: header };
+  if (footer !== null && footer.trim()) settings.footer = { ...(settings.footer ?? {}), html: footer };
+  const dataSets: Record<string, unknown> = {};
+  const dataDir = join(dir, 'data');
+  if (existsSync(dataDir)) {
+    for (const file of readdirSync(dataDir).filter((f) => f.endsWith('.json')).sort()) {
+      dataSets[basename(file, '.json')] = readJson<unknown>(join(dataDir, file), `data/${file}`);
+    }
+  }
+  return {
+    slug,
+    dir,
+    meta,
+    html,
+    css: readText(join(dir, 'style.css')) ?? '',
+    head: readText(join(dir, 'head.html')) ?? '',
+    settings,
+    dataSets,
+    dataSchema: readJson<Record<string, unknown>>(join(dir, 'schema.json'), 'schema.json'),
+    i18n: readJson<Record<string, Record<string, string>>>(join(dir, 'i18n.json'), 'i18n.json'),
+  };
+}
+
+/** The sample data set the preview and validation use: `default`, else the first file, else `{}`. */
+export function defaultData(tpl: LocalTemplate, name?: string): { name: string; data: unknown } {
+  const names = Object.keys(tpl.dataSets);
+  const chosen = name ?? (names.includes('default') ? 'default' : names[0]);
+  if (name && !(name in tpl.dataSets))
+    throw new DevkitError(`Data set "${name}" not found; available: ${names.join(', ') || 'none'}`);
+  return chosen ? { name: chosen, data: tpl.dataSets[chosen] } : { name: 'empty', data: {} };
+}
+
+export function writeTemplate(
+  project: Project,
+  slug: string,
+  meta: TemplateMeta,
+  version: Pick<TemplateVersion, 'html' | 'css' | 'head' | 'settings' | 'sample_data' | 'data_schema' | 'i18n'> & {
+    data_sets?: Record<string, unknown> | null;
+  },
+): string {
+  const dir = templateDir(project, slug);
+  mkdirSync(join(dir, 'data'), { recursive: true });
+  const settings = { ...(version.settings ?? {}) } as TemplateSettings;
+  const header = settings.header?.html ?? '';
+  const footer = settings.footer?.html ?? '';
+  if (settings.header) settings.header = stripHtml(settings.header);
+  if (settings.footer) settings.footer = stripHtml(settings.footer);
+  writeFileSync(join(dir, 'template.json'), JSON.stringify(meta, null, 2) + '\n');
+  writeFileSync(join(dir, 'template.html'), version.html ?? '');
+  writeOrRemove(join(dir, 'style.css'), version.css ?? '');
+  writeOrRemove(join(dir, 'head.html'), version.head ?? '');
+  writeOrRemove(join(dir, 'header.html'), header);
+  writeOrRemove(join(dir, 'footer.html'), footer);
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify(settings, null, 2) + '\n');
+  writeFileSync(join(dir, 'data', 'default.json'), JSON.stringify(version.sample_data ?? {}, null, 2) + '\n');
+  for (const [name, data] of Object.entries(version.data_sets ?? {}))
+    if (name !== 'default' && /^[\w.-]+$/.test(name))
+      writeFileSync(join(dir, 'data', `${name}.json`), JSON.stringify(data ?? {}, null, 2) + '\n');
+  writeOrRemove(join(dir, 'schema.json'), version.data_schema ? JSON.stringify(version.data_schema, null, 2) + '\n' : '');
+  writeOrRemove(join(dir, 'i18n.json'), version.i18n ? JSON.stringify(version.i18n, null, 2) + '\n' : '');
+  return dir;
+}
+
+function stripHtml<T extends { html?: string }>(part: T): Omit<T, 'html'> | null {
+  const { html: _html, ...rest } = part;
+  void _html;
+  return Object.keys(rest).length ? rest : null;
+}
+
+function writeOrRemove(path: string, content: string): void {
+  if (content) writeFileSync(path, content);
+  else if (existsSync(path)) rmSync(path);
+}
+
+/** Files of a push request: what the API's TemplateVersionCreate takes. */
+export function versionPayload(tpl: LocalTemplate) {
+  const sample = tpl.dataSets['default'] ?? Object.values(tpl.dataSets)[0] ?? {};
+  // `default` travels as `sample_data` (what the API renders); the rest as named sets, the same
+  // ones the editor shows.
+  const named = Object.fromEntries(
+    Object.entries(tpl.dataSets).filter(([name]) => name !== 'default'),
+  );
+  return {
+    html: tpl.html,
+    css: tpl.css,
+    head: tpl.head,
+    settings: tpl.settings as Record<string, unknown>,
+    sample_data: (sample ?? {}) as Record<string, unknown>,
+    data_sets: named as Record<string, unknown>,
+    data_schema: tpl.dataSchema,
+    i18n: tpl.i18n,
+  };
+}
+
+/** Stable hash of the local files; compared with the state to detect local edits. */
+export function contentHash(tpl: LocalTemplate): string {
+  const payload = versionPayload(tpl);
+  return createHash('sha256').update(JSON.stringify([payload.html, payload.css, payload.head, payload.settings, payload.sample_data, payload.data_sets, payload.data_schema, payload.i18n])).digest('hex');
+}
+
+const statePath = (project: Project) => join(project.root, '.formfeed', 'state.json');
+
+export function readState(project: Project): ProjectState {
+  return readJson<ProjectState>(statePath(project), '.formfeed/state.json') ?? { templates: {} };
+}
+
+export function writeState(project: Project, state: ProjectState): void {
+  mkdirSync(join(project.root, '.formfeed'), { recursive: true });
+  writeFileSync(statePath(project), JSON.stringify(state, null, 2) + '\n');
+}
+
+export function recordSync(project: Project, slug: string, version: Pick<TemplateVersion, 'checksum' | 'number' | 'status'>, tpl: LocalTemplate): void {
+  const state = readState(project);
+  state.templates[slug] = {
+    checksum: version.checksum,
+    number: version.number,
+    status: version.status,
+    contentHash: contentHash(tpl),
+    syncedAt: new Date().toISOString(),
+  };
+  writeState(project, state);
+}
+
+export function titleFromSlug(slug: string): string {
+  return slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Resolves `{% include %}` / partials from the project's partials folder (`name` or `name.html`). */
+export function partialResolver(project: Project): (name: string) => string | undefined {
+  return (name: string) => {
+    for (const candidate of [name, `${name}.html`]) {
+      const path = join(project.partialsDir, candidate);
+      if (existsSync(path) && statSync(path).isFile()) return readFileSync(path, 'utf8');
+    }
+    return undefined;
+  };
+}

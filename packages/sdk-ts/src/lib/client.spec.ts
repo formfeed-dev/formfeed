@@ -1,0 +1,209 @@
+import { Formfeed, FormfeedError } from './client';
+import { parseWebhookEvent, verifyWebhookSignature } from './webhooks';
+
+interface Call {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: unknown;
+}
+
+function stub(responder: (call: Call, attempt: number) => Response) {
+  const calls: Call[] = [];
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const call: Call = {
+      url: String(input),
+      method: init?.method ?? 'GET',
+      headers: (init?.headers as Record<string, string>) ?? {},
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+    };
+    calls.push(call);
+    return responder(call, calls.length);
+  }) as typeof fetch;
+  return { calls, fetchImpl };
+}
+
+const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
+
+const templateRow = {
+  id: 'tpl_1',
+  slug: 'invoice',
+  name: 'Invoice',
+  description: null,
+  kind: 'pdf',
+  engine: 'jinja2',
+  tags: [],
+  published_version: 2,
+  latest_version: 3,
+  created_at: '2026-09-01T00:00:00Z',
+  updated_at: '2026-09-08T00:00:00Z',
+};
+
+const render = { id: 'rnd_1', status: 'succeeded', download_url: 'https://cdn.test/o/x.pdf?exp=1&sig=2', page_count: 1 };
+
+describe('Formfeed client', () => {
+  it('sends the key, an idempotency key and the region host', async () => {
+    const { calls, fetchImpl } = stub(() => json(render));
+    const client = new Formfeed({ apiKey: 'ff_test_k', region: 'us', fetch: fetchImpl });
+    const result = await client.renders.create({ template: 'invoice', data: { a: 1 } });
+    expect(result.id).toBe('rnd_1');
+    expect(calls[0]!.url).toBe('https://api-us.formfeed.dev/v1/renders');
+    expect(calls[0]!.headers['authorization']).toBe('Bearer ff_test_k');
+    expect(calls[0]!.headers['idempotency-key']).toMatch(/\S+/);
+    expect(calls[0]!.body).toEqual({ template: 'invoice', data: { a: 1 } });
+  });
+
+  it('retries 429 and 503 with Retry-After and then surfaces problems as typed errors', async () => {
+    const { calls, fetchImpl } = stub((_, attempt) =>
+      attempt === 1
+        ? json({ code: 'rate_limited' }, 429, { 'retry-after': '0' })
+        : attempt === 2
+          ? json({ code: 'region_unavailable' }, 503)
+          : json(render),
+    );
+    const client = new Formfeed({ apiKey: 'k', baseUrl: 'http://gw.test/v1', fetch: fetchImpl, maxRetries: 3 });
+    const result = await client.renders.get('rnd_1');
+    expect(result.status).toBe('succeeded');
+    expect(calls).toHaveLength(3);
+    expect(calls.every((c) => c.headers['idempotency-key'] === undefined)).toBe(true);
+
+    const failing = stub(() => json({ code: 'template_not_found', detail: 'No template "x"', status: 404 }, 404, { 'x-request-id': 'req_9' }));
+    const client2 = new Formfeed({ apiKey: 'k', baseUrl: 'http://gw.test/v1', fetch: failing.fetchImpl });
+    await expect(client2.renders.create({ template: 'x' })).rejects.toMatchObject({
+      name: 'FormfeedError',
+      code: 'template_not_found',
+      status: 404,
+      requestId: 'req_9',
+    });
+    const err = await client2.renders.create({ template: 'x' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FormfeedError);
+    expect((err as FormfeedError).message).toBe('No template "x"');
+  });
+
+  it('waits for async renders and jobs and downloads outputs', async () => {
+    let polls = 0;
+    const { calls, fetchImpl } = stub((call) => {
+      if (call.url.endsWith('/renders') && call.method === 'POST') return json({ ...render, status: 'queued', download_url: null });
+      if (call.url.endsWith('/renders/rnd_1')) return json(++polls < 2 ? { ...render, status: 'rendering', download_url: null } : render);
+      if (call.url.endsWith('/renders/batch')) return json({ id: 'job_1', status: 'queued', items: [] });
+      if (call.url.endsWith('/jobs/job_1')) return json({ id: 'job_1', status: 'completed', zip_url: 'https://cdn.test/z.zip' });
+      if (call.url.startsWith('https://cdn.test/o/')) return new Response(new Uint8Array([37, 80, 68, 70]), { status: 200 });
+      return json({ code: 'not_found' }, 404);
+    });
+    const client = new Formfeed({ apiKey: 'k', baseUrl: 'http://gw.test/v1', fetch: fetchImpl });
+    const queued = await client.renders.create({ template: 'invoice', mode: 'async' });
+    expect(queued.status).toBe('queued');
+    const done = await client.renders.waitFor(queued.id, { intervalMs: 1 });
+    expect(done.status).toBe('succeeded');
+    const bytes = await client.renders.download(done);
+    expect([...bytes]).toEqual([37, 80, 68, 70]);
+    const job = await client.renders.batch({ template: 'invoice', items: [{ data: { a: 1 } }], zip: true });
+    const finished = await client.jobs.waitFor(job.id, { intervalMs: 1 });
+    expect(finished.zip_url).toContain('z.zip');
+    expect(calls.filter((c) => c.url.endsWith('/renders/rnd_1'))).toHaveLength(2);
+  });
+
+  it('manages webhooks and treats 204 as success', async () => {
+    const { calls, fetchImpl } = stub((call) => {
+      if (call.method === 'DELETE') return new Response(null, { status: 204 });
+      if (call.method === 'POST' && call.url.endsWith('/webhooks')) return json({ id: 'w1', url: call.body ? (call.body as { url: string }).url : '', secret: 'whsec_x' }, 201);
+      return json({ data: [{ id: 'w1' }] });
+    });
+    const client = new Formfeed({ apiKey: 'k', baseUrl: 'http://gw.test/v1', fetch: fetchImpl });
+    const created = await client.webhooks.create({ url: 'https://hooks.example/x', events: ['render.completed'] });
+    expect(created.secret).toBe('whsec_x');
+    expect(await client.webhooks.list()).toEqual([{ id: 'w1' }]);
+    await expect(client.webhooks.delete('w1')).resolves.toBeUndefined();
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'GET', 'DELETE']);
+  });
+});
+
+describe('webhook signatures', () => {
+  const secret = 'whsec_test';
+  const body = '{"id":"evt_1","type":"render.completed","data":{"id":"rnd_1"}}';
+  const t = 1_800_000_000;
+
+  async function sign(): Promise<string> {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${t}.${body}`));
+    return `t=${t},v1=${[...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+  }
+
+  it('verifies a fresh signature and rejects tampering, wrong secrets and old timestamps', async () => {
+    const header = await sign();
+    expect(await verifyWebhookSignature(secret, header, body, { now: t + 10 })).toBe(true);
+    expect(await verifyWebhookSignature('other', header, body, { now: t + 10 })).toBe(false);
+    expect(await verifyWebhookSignature(secret, header, body.replace('rnd_1', 'rnd_2'), { now: t + 10 })).toBe(false);
+    expect(await verifyWebhookSignature(secret, header, body, { now: t + 1000 })).toBe(false);
+    expect(await verifyWebhookSignature(secret, null, body)).toBe(false);
+    const event = await parseWebhookEvent<{ type: string }>(secret, header, body, { now: t });
+    expect(event.type).toBe('render.completed');
+    await expect(parseWebhookEvent(secret, 't=1,v1=00', body, { now: t })).rejects.toThrow('invalid webhook signature');
+  });
+});
+
+describe('usage', () => {
+  it('reads the usage of a period', async () => {
+    const { calls, fetchImpl } = stub(() =>
+      json({ period: '2026-09', included: 15000, used: 120, overage_used: 0, overage_balance: 0, daily: [], by_template: [] }),
+    );
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
+    const usage = await client.account.usage('2026-08');
+    expect(usage.period).toBe('2026-09');
+    expect(calls[0]?.url).toContain('/usage?period=2026-08');
+  });
+});
+
+describe('render listing', () => {
+  it('lists with filters, follows the cursor and deletes outputs', async () => {
+    const { calls, fetchImpl } = stub((call) => {
+      const url = new URL(call.url);
+      if (url.pathname.endsWith('/outputs') && call.method === 'DELETE') return new Response(null, { status: 204 });
+      return json({ data: [render], next_cursor: url.searchParams.get('cursor') ? null : 'c1' });
+    });
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
+
+    const page = await client.renders.list({ status: 'succeeded', limit: 1 });
+    expect(page.data).toHaveLength(1);
+    expect(calls[0]?.url).toContain('status=succeeded');
+    expect(calls[0]?.url).toContain('limit=1');
+
+    const all = await client.renders.all({ template: 'invoice' });
+    expect(all).toHaveLength(2);
+    expect(calls.at(-1)?.url).toContain('cursor=c1');
+
+    await client.renders.deleteOutputs('rnd_1');
+    expect(calls.at(-1)?.method).toBe('DELETE');
+    expect(calls.at(-1)?.url).toMatch(/\/renders\/rnd_1\/outputs$/);
+  });
+});
+
+describe('templates', () => {
+  it('lists with filters, follows cursors and addresses versions', async () => {
+    const { calls, fetchImpl } = stub((call) => {
+      const url = new URL(call.url);
+      if (url.pathname.endsWith('/templates') && call.method === 'GET')
+        return json({ data: [templateRow], next_cursor: url.searchParams.get('cursor') ? null : 'c1' });
+      if (url.pathname.endsWith('/versions/latest')) return json({ id: 'v3', number: 3, status: 'draft', checksum: 'x', html: '<p>' });
+      if (url.pathname.endsWith('/versions') && call.method === 'POST') return json({ id: 'v4', number: 4, status: 'draft', checksum: 'y' }, 201);
+      if (url.pathname.endsWith('/versions/4/publish')) return json({ id: 'v4', number: 4, status: 'published', checksum: 'y' });
+      return json(templateRow);
+    });
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
+    const all = await client.templates.all({ kind: 'pdf', tag: 'invoice' });
+    expect(all).toHaveLength(2);
+    expect(calls[0]?.url).toContain('kind=pdf');
+    expect(calls[0]?.url).toContain('tag=invoice');
+    expect(calls[1]?.url).toContain('cursor=c1');
+
+    const latest = await client.templates.versions.get('invoice', 'latest');
+    expect(latest.html).toBe('<p>');
+    const draft = await client.templates.versions.create('invoice', { html: '<p>v4</p>', base_checksum: 'x' });
+    expect(draft.number).toBe(4);
+    expect(calls.at(-1)?.body).toMatchObject({ base_checksum: 'x' });
+    const published = await client.templates.versions.publish('invoice', 4);
+    expect(published.status).toBe('published');
+    expect(calls.at(-1)?.url).toMatch(/\/templates\/invoice\/versions\/4\/publish$/);
+  });
+});

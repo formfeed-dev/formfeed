@@ -1,0 +1,12 @@
+packages:
+  - 'packages/*'
+
+allowBuilds:
+  esbuild: true
+  nx: true
+  unrs-resolver: true
+  # postinstall banners and polyfill checks, not needed
+  core-js: false
+  es5-ext: false
+  # n8n-workflow drags this in; only its type declarations are used, so the native build is skipped
+  isolated-vm: false

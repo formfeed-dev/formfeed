@@ -1,0 +1,35 @@
+{
+  "name": "cli",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/cli/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "bundle": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/packages/cli"
+      ],
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/package.json",
+        "{projectRoot}/README.md",
+        "{workspaceRoot}/packages/engine/src/**/*",
+        "{workspaceRoot}/packages/sdk-ts/src/**/*",
+        "{workspaceRoot}/packages/api-types/src/**/*"
+      ],
+      "options": {
+        "command": "node packages/cli/build.mjs"
+      }
+    },
+    "smoke": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "bundle"
+      ],
+      "options": {
+        "command": "node dist/packages/cli/bin/formfeed.mjs --help"
+      }
+    }
+  }
+}

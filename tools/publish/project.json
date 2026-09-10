@@ -1,0 +1,47 @@
+{
+  "name": "publish",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "tools/publish",
+  "tags": ["scope:tooling"],
+  "implicitDependencies": ["sdk-ts", "engine", "devkit", "testing", "api-types"],
+  "targets": {
+    "bundle": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/*.mjs",
+        "{projectRoot}/tsconfig.types.json",
+        "{workspaceRoot}/package.json",
+        "{workspaceRoot}/tsconfig.base.json",
+        "{workspaceRoot}/packages/sdk-ts/src/**/*",
+        "{workspaceRoot}/packages/engine/src/**/*",
+        "{workspaceRoot}/packages/devkit/src/**/*",
+        "{workspaceRoot}/packages/testing/src/**/*",
+        "{workspaceRoot}/packages/api-types/src/**/*"
+      ],
+      "outputs": [
+        "{workspaceRoot}/dist/packages/sdk-ts",
+        "{workspaceRoot}/dist/packages/engine",
+        "{workspaceRoot}/dist/packages/devkit",
+        "{workspaceRoot}/dist/packages/testing"
+      ],
+      "options": {
+        "command": "node tools/publish/build-packages.mjs"
+      },
+      "metadata": {
+        "description": "Builds @formfeed/sdk, engine, devkit and testing into dist/packages with generated manifests"
+      }
+    },
+    "smoke": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["bundle"],
+      "options": {
+        "command": "node tools/publish/smoke.mjs"
+      },
+      "metadata": {
+        "description": "Packs the four packages, installs them into an empty project and runs the documented examples"
+      }
+    }
+  }
+}

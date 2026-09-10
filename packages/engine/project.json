@@ -1,0 +1,9 @@
+{
+  "name": "engine",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/engine/src",
+  "projectType": "library",
+  "tags": [],
+  "// targets": "to see all targets run: nx show project engine --web",
+  "targets": {}
+}

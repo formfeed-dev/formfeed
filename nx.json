@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "namedInputs": {
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
+    "production": [
+      "default",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/eslint.config.mjs"
+    ],
+    "sharedGlobals": ["{workspaceRoot}/.github/workflows/ci.yml"]
+  },
+  "plugins": [
+    {
+      "plugin": "@nx/eslint/plugin",
+      "options": { "targetName": "lint" }
+    },
+    {
+      "plugin": "@nx/vitest",
+      "options": { "testTargetName": "test", "ciTargetName": "test-ci", "testMode": "watch" }
+    }
+  ],
+  "analytics": false,
+  "targetDefaults": {
+    "lint": { "cache": true },
+    "test": { "cache": true },
+    "@nx/eslint:lint": {
+      "cache": true,
+      "inputs": ["default", "^default", "{workspaceRoot}/eslint.config.mjs"]
+    }
+  },
+  "workspaceLayout": {
+    "libsDir": "packages"
+  }
+}

@@ -1,0 +1,161 @@
+import { toSVG } from 'bwip-js';
+import { create as createQr } from 'qrcode';
+import { render as renderQrSvg } from 'qrcode/lib/renderer/svg-tag.js';
+import type { HelperDefinition } from '../types';
+import { toNumber } from './format';
+
+type QrOptions = {
+  size?: number;
+  ecc?: 'L' | 'M' | 'Q' | 'H';
+  margin?: number;
+  color?: string;
+  background?: string;
+};
+type BarcodeOptions = {
+  type?: string;
+  height?: number;
+  width?: number;
+  text?: boolean;
+  scale?: number;
+};
+
+const svgDataUri = (svg: string) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+
+/** Aligns spec names with bwip-js symbology ids. */
+const barcodeTypes: Record<string, string> = {
+  code128: 'code128',
+  ean13: 'ean13',
+  ean8: 'ean8',
+  upc: 'upca',
+  upca: 'upca',
+  itf14: 'itf14',
+  code39: 'code39',
+  qrcode: 'qrcode',
+  datamatrix: 'datamatrix',
+  pdf417: 'pdf417',
+};
+
+export function qrSvg(value: string, options: QrOptions = {}): string {
+  const qr = createQr(value, { errorCorrectionLevel: options.ecc ?? 'M' });
+  const svg = renderQrSvg(qr, {
+    width: options.size ?? 160,
+    margin: options.margin ?? 1,
+    color: {
+      dark: (options.color ?? '#000000').replace(/^(#?)/, '#').slice(0, 9),
+      light: (options.background ?? '#ffffff').replace(/^(#?)/, '#'),
+    },
+  });
+  return svg;
+}
+
+/** EPC QR (GiroCode) payload, version 002, UTF-8, SCT. */
+export function epcPayload(input: {
+  name: string;
+  iban: string;
+  bic?: string;
+  amount?: number | string;
+  reference?: string;
+  text?: string;
+  purpose?: string;
+}): string {
+  const amount =
+    input.amount === undefined || input.amount === ''
+      ? ''
+      : `EUR${toNumber(input.amount).toFixed(2)}`;
+  return [
+    'BCD',
+    '002',
+    '1',
+    'SCT',
+    (input.bic ?? '').replace(/\s/g, ''),
+    String(input.name ?? '').slice(0, 70),
+    String(input.iban ?? '').replace(/\s/g, ''),
+    amount,
+    (input.purpose ?? '').slice(0, 4),
+    (input.reference ?? '').slice(0, 35),
+    input.reference ? '' : (input.text ?? '').slice(0, 140),
+    '',
+  ].join('\n');
+}
+
+export const codeHelpers: HelperDefinition[] = [
+  {
+    name: 'qrcode',
+    aliases: ['qr'],
+    doc: {
+      signature:
+        "qrcode(value, { size = 160, ecc = 'M', margin = 1, color, background })",
+      description: 'QR code as an SVG data URI for an <img> src.',
+      example: '<img src="{{ qrcode(order.url, { size: 120 }) }}">',
+      category: 'code',
+    },
+    fn: (_ctx, value, options?) =>
+      svgDataUri(qrSvg(String(value ?? ''), (options ?? {}) as QrOptions)),
+  },
+  {
+    name: 'barcode',
+    doc: {
+      signature:
+        "barcode(value, { type = 'code128', height = 12, width, text = true, scale = 2 })",
+      description:
+        'Barcode (code128, ean13, ean8, upc, itf14, code39, datamatrix, pdf417) as an SVG data URI.',
+      example: '<img src="{{ barcode(item.sku, { type: \'code128\' }) }}">',
+      category: 'code',
+    },
+    fn: (_ctx, value, options?) => {
+      const o = (options ?? {}) as BarcodeOptions;
+      const bcid =
+        barcodeTypes[String(o.type ?? 'code128').toLowerCase()] ?? 'code128';
+      const svg = toSVG({
+        bcid,
+        text: String(value ?? ''),
+        height: o.height ?? 12,
+        ...(o.width === undefined ? {} : { width: o.width }),
+        scale: o.scale ?? 2,
+        includetext: o.text !== false,
+        textxalign: 'center',
+      });
+      return svgDataUri(svg);
+    },
+  },
+  {
+    name: 'epcQr',
+    aliases: ['epc_qr', 'girocode'],
+    doc: {
+      signature:
+        'epcQr({ name, iban, bic?, amount?, reference?, text? }, { size })',
+      description:
+        'SEPA credit transfer QR code (EPC069-12 / GiroCode) that banking apps scan to prefill a payment.',
+      example:
+        '<img src="{{ epcQr({ name: company.name, iban: company.iban, amount: invoice.total, reference: invoice.number }) }}">',
+      category: 'code',
+    },
+    // Payment fields and QR options may arrive together: Jinja2 passes two objects, Handlebars one
+    // hash (`{{epcQr name=… iban=… size=200}}`), and Liquid, which cannot build an object literal,
+    // keyword arguments (`{{ company.iban | epcQr: name: company.name, amount: invoice.total }}`,
+    // where a string input is the IBAN). They are merged and split by field name.
+    fn: (_ctx, input, options?) => {
+      const fields: Record<string, unknown> = {
+        ...(input && typeof input === 'object'
+          ? (input as Record<string, unknown>)
+          : typeof input === 'string' && input
+            ? { iban: input }
+            : {}),
+        ...((options ?? {}) as Record<string, unknown>),
+      };
+      const payment: Record<string, unknown> = {};
+      const qr: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(fields))
+        (EPC_FIELDS.has(key) ? payment : qr)[key] = value;
+      return svgDataUri(
+        qrSvg(epcPayload(payment as Parameters<typeof epcPayload>[0]), {
+          ecc: 'M',
+          ...(qr as QrOptions),
+        }),
+      );
+    },
+  },
+];
+
+const EPC_FIELDS = new Set(['name', 'iban', 'bic', 'amount', 'reference', 'text', 'purpose']);

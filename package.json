@@ -1,0 +1,51 @@
+{
+  "name": "formfeed-packages",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Formfeed client libraries, CLI, development kit and integrations",
+  "license": "MIT",
+  "scripts": {
+    "bundle": "nx run-many -t bundle",
+    "test": "nx run-many -t test --exclude sdk-python",
+    "lint": "nx run-many -t lint"
+  },
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11.0.0"
+  },
+  "dependencies": {
+    "@date-fns/tz": "1.5.0",
+    "bwip-js": "4.11.4",
+    "date-fns": "4.4.0",
+    "handlebars": "4.7.9",
+    "liquidjs": "10.29.0",
+    "marked": "18.0.11",
+    "n2words": "^6.1.2",
+    "nunjucks": "3.2.4",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.8.0",
+    "@nx/devkit": "23.2.0",
+    "@nx/eslint": "23.2.0",
+    "@nx/eslint-plugin": "23.2.0",
+    "@nx/js": "23.2.0",
+    "@nx/vitest": "23.2.0",
+    "@types/node": "^24.0.0",
+    "@types/nunjucks": "3.2.6",
+    "@types/qrcode": "1.5.6",
+    "@vitest/coverage-v8": "~4.1.0",
+    "esbuild": "~0.25.12",
+    "eslint": "^9.8.0",
+    "eslint-config-prettier": "^10.0.0",
+    "nx": "23.2.0",
+    "prettier": "^3.8.1",
+    "tslib": "^2.3.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.58.0",
+    "vite": "^8.0.0",
+    "vite-tsconfig-paths": "6.1.1",
+    "vitest": "^4.0.8"
+  }
+}

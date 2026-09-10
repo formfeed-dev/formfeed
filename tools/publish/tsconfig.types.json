@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "outDir": "../../dist/publish-types",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "composite": false,
+    "incremental": false,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "../../packages/sdk-ts/src/**/*.ts",
+    "../../packages/engine/src/**/*.ts",
+    "../../packages/devkit/src/**/*.ts",
+    "../../packages/testing/src/**/*.ts"
+  ],
+  "exclude": ["../../packages/**/*.spec.ts", "../../packages/**/*.test.ts"]
+}

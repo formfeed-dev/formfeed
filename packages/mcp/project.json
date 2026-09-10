@@ -1,0 +1,38 @@
+{
+  "name": "mcp",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/mcp/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "bundle": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/packages/mcp"
+      ],
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/package.json",
+        "{projectRoot}/README.md",
+        "{workspaceRoot}/packages/engine/src/**/*",
+        "{workspaceRoot}/packages/sdk-ts/src/**/*"
+      ],
+      "options": {
+        "command": "node packages/mcp/build.mjs"
+      }
+    },
+    "smoke": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "bundle"
+      ],
+      "options": {
+        "commands": [
+          "node dist/packages/mcp/bin/formfeed-mcp.mjs --help",
+          "node packages/mcp/smoke.mjs"
+        ],
+        "parallel": false
+      }
+    }
+  }
+}

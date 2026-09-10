@@ -1,0 +1,32 @@
+{
+  "name": "n8n-nodes-formfeed",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/n8n-nodes-formfeed/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "bundle": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/packages/n8n-nodes-formfeed"
+      ],
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/package.json",
+        "{projectRoot}/README.md"
+      ],
+      "options": {
+        "command": "node packages/n8n-nodes-formfeed/build.mjs"
+      }
+    },
+    "smoke": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "bundle"
+      ],
+      "options": {
+        "command": "node packages/n8n-nodes-formfeed/smoke.mjs"
+      }
+    }
+  }
+}

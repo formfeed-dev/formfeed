@@ -1,0 +1,53 @@
+{
+  "name": "n8n-nodes-formfeed",
+  "version": "0.1.0",
+  "description": "n8n community node for Formfeed: render PDFs and images from templates, wait for async renders and react to render webhooks.",
+  "license": "MIT",
+  "author": {
+    "name": "Formfeed",
+    "email": "support@formfeed.dev",
+    "url": "https://formfeed.dev"
+  },
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "formfeed",
+    "pdf",
+    "pdf-generation",
+    "template"
+  ],
+  "homepage": "https://docs.formfeed.dev/integrations/n8n",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/formfeed-dev/formfeed.git",
+    "directory": "packages/n8n-nodes-formfeed"
+  },
+  "bugs": {
+    "url": "https://github.com/formfeed-dev/formfeed/issues",
+    "email": "support@formfeed.dev"
+  },
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/FormfeedApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Formfeed/Formfeed.node.js",
+      "dist/nodes/Formfeed/FormfeedTrigger.node.js"
+    ]
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "devDependencies": {
+    "n8n-workflow": "^2.16.0"
+  }
+}

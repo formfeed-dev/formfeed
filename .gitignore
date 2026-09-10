@@ -1,0 +1,19 @@
+node_modules
+dist
+tmp
+out-tsc
+coverage
+.nx/cache
+.nx/workspace-data
+
+# Python
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.venv/
+
+# editors and systems
+.idea
+.vscode
+.DS_Store
+Thumbs.db

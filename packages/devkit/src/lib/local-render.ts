@@ -1,0 +1,87 @@
+import {
+  EngineSyntaxError,
+  defaultHelpers,
+  defaultLimits,
+  flowDocument,
+  getEngine,
+  mergeSettings,
+  pagedDocument,
+  renderVersion,
+  type AssembleVendor,
+  type Diagnostic,
+  type RenderContext,
+  type RenderedDocument,
+} from '@formfeed/engine';
+import type { Project } from './project-config';
+import { partialResolver, type LocalTemplate } from './project';
+
+/** The same diagnostics the editor shows: analysis of the body against the sample data plus compile errors. */
+export function diagnose(tpl: LocalTemplate, sampleData: unknown): Diagnostic[] {
+  const engine = getEngine(tpl.meta.engine);
+  const diagnostics: Diagnostic[] = [];
+  try {
+    engine.compile(tpl.html, { name: tpl.slug });
+  } catch (e) {
+    if (e instanceof EngineSyntaxError) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'syntax-error',
+        message: e.message,
+        range: { start: { line: e.line ?? 1, column: e.column ?? 1 }, end: { line: e.line ?? 1, column: (e.column ?? 1) + 1 } },
+      });
+    } else throw e;
+  }
+  diagnostics.push(...engine.analyze(tpl.html, { sampleData }).diagnostics);
+  for (const [part, source] of [
+    ['header', tpl.settings.header?.html],
+    ['footer', tpl.settings.footer?.html],
+  ] as const) {
+    if (!source) continue;
+    for (const d of engine.analyze(source, { sampleData }).diagnostics) diagnostics.push({ ...d, message: `${part}: ${d.message}` });
+  }
+  return diagnostics;
+}
+
+export function renderContext(project: Project, tpl: LocalTemplate): RenderContext {
+  const settings = mergeSettings(tpl.settings);
+  return {
+    locale: settings.locale ?? 'en',
+    timezone: settings.timezone ?? 'UTC',
+    currency: settings.currency ?? 'EUR',
+    partials: partialResolver(project),
+    helpers: defaultHelpers(),
+    limits: defaultLimits,
+    i18n: tpl.i18n ?? undefined,
+  };
+}
+
+export interface LocalRenderOptions {
+  mode: 'preview' | 'print';
+  locale?: string;
+  vendor?: AssembleVendor;
+}
+
+/** Assembles the complete document with the shared engine; no browser involved. */
+export async function renderLocal(project: Project, tpl: LocalTemplate, data: unknown, options: LocalRenderOptions): Promise<RenderedDocument> {
+  const ctx = renderContext(project, tpl);
+  if (options.locale) ctx.locale = options.locale;
+  return renderVersion(
+    { engine: tpl.meta.engine, html: tpl.html, css: tpl.css, head: tpl.head, settings: mergeSettings(tpl.settings), kind: tpl.meta.kind },
+    data,
+    ctx,
+    options.mode,
+    options.vendor ? { vendor: options.vendor } : {},
+  );
+}
+
+/** Wraps a preview render for the screen the way the editor does. */
+export function previewDocument(tpl: LocalTemplate, rendered: RenderedDocument, mode: 'flow' | 'paged', pagedScriptUrl: string): string {
+  const draft = {
+    document: rendered.document,
+    headerHtml: rendered.headerHtml,
+    footerHtml: rendered.footerHtml,
+    settings: rendered.settings,
+    kind: tpl.meta.kind,
+  };
+  return mode === 'paged' && tpl.meta.kind === 'pdf' ? pagedDocument(draft, { pagedScriptUrl }) : flowDocument(draft);
+}
