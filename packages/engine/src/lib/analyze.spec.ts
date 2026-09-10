@@ -86,6 +86,31 @@ describe('jinja2 analysis', () => {
     );
     expect(a.filters.map((f) => f.name)).toEqual(['sum', 'money', 'qrcode']);
   });
+
+  it('reads the values of object literals and keyword arguments, not their keys', () => {
+    // the compiler turns `{ type: … }` and `f(size=…)` keys into strings; only the values are data
+    const a = engines.jinja2.analyze(
+      `<img src="{{ epcQr({ name: company.name, iban: company.iban, amount: total }, { size: 110 }) }}">` +
+        `{{ barcode(invoice.number, { type: 'code128', height: 18 }) }}` +
+        `{{ chart({ type: 'bar', data: { labels: invoice.lines | pluck('description') } }) }}` +
+        `{{ qrcode(invoice.customer.name, margin=2) }}`,
+      { sampleData: sample },
+    );
+    expect(a.variables.map((v) => v.path.join('.'))).toEqual([
+      'company.name',
+      'company.iban',
+      'total',
+      'invoice.number',
+      'invoice.lines',
+      'invoice.customer.name',
+    ]);
+    expect(
+      a.diagnostics.filter((d) => d.code === 'unknown-variable').map((d) => d.message),
+    ).toEqual([
+      '"company.iban" is not present in the sample data',
+      '"total" is not present in the sample data',
+    ]);
+  });
 });
 
 describe('handlebars analysis', () => {

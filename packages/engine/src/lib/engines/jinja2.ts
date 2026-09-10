@@ -445,6 +445,12 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
       w.scopes.pop();
       return;
     }
+    case 'Pair': {
+      // `{ size: 120 }` and `qrcode(x, size=120)`: the compiler turns a Symbol key into a string
+      // literal, so only the value is a read
+      walk(node['value'] as NunjucksNode, w);
+      return;
+    }
     case 'Include':
     case 'Extends':
     case 'Import':
