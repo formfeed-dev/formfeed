@@ -1,7 +1,9 @@
 name: Release
 
-# A tag `v*` publishes every package at that version: npm with provenance, PyPI by trusted publishing.
-# Tags arrive together with the commit they point at, from Formfeed's main repository.
+# A tag `v*` publishes every package at that version. npm and PyPI both use trusted publishing: each
+# registry trusts this workflow in the `release` environment through GitHub's OIDC token, so there is
+# no registry token anywhere, and npm attaches provenance by itself. Tags arrive together with the
+# commit they point at, from Formfeed's main repository.
 on:
   push:
     tags: ['v*']
@@ -31,7 +33,7 @@ jobs:
     environment: release
     permissions:
       contents: read
-      id-token: write # provenance
+      id-token: write # trusted publishing and provenance
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -64,6 +66,7 @@ jobs:
       # installs every tarball into an empty project and runs the documented examples first
       - run: pnpm nx run-many -t smoke -p cli mcp n8n-nodes-formfeed publish
 
+      # trusted publishing needs npm 11.5.1 or newer; Node 24 ships it
       - name: Publish to npm
         run: |
           set -euo pipefail
@@ -81,8 +84,6 @@ jobs:
             fi
             npm publish "${flags[@]}" "./$dir"
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   pypi:
     runs-on: ubuntu-latest
