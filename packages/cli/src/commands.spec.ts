@@ -139,6 +139,24 @@ describe('formfeed CLI', () => {
     expect(api.calls.filter((c) => c.path === '/v1/account')).toHaveLength(2);
   });
 
+  it('login stores a valid key without account:read and refuses a rejected one', async () => {
+    const noKeyCtx = (fetchImpl: typeof fetch) => ({ ...ctx, env: { FORMFEED_CONFIG_DIR: join(dir, 'user') }, fetch: fetchImpl });
+    const answering = (status: number, code: string) =>
+      (async () =>
+        new Response(JSON.stringify({ code, title: code, status, detail: `answered ${status}` }), {
+          status,
+          headers: { 'content-type': 'application/problem+json' },
+        })) as typeof fetch;
+
+    expect(await run(['login', '--api-key', 'ff_live_renderonly'], noKeyCtx(answering(403, 'forbidden'))), err.join('\n')).toBe(0);
+    expect(readFileSync(join(dir, 'user', 'config.json'), 'utf8')).toContain('ff_live_renderonly');
+    expect(out.join('\n')).toContain('Signed in with a live key. It lacks the account:read scope');
+
+    rmSync(join(dir, 'user'), { recursive: true, force: true });
+    expect(await run(['login', '--api-key', 'ff_live_revoked'], noKeyCtx(answering(401, 'unauthorized')))).toBe(3);
+    expect(existsSync(join(dir, 'user', 'config.json'))).toBe(false);
+  });
+
   it('pulls into files, pushes drafts with the base checksum, publishes and detects conflicts', async () => {
     await run(['init'], ctx);
     rmSync(join(dir, 'templates', 'hello'), { recursive: true });

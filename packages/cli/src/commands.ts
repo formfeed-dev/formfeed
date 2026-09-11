@@ -86,14 +86,23 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
 
       const finish = (resolved: string, note?: string) => async () => {
         const c = createClient({ ...s, apiKey: resolved }, ctx.fetch);
-        const account = await c.account.get();
+        // The account call proves the key works. An unknown, revoked or expired key gets 401; a 403
+        // means the gateway accepted the key and refused only the account:read scope, which keys
+        // created for a single job often lack, so such a key is stored too.
+        const account = await c.account.get().catch((e: unknown) => {
+          if ((e as FormfeedError).status === 403) return null;
+          throw e;
+        });
         const path = saveUserConfig(
           { ...loadUserConfig(ctx.env), apiKey: resolved, ...(s.baseUrl ? { baseUrl: s.baseUrl } : {}), region: s.region },
           ctx.env,
         );
+        const environment = resolved.startsWith('ff_live_') ? 'live' : 'test';
         emit(printer, { ok: true, account, config: path }, () => [
           ...(note ? [note] : []),
-          `Signed in to ${(account['organization'] as { name?: string })?.name ?? 'organisation'} / ${(account['workspace'] as { name?: string })?.name ?? 'workspace'} (${(account['environment'] as string) ?? ''} key)`,
+          account
+            ? `Signed in to ${(account['organization'] as { name?: string })?.name ?? 'organisation'} / ${(account['workspace'] as { name?: string })?.name ?? 'workspace'} (${(account['environment'] as string) ?? ''} key)`
+            : `Signed in with a ${environment} key. It lacks the account:read scope, so whoami cannot show its workspace and usage.`,
           `Key stored in ${path}`,
         ]);
       };
