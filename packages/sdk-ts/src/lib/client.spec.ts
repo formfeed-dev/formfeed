@@ -207,3 +207,33 @@ describe('templates', () => {
     expect(calls.at(-1)?.url).toMatch(/\/templates\/invoice\/versions\/4\/publish$/);
   });
 });
+
+describe('PDF tools', () => {
+  it('posts sources as render ids with an idempotency key, and info without one', async () => {
+    const { calls, fetchImpl } = stub((call) =>
+      call.url.endsWith('/pdf/info') ? json({ source: 'rnd_1', page_count: 2, pages: [], encrypted: false, metadata: {} }) : json({ ...render, id: 'rnd_9', units: 0.5 }),
+    );
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    const merged = await client.pdf.merge([render as never, 'rnd_2'], { filename: 'bundle.pdf' });
+    expect(merged.id).toBe('rnd_9');
+    expect(calls[0]!.url).toBe('https://api-eu.formfeed.dev/v1/pdf/merge');
+    expect(calls[0]!.body).toEqual({ filename: 'bundle.pdf', sources: ['rnd_1', 'rnd_2'] });
+    expect(calls[0]!.headers['idempotency-key']).toMatch(/\S+/);
+
+    await client.pdf.protect('rnd_9', { user_password: 'open-me', permissions: ['print'] });
+    expect(calls[1]!.body).toEqual({ source: 'rnd_9', user_password: 'open-me', permissions: ['print'] });
+    await client.pdf.watermark('rnd_9', { text: 'COPY', rotation: 0 });
+    expect(calls[2]!.body).toEqual({ source: 'rnd_9', text: 'COPY', rotation: 0 });
+
+    const info = await client.pdf.info('rnd_1');
+    expect(info.page_count).toBe(2);
+    expect(calls[3]!.headers['idempotency-key']).toBeUndefined();
+  });
+
+  it('passes post-processing through on renders', async () => {
+    const { calls, fetchImpl } = stub(() => json(render));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    await client.renders.create({ template: 'invoice', post: { merge_after: ['rnd_terms'], password: { user: 'pw' } } });
+    expect(calls[0]!.body).toMatchObject({ post: { merge_after: ['rnd_terms'], password: { user: 'pw' } } });
+  });
+});

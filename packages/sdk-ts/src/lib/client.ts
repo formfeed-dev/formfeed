@@ -39,6 +39,52 @@ export interface RenderRequest {
   meta?: Record<string, unknown>;
   region?: Region;
   dedupe?: boolean;
+  /** PDF post-processing: merge, watermark, password, applied in that order (0.5 units each). */
+  post?: PostProcessing | null;
+}
+
+export type PdfPermission = 'print' | 'copy' | 'modify' | 'annotate';
+
+export interface WatermarkOptions {
+  text: string;
+  /** 0 to 1, default 0.2. */
+  opacity?: number;
+  /** Degrees clockwise as in CSS, default -45 (bottom left to top right). */
+  rotation?: number;
+  /** Hex colour such as `#cc0000`; grey by default. */
+  color?: string;
+}
+
+export interface PostProcessing {
+  /** Render ids whose PDFs are appended after this document, in order. */
+  merge_after?: string[];
+  watermark?: WatermarkOptions;
+  password?: { user?: string; owner?: string; permissions?: PdfPermission[] };
+}
+
+/** Where the result of a PDF tool is stored, as for a render. */
+export interface PdfOutputOptions {
+  filename?: string;
+  expires_in?: number | null;
+  access?: 'public' | 'signed';
+  meta?: Record<string, unknown>;
+}
+
+export interface ProtectOptions extends PdfOutputOptions {
+  /** Needed to open the document. */
+  user_password?: string;
+  /** Lifts the restrictions; random when omitted. */
+  owner_password?: string;
+  /** What readers may do; everything not listed is forbidden. */
+  permissions?: PdfPermission[];
+}
+
+export interface PdfInfo {
+  source: string;
+  page_count: number;
+  pages: Array<{ width_pt: number; height_pt: number; width_mm: number; height_mm: number }>;
+  encrypted: boolean;
+  metadata: Record<string, unknown>;
 }
 
 export interface Render {
@@ -241,6 +287,10 @@ function randomKey(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+/** Every call that creates a render carries an Idempotency-Key, so a retry cannot charge twice. */
+const withKey = (options: RequestOptions): RequestOptions => ({ ...options, idempotencyKey: options.idempotencyKey ?? randomKey() });
+const idOf = (source: { id: string } | string) => (typeof source === 'string' ? source : source.id);
+
 export class Formfeed {
   private readonly baseUrl: string;
   private readonly apiKey: string;
@@ -317,6 +367,21 @@ export class Formfeed {
         ...options,
         idempotencyKey: options.idempotencyKey ?? randomKey(),
       }),
+  };
+
+  /**
+   * PDF tools on the outputs of earlier renders (a `Render` or its id). merge, protect and watermark
+   * return a new render and cost 0.5 units each on live keys; info is free.
+   */
+  readonly pdf = {
+    merge: (sources: Array<Render | string>, output: PdfOutputOptions = {}, options: RequestOptions = {}): Promise<Render> =>
+      this.request<Render>('POST', '/pdf/merge', { ...output, sources: sources.map(idOf) }, withKey(options)),
+    protect: (source: Render | string, protect: ProtectOptions, options: RequestOptions = {}): Promise<Render> =>
+      this.request<Render>('POST', '/pdf/protect', { ...protect, source: idOf(source) }, withKey(options)),
+    watermark: (source: Render | string, watermark: WatermarkOptions & PdfOutputOptions, options: RequestOptions = {}): Promise<Render> =>
+      this.request<Render>('POST', '/pdf/watermark', { ...watermark, source: idOf(source) }, withKey(options)),
+    info: (source: Render | string, options: RequestOptions = {}): Promise<PdfInfo> =>
+      this.request<PdfInfo>('POST', '/pdf/info', { source: idOf(source) }, options),
   };
 
   readonly jobs = {

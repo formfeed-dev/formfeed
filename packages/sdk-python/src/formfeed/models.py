@@ -132,6 +132,21 @@ class Usage(_Model):
     by_template: list[UsageTemplate] = []
 
 
+class PdfPage(_Model):
+    width_pt: float
+    height_pt: float
+    width_mm: float | None = None
+    height_mm: float | None = None
+
+
+class PdfInfo(_Model):
+    source: str | None = None
+    page_count: int
+    pages: list[PdfPage] = []
+    encrypted: bool = False
+    metadata: dict[str, Any] = {}
+
+
 class RenderPage(_Model):
     data: list[Render]
     next_cursor: str | None = None

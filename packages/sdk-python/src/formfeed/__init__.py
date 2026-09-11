@@ -4,6 +4,7 @@ from .client import AsyncFormfeed, Formfeed
 from .errors import FormfeedError
 from .models import (
     Job,
+    PdfInfo,
     Render,
     RenderPage,
     Template,
@@ -19,6 +20,7 @@ __all__ = [
     "Formfeed",
     "FormfeedError",
     "Job",
+    "PdfInfo",
     "Render",
     "RenderPage",
     "Template",

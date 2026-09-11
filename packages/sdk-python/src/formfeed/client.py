@@ -11,7 +11,7 @@ from typing import Any, Generic, TypeVar
 import httpx
 
 from .errors import FormfeedError
-from .models import Job, Region, Render, RenderPage, Template, TemplatePage, TemplateVersion, Usage, WebhookEndpoint
+from .models import Job, PdfInfo, Region, Render, RenderPage, Template, TemplatePage, TemplateVersion, Usage, WebhookEndpoint
 
 HOSTS: dict[str, str] = {"eu": "https://api-eu.formfeed.dev/v1", "us": "https://api-us.formfeed.dev/v1"}
 USER_AGENT = "formfeed-sdk-python/0.1"
@@ -103,6 +103,7 @@ class Formfeed(_Base[Any]):
         self.webhooks = _Webhooks(self)
         self.templates = _Templates(self)
         self.account = _Account(self)
+        self.pdf = _Pdf(self)
 
     def close(self) -> None:
         self._http.close()
@@ -153,6 +154,7 @@ class AsyncFormfeed(_Base[Any]):
         self.webhooks = _AsyncWebhooks(self)
         self.templates = _AsyncTemplates(self)
         self.account = _AsyncAccount(self)
+        self.pdf = _AsyncPdf(self)
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -205,6 +207,14 @@ def _render_body(template: str | None, html: str | None, url: str | None, data: 
     if data is not None:
         body["data"] = data
     return body
+
+
+def _source_id(source: Render | str) -> str:
+    return source if isinstance(source, str) else source.id
+
+
+def _options(options: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in options.items() if v is not None}
 
 
 class _Renders:
@@ -380,6 +390,31 @@ class _Account:
         return Usage.model_validate(self._c.request("GET", f"/usage?period={period}"))
 
 
+class _Pdf:
+    """PDF tools on outputs of earlier renders. merge, protect and watermark return a new render
+    (0.5 units each on live keys) and send an idempotency key; info is free."""
+
+    def __init__(self, client: Formfeed) -> None:
+        self._c = client
+
+    def merge(self, sources: list[Render | str], *, idempotency_key: str | None = None, **options: Any) -> Render:
+        body = {**_options(options), "sources": [_source_id(s) for s in sources]}
+        return Render.model_validate(self._c.request("POST", "/pdf/merge", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
+
+    def protect(self, source: Render | str, *, idempotency_key: str | None = None, **options: Any) -> Render:
+        """``user_password``, ``owner_password`` and ``permissions`` (print, copy, modify, annotate)."""
+        body = {**_options(options), "source": _source_id(source)}
+        return Render.model_validate(self._c.request("POST", "/pdf/protect", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
+
+    def watermark(self, source: Render | str, text: str, *, idempotency_key: str | None = None, **options: Any) -> Render:
+        """``opacity`` (0.2), ``rotation`` (degrees clockwise, -45) and ``color`` (hex)."""
+        body = {**_options(options), "source": _source_id(source), "text": text}
+        return Render.model_validate(self._c.request("POST", "/pdf/watermark", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
+
+    def info(self, source: Render | str) -> PdfInfo:
+        return PdfInfo.model_validate(self._c.request("POST", "/pdf/info", {"source": _source_id(source)}))
+
+
 # --- async namespaces -------------------------------------------------------------------------
 
 
@@ -550,3 +585,23 @@ class _AsyncAccount:
     async def usage(self, period: str = "current") -> Usage:
         """Units of the current period, or of ``YYYY-MM``, with a daily series and per template."""
         return Usage.model_validate(await self._c.request("GET", f"/usage?period={period}"))
+
+
+class _AsyncPdf:
+    def __init__(self, client: AsyncFormfeed) -> None:
+        self._c = client
+
+    async def merge(self, sources: list[Render | str], *, idempotency_key: str | None = None, **options: Any) -> Render:
+        body = {**_options(options), "sources": [_source_id(s) for s in sources]}
+        return Render.model_validate(await self._c.request("POST", "/pdf/merge", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
+
+    async def protect(self, source: Render | str, *, idempotency_key: str | None = None, **options: Any) -> Render:
+        body = {**_options(options), "source": _source_id(source)}
+        return Render.model_validate(await self._c.request("POST", "/pdf/protect", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
+
+    async def watermark(self, source: Render | str, text: str, *, idempotency_key: str | None = None, **options: Any) -> Render:
+        body = {**_options(options), "source": _source_id(source), "text": text}
+        return Render.model_validate(await self._c.request("POST", "/pdf/watermark", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
+
+    async def info(self, source: Render | str) -> PdfInfo:
+        return PdfInfo.model_validate(await self._c.request("POST", "/pdf/info", {"source": _source_id(source)}))

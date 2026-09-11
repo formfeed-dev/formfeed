@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -6,7 +7,7 @@ import time
 import httpx
 import pytest
 
-from formfeed import AsyncFormfeed, Formfeed, FormfeedError, parse_webhook_event, verify_webhook_signature
+from formfeed import AsyncFormfeed, Formfeed, FormfeedError, Render, parse_webhook_event, verify_webhook_signature
 
 RENDER = {"id": "rnd_1", "status": "succeeded", "download_url": "https://cdn.test/o/x.pdf?exp=1&sig=2", "page_count": 1, "units": 1}
 
@@ -153,3 +154,38 @@ def test_webhook_signature_round_trip():
     assert event.type == "render.completed" and event.data == {"id": "rnd_1"}
     with pytest.raises(ValueError):
         parse_webhook_event("other", header, body)
+
+
+def test_pdf_tools_send_render_ids_and_idempotency_keys():
+    def respond(req, n):
+        if req.url.path.endswith("/pdf/info"):
+            return _json({"source": "rnd_1", "page_count": 2, "pages": [{"width_pt": 595.28, "height_pt": 841.89}], "encrypted": False, "metadata": {}})
+        return _json({**RENDER, "id": "rnd_9", "units": 0.5})
+
+    client, rec = sync_client(respond)
+    merged = client.pdf.merge([Render.model_validate(RENDER), "rnd_2"], filename="bundle.pdf")
+    assert merged.id == "rnd_9" and merged.units == 0.5
+    merge = rec.calls[0]
+    assert merge.url.path == "/v1/pdf/merge"
+    assert json.loads(merge.content) == {"filename": "bundle.pdf", "sources": ["rnd_1", "rnd_2"]}
+    assert len(merge.headers["idempotency-key"]) > 10
+
+    client.pdf.protect("rnd_9", user_password="open-me", permissions=["print"])
+    assert json.loads(rec.calls[1].content) == {"user_password": "open-me", "permissions": ["print"], "source": "rnd_9"}
+    client.pdf.watermark(merged, "COPY", rotation=0)
+    assert json.loads(rec.calls[2].content) == {"rotation": 0, "source": "rnd_9", "text": "COPY"}
+
+    info = client.pdf.info("rnd_1")
+    assert info.page_count == 2 and not info.encrypted
+    assert "idempotency-key" not in rec.calls[3].headers
+
+
+def test_async_pdf_tools_mirror_the_sync_client():
+    rec = Recorder(lambda req, n: _json({**RENDER, "id": "rnd_9", "units": 0.5}))
+
+    async def run():
+        async with AsyncFormfeed("ff_test_k", transport=httpx.MockTransport(rec.handler)) as client:
+            return await client.pdf.merge(["rnd_1", "rnd_2"])
+
+    assert asyncio.run(run()).id == "rnd_9"
+    assert json.loads(rec.calls[0].content) == {"sources": ["rnd_1", "rnd_2"]}

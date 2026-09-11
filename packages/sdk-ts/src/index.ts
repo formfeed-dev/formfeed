@@ -13,7 +13,12 @@ export type {
   FormfeedOptions,
   Job,
   OutputFormat,
+  PdfInfo,
+  PdfOutputOptions,
+  PdfPermission,
+  PostProcessing,
   Problem,
+  ProtectOptions,
   Region,
   Render,
   RenderListOptions,
@@ -22,6 +27,7 @@ export type {
   RequestOptions,
   Usage,
   WaitOptions,
+  WatermarkOptions,
   WebhookEndpoint,
 } from './lib/client';
 export { parseWebhookEvent, verifyWebhookSignature } from './lib/webhooks';
