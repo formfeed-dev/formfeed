@@ -25,7 +25,7 @@ self-hosted gateway.
 | Template | Get Many, Get, Get Schema |
 | Job | Get |
 
-Choosing a template loads its fields from the stored data schema, so you map named fields
+Choosing a template loads its fields from its data schema (or its sample data), so you map named fields
 (`invoice.number`) instead of pasting JSON; the JSON field covers lists and nested objects. With
 *Download File* the rendered document is attached as binary data, ready for an email or an upload.
 

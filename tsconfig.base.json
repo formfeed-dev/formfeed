@@ -25,6 +25,9 @@
       "@formfeed/engine": [
         "./packages/engine/src/index.ts"
       ],
+      "@formfeed/engine/schema": [
+        "./packages/engine/src/lib/schema.ts"
+      ],
       "@formfeed/api-types": [
         "./packages/api-types/src/index.ts"
       ],
