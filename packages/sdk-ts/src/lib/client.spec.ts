@@ -15,7 +15,8 @@ function stub(responder: (call: Call, attempt: number) => Response) {
       url: String(input),
       method: init?.method ?? 'GET',
       headers: (init?.headers as Record<string, string>) ?? {},
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      // multipart uploads stay FormData so tests can read the parts; everything else is JSON
+      body: init?.body instanceof FormData ? init.body : init?.body ? JSON.parse(String(init.body)) : undefined,
     };
     calls.push(call);
     return responder(call, calls.length);
@@ -228,6 +229,42 @@ describe('PDF tools', () => {
     const info = await client.pdf.info('rnd_1');
     expect(info.page_count).toBe(2);
     expect(calls[3]!.headers['idempotency-key']).toBeUndefined();
+  });
+
+  it('uploads to the file library as multipart, lists, reads and deletes', async () => {
+    const file = { id: 'fil_1', name: 'brand/logo.png', content_type: 'image/png', bytes: 3, sha256: 'aa', url: 'https://cdn.test/a/ws/brand/logo.png', created_at: '', updated_at: '' };
+    const { calls, fetchImpl } = stub((call) =>
+      call.method === 'DELETE' ? new Response(null, { status: 204 }) : call.url.includes('/files?') || call.url.endsWith('/files') && call.method === 'GET' ? json({ data: [file], next_cursor: null }) : json(file, call.method === 'POST' ? 201 : 200),
+    );
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+
+    const uploaded = await client.files.upload({ data: new Uint8Array([1, 2, 3]), name: 'brand/logo.png', contentType: 'image/png' });
+    expect(uploaded.url).toBe('https://cdn.test/a/ws/brand/logo.png');
+    expect(calls[0]!.url).toBe('https://api-eu.formfeed.dev/v1/files');
+    // no JSON content type: fetch sets multipart/form-data with the boundary itself
+    expect(calls[0]!.headers['content-type']).toBeUndefined();
+    const form = calls[0]!.body as FormData;
+    expect(form.get('name')).toBe('brand/logo.png');
+    const part = form.get('file') as File;
+    expect(part.type).toBe('image/png');
+    expect(new Uint8Array(await part.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+
+    expect((await client.files.all({ prefix: 'brand/' })).map((f) => f.name)).toEqual(['brand/logo.png']);
+    expect(calls[1]!.url).toBe('https://api-eu.formfeed.dev/v1/files?prefix=brand%2F');
+    expect((await client.files.get('fil_1')).id).toBe('fil_1');
+    await client.files.delete(uploaded);
+    expect(calls[3]).toMatchObject({ method: 'DELETE', url: 'https://api-eu.formfeed.dev/v1/files/fil_1' });
+  });
+
+  it('uses library files as image watermarks and merge sources', async () => {
+    const { calls, fetchImpl } = stub(() => json(render));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    await client.renders.create({ template: 'invoice', post: { merge_after: ['terms.pdf'], watermark: { image: 'draft.png', opacity: 0.2 } } });
+    expect(calls[0]!.body).toMatchObject({ post: { merge_after: ['terms.pdf'], watermark: { image: 'draft.png', opacity: 0.2 } } });
+    await client.pdf.watermark('rnd_1', { image: 'fil_1' });
+    expect(calls[1]!.body).toEqual({ source: 'rnd_1', image: 'fil_1' });
+    await client.pdf.merge(['rnd_1', { id: 'fil_2' } as never]);
+    expect(calls[2]!.body).toEqual({ sources: ['rnd_1', 'fil_2'] });
   });
 
   it('passes post-processing through on renders', async () => {

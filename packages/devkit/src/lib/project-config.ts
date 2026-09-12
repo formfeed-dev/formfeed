@@ -9,6 +9,8 @@ export interface ProjectConfig {
   region?: 'eu' | 'us';
   templatesDir: string;
   partialsDir: string;
+  /** The local copy of the workspace file library (`formfeed files push|pull`). */
+  filesDir: string;
   engine: EngineId;
   ignore: string[];
 }
@@ -20,11 +22,13 @@ export interface Project {
   config: ProjectConfig;
   templatesDir: string;
   partialsDir: string;
+  filesDir: string;
 }
 
 export const defaultProjectConfig: ProjectConfig = {
   templatesDir: 'templates',
   partialsDir: 'partials',
+  filesDir: 'files',
   engine: 'jinja2',
   ignore: ['**/drafts/**'],
 };
@@ -50,7 +54,14 @@ export function loadProject(configPath: string): Project {
   }
   const config: ProjectConfig = { ...defaultProjectConfig, ...raw };
   const root = dirname(configPath);
-  return { root, configPath, config, templatesDir: resolve(root, config.templatesDir), partialsDir: resolve(root, config.partialsDir) };
+  return {
+    root,
+    configPath,
+    config,
+    templatesDir: resolve(root, config.templatesDir),
+    partialsDir: resolve(root, config.partialsDir),
+    filesDir: resolve(root, config.filesDir),
+  };
 }
 
 /**
@@ -66,9 +77,10 @@ export function projectAround(templateFolder: string): Project {
   return {
     root,
     configPath: null,
-    config: { ...defaultProjectConfig, templatesDir: templatesDir, partialsDir: join(root, 'partials') },
+    config: { ...defaultProjectConfig, templatesDir: templatesDir, partialsDir: join(root, 'partials'), filesDir: join(root, 'files') },
     templatesDir,
     partialsDir: join(root, 'partials'),
+    filesDir: join(root, 'files'),
   };
 }
 

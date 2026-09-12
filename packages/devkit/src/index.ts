@@ -20,4 +20,6 @@ export type { LocalTemplate, ProjectState, TemplateMeta, TemplateState } from '.
 export { collectPartials } from './lib/partials';
 export type { CollectedPartials } from './lib/partials';
 export { diagnose, previewDocument, renderContext, renderLocal } from './lib/local-render';
+export { contentTypeFor, listLocalFiles, localFilePath, sha256File, writeLocalFile } from './lib/files';
+export type { LocalFile, LocalFileListing } from './lib/files';
 export type { LocalRenderOptions } from './lib/local-render';

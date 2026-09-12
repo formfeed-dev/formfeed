@@ -1,4 +1,4 @@
-import { baseUrl, mergeData, nestData, renderBody, schemaFields } from './api';
+import { baseUrl, libraryName, mergeData, nestData, renderBody, schemaFields } from './api';
 
 describe('baseUrl', () => {
   it('maps the region to a host', () => {
@@ -101,5 +101,19 @@ describe('mergeData', () => {
 
   it('lets the override win on a leaf and replaces arrays whole', () => {
     expect(mergeData({ a: 1, list: [1, 2] }, { a: 2, list: [3] })).toEqual({ a: 2, list: [3] });
+  });
+});
+
+describe('libraryName', () => {
+  it('keeps a valid typed name, folders included, and refuses an invalid one', () => {
+    expect(libraryName('brand/logo.png', 'whatever.png')).toBe('brand/logo.png');
+    expect(libraryName('../etc/passwd', 'x.png')).toBeNull();
+    expect(libraryName('with space.png', 'x.png')).toBeNull();
+  });
+
+  it('cleans up the binary file name when nothing is typed', () => {
+    expect(libraryName('', 'Logo Final (2).png')).toBe('Logo-Final-2-.png');
+    expect(libraryName(undefined, 'brand\\logo.png')).toBe('brand/logo.png');
+    expect(libraryName(undefined, '')).toBeNull();
   });
 });

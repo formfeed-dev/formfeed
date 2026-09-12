@@ -19,8 +19,8 @@ import {
  * Chromium header templates in both, and the chrome options are Formfeed's settings.
  *
  * - `{{asset}}` calls are resolved from the export: small files become data URIs or inline text.
- *   A larger one keeps its `{{asset}}` call and a warning, because Formfeed has no asset library
- *   yet and the helper would render a URL that points nowhere.
+ *   A larger one keeps its `{{asset}}` call and a warning: the helper resolves against the
+ *   workspace file library, so the file has to be uploaded there under the same name.
  * - Child templates and components are inlined (stored partials do not take part in API renders).
  * - Custom helpers are JavaScript, which Formfeed does not run: each one is reported, and the
  *   engine's analysis marks every call to it.
@@ -161,12 +161,12 @@ function resolveAssets(
   const replace = (whole: string, ref: string, encoding = 'utf8'): string => {
     const asset = byPath(bundle, bundle.assets, ref);
     if (!asset) {
-      warnings.push({ code: 'asset-missing', message: `The asset "${ref}" is not in the export, and Formfeed has no asset library yet, so {{asset}} renders a URL that points nowhere. Replace it with a full https URL or a data URI.`, docs: `${DOCS}#assets` });
+      warnings.push({ code: 'asset-missing', message: `The asset "${ref}" is not in the export. Upload it to the workspace file library under that name, or replace the call with a full https URL.`, docs: `${DOCS}#assets` });
       return `{{asset "${ref}"}}`;
     }
     if (encoding === 'link' || (!asset.content && asset.link)) {
       if (asset.link && /^https?:\/\//.test(asset.link)) return asset.link;
-      warnings.push({ code: 'asset-link', message: `The asset "${ref}" is linked from the jsreport server, and Formfeed has no asset library yet, so {{asset}} renders a URL that points nowhere. Replace it with a full https URL or a data URI.`, docs: `${DOCS}#assets` });
+      warnings.push({ code: 'asset-link', message: `The asset "${ref}" is linked from the jsreport server, which this import cannot read. Upload the file to the workspace file library under that name, or replace the call with a full https URL.`, docs: `${DOCS}#assets` });
       return `{{asset "${asset.name}"}}`;
     }
     const base64 = assetBase64(asset.content);
@@ -179,7 +179,7 @@ function resolveAssets(
     if (bytes > options.inlineAssetBytes) {
       warnings.push({
         code: 'asset-large',
-        message: `The asset "${asset.name}" (${Math.round(bytes / 1024)} KB) is larger than the inline limit, and Formfeed has no asset library yet, so {{asset}} renders a URL that points nowhere. Import with a higher inline limit, or replace it with a full https URL.`,
+        message: `The asset "${asset.name}" (${Math.round(bytes / 1024)} KB) is larger than the inline limit. Upload it to the workspace file library under that name, import with a higher inline limit, or replace the call with a full https URL.`,
         docs: `${DOCS}#assets`,
       });
       return `{{asset "${asset.name}"}}`;

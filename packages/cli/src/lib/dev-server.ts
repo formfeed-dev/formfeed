@@ -7,7 +7,8 @@ import { dirname, join } from 'node:path';
 import type { Formfeed } from '@formfeed/sdk-ts';
 import type { Project } from './config';
 import { CliError, exitCodes } from './errors';
-import { defaultData, diagnose, previewDocument, readTemplate, renderLocal, type LocalTemplate } from '@formfeed/devkit';
+import { contentTypeFor, defaultData, diagnose, localFilePath, previewDocument, readTemplate, renderLocal, type LocalTemplate } from '@formfeed/devkit';
+import { remoteAssetBase } from './files';
 
 /**
  * `formfeed dev` (spec 15 §4): the editor's preview frame served locally. The server renders with
@@ -66,6 +67,7 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
   const log = options.log ?? (() => undefined);
   const clients = new Set<ServerResponse>();
   let template: LocalTemplate | null = null;
+  let assetBase: string | undefined;
   let loadError: string | null = null;
 
   const reload = () => {
@@ -89,7 +91,7 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
     }, 50);
   };
   const watchers: FSWatcher[] = [];
-  for (const dir of [template?.dir ?? `${project.templatesDir}/${slug}`, project.partialsDir]) {
+  for (const dir of [template?.dir ?? `${project.templatesDir}/${slug}`, project.partialsDir, project.filesDir]) {
     if (!existsSync(dir)) continue;
     try {
       watchers.push(watch(dir, { recursive: true }, broadcast));
@@ -126,6 +128,25 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
       res.end(await readFile(file));
       return;
     }
+    // The files folder stands in for the workspace library, so asset() works offline.
+    if (url.pathname.startsWith('/files/')) {
+      let path: string;
+      try {
+        path = localFilePath(project, decodeURIComponent(url.pathname.slice('/files/'.length)));
+      } catch {
+        res.writeHead(404);
+        res.end('not found');
+        return;
+      }
+      if (!existsSync(path)) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end(`Not in ${project.filesDir}; run formfeed files pull`);
+        return;
+      }
+      res.writeHead(200, { 'content-type': contentTypeFor(path) ?? 'application/octet-stream', 'cache-control': 'no-store' });
+      res.end(await readFile(path));
+      return;
+    }
     if (url.pathname === '/api/state') {
       const state = stateJson(url.searchParams.get('data') ?? options.data ?? undefined);
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -145,6 +166,7 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
         const rendered = await renderLocal(project, template, set.data, {
           mode: 'preview',
           locale,
+          assetBaseUrl: `http://${req.headers.host ?? host}/files`,
           vendor: { chartJs: { src: '/vendor/chartjs/chart.umd.js' }, tailwind: { src: '/vendor/tailwind/index.global.js' } },
         });
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
@@ -168,7 +190,9 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
       }
       const body = JSON.parse((await readBody(req)) || '{}') as { data?: string; output?: 'pdf' | 'png' | 'jpg' };
       const set = defaultData(template, body.data ?? options.data ?? undefined);
-      const rendered = await renderLocal(project, template, set.data, { mode: 'print' });
+      // a true render leaves as a complete document, so it resolves against the remote library
+      assetBase ??= await remoteAssetBase(options.client);
+      const rendered = await renderLocal(project, template, set.data, { mode: 'print', assetBaseUrl: assetBase });
       try {
         const render = await options.client.renders.create({
           html: rendered.document,

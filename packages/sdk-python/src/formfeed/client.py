@@ -11,7 +11,20 @@ from typing import Any, Generic, TypeVar
 import httpx
 
 from .errors import FormfeedError
-from .models import Job, PdfInfo, Region, Render, RenderPage, Template, TemplatePage, TemplateVersion, Usage, WebhookEndpoint
+from .models import (
+    Job,
+    LibraryFile,
+    LibraryFilePage,
+    PdfInfo,
+    Region,
+    Render,
+    RenderPage,
+    Template,
+    TemplatePage,
+    TemplateVersion,
+    Usage,
+    WebhookEndpoint,
+)
 
 HOSTS: dict[str, str] = {"eu": "https://api-eu.formfeed.dev/v1", "us": "https://api-us.formfeed.dev/v1"}
 USER_AGENT = "formfeed-sdk-python/0.1"
@@ -104,6 +117,7 @@ class Formfeed(_Base[Any]):
         self.templates = _Templates(self)
         self.account = _Account(self)
         self.pdf = _Pdf(self)
+        self.files = _Files(self)
 
     def close(self) -> None:
         self._http.close()
@@ -114,14 +128,22 @@ class Formfeed(_Base[Any]):
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def request(self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None) -> Any:
-        """Raw request with auth, retries and problem mapping; for endpoints without a helper."""
+    def request(
+        self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None, files: Any = None, form: dict[str, str] | None = None
+    ) -> Any:
+        """Raw request with auth, retries and problem mapping; for endpoints without a helper.
+
+        ``files`` and ``form`` send ``multipart/form-data`` instead of a JSON body (httpx sets the boundary).
+        """
         url = f"{self.base_url}{path}"
         headers = self._headers(body, idempotency_key)
         attempt = 0
         while True:
             try:
-                res = self._http.request(method, url, json=body, headers=headers)
+                if files is not None:
+                    res = self._http.request(method, url, files=files, data=form, headers=headers)
+                else:
+                    res = self._http.request(method, url, json=body, headers=headers)
             except httpx.HTTPError as e:
                 if attempt < self.max_retries:
                     attempt += 1
@@ -155,6 +177,7 @@ class AsyncFormfeed(_Base[Any]):
         self.templates = _AsyncTemplates(self)
         self.account = _AsyncAccount(self)
         self.pdf = _AsyncPdf(self)
+        self.files = _AsyncFiles(self)
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -165,13 +188,18 @@ class AsyncFormfeed(_Base[Any]):
     async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
 
-    async def request(self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None) -> Any:
+    async def request(
+        self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None, files: Any = None, form: dict[str, str] | None = None
+    ) -> Any:
         url = f"{self.base_url}{path}"
         headers = self._headers(body, idempotency_key)
         attempt = 0
         while True:
             try:
-                res = await self._http.request(method, url, json=body, headers=headers)
+                if files is not None:
+                    res = await self._http.request(method, url, files=files, data=form, headers=headers)
+                else:
+                    res = await self._http.request(method, url, json=body, headers=headers)
             except httpx.HTTPError as e:
                 if attempt < self.max_retries:
                     attempt += 1
@@ -209,8 +237,26 @@ def _render_body(template: str | None, html: str | None, url: str | None, data: 
     return body
 
 
-def _source_id(source: Render | str) -> str:
+def _source_id(source: Render | LibraryFile | str) -> str:
     return source if isinstance(source, str) else source.id
+
+
+def _watermark_body(text: str | None, image: str | None) -> dict[str, str]:
+    """A watermark is a text or a library image, never both and never neither (the API refuses both)."""
+    if (text is None) == (image is None):
+        raise FormfeedError("invalid_request", "pass either text or image")
+    return {"text": text} if text is not None else {"image": image}  # type: ignore[dict-item]
+
+
+def _upload_parts(data: bytes | Any, name: str, content_type: str | None) -> tuple[dict[str, Any], dict[str, str]]:
+    """The multipart parts of an upload: the bytes (or a binary file object) under ``file``, the name beside them."""
+    part = (name.rsplit("/", 1)[-1], data, content_type) if content_type else (name.rsplit("/", 1)[-1], data)
+    return {"file": part}, {"name": name}
+
+
+def _files_query(prefix: str | None, limit: int | None, cursor: str | None) -> str:
+    params = httpx.QueryParams(_query(prefix=prefix, limit=limit, cursor=cursor))
+    return f"/files{'?' + str(params) if params else ''}"
 
 
 def _options(options: dict[str, Any]) -> dict[str, Any]:
@@ -397,7 +443,8 @@ class _Pdf:
     def __init__(self, client: Formfeed) -> None:
         self._c = client
 
-    def merge(self, sources: list[Render | str], *, idempotency_key: str | None = None, **options: Any) -> Render:
+    def merge(self, sources: list[Render | LibraryFile | str], *, idempotency_key: str | None = None, **options: Any) -> Render:
+        """Sources are renders (or their ids) and PDFs of the file library (a ``LibraryFile``, its id or its name)."""
         body = {**_options(options), "sources": [_source_id(s) for s in sources]}
         return Render.model_validate(self._c.request("POST", "/pdf/merge", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
@@ -406,13 +453,49 @@ class _Pdf:
         body = {**_options(options), "source": _source_id(source)}
         return Render.model_validate(self._c.request("POST", "/pdf/protect", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
-    def watermark(self, source: Render | str, text: str, *, idempotency_key: str | None = None, **options: Any) -> Render:
-        """``opacity`` (0.2), ``rotation`` (degrees clockwise, -45) and ``color`` (hex)."""
-        body = {**_options(options), "source": _source_id(source), "text": text}
+    def watermark(
+        self, source: Render | str, text: str | None = None, *, image: str | None = None, idempotency_key: str | None = None, **options: Any
+    ) -> Render:
+        """A ``text`` or an ``image`` (a PNG or JPEG of the file library, by id or name); ``opacity`` (0.2),
+        ``rotation`` (degrees clockwise, -45) and ``color`` (hex, text only)."""
+        body = {**_options(options), "source": _source_id(source), **_watermark_body(text, image)}
         return Render.model_validate(self._c.request("POST", "/pdf/watermark", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
     def info(self, source: Render | str) -> PdfInfo:
         return PdfInfo.model_validate(self._c.request("POST", "/pdf/info", {"source": _source_id(source)}))
+
+
+class _Files:
+    """The workspace file library: images and PDFs a template references by name with ``asset('logo.png')``,
+    and the sources of image watermarks and merges. Files are served without a signature."""
+
+    def __init__(self, client: Formfeed) -> None:
+        self._c = client
+
+    def upload(self, data: bytes | Any, name: str, *, content_type: str | None = None) -> LibraryFile:
+        """Uploads bytes or a binary file object under ``name``; the same name replaces the file and keeps its URL."""
+        files, form = _upload_parts(data, name, content_type)
+        return LibraryFile.model_validate(self._c.request("POST", "/files", files=files, form=form))
+
+    def list(self, *, prefix: str | None = None, limit: int | None = None, cursor: str | None = None) -> LibraryFilePage:
+        return LibraryFilePage.model_validate(self._c.request("GET", _files_query(prefix, limit, cursor)))
+
+    def all(self, *, prefix: str | None = None) -> list[LibraryFile]:
+        out: list[LibraryFile] = []
+        cursor: str | None = None
+        while True:
+            page = self.list(prefix=prefix, cursor=cursor)
+            out.extend(page.data)
+            cursor = page.next_cursor
+            if not cursor:
+                return out
+
+    def get(self, file_id: str) -> LibraryFile:
+        return LibraryFile.model_validate(self._c.request("GET", f"/files/{file_id}"))
+
+    def delete(self, file: LibraryFile | str) -> None:
+        """Removes the file and its bytes; templates that name it render a missing image afterwards."""
+        self._c.request("DELETE", f"/files/{_source_id(file)}")
 
 
 # --- async namespaces -------------------------------------------------------------------------
@@ -591,7 +674,7 @@ class _AsyncPdf:
     def __init__(self, client: AsyncFormfeed) -> None:
         self._c = client
 
-    async def merge(self, sources: list[Render | str], *, idempotency_key: str | None = None, **options: Any) -> Render:
+    async def merge(self, sources: list[Render | LibraryFile | str], *, idempotency_key: str | None = None, **options: Any) -> Render:
         body = {**_options(options), "sources": [_source_id(s) for s in sources]}
         return Render.model_validate(await self._c.request("POST", "/pdf/merge", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
@@ -599,9 +682,39 @@ class _AsyncPdf:
         body = {**_options(options), "source": _source_id(source)}
         return Render.model_validate(await self._c.request("POST", "/pdf/protect", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
-    async def watermark(self, source: Render | str, text: str, *, idempotency_key: str | None = None, **options: Any) -> Render:
-        body = {**_options(options), "source": _source_id(source), "text": text}
+    async def watermark(
+        self, source: Render | str, text: str | None = None, *, image: str | None = None, idempotency_key: str | None = None, **options: Any
+    ) -> Render:
+        body = {**_options(options), "source": _source_id(source), **_watermark_body(text, image)}
         return Render.model_validate(await self._c.request("POST", "/pdf/watermark", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
     async def info(self, source: Render | str) -> PdfInfo:
         return PdfInfo.model_validate(await self._c.request("POST", "/pdf/info", {"source": _source_id(source)}))
+
+
+class _AsyncFiles:
+    def __init__(self, client: AsyncFormfeed) -> None:
+        self._c = client
+
+    async def upload(self, data: bytes | Any, name: str, *, content_type: str | None = None) -> LibraryFile:
+        files, form = _upload_parts(data, name, content_type)
+        return LibraryFile.model_validate(await self._c.request("POST", "/files", files=files, form=form))
+
+    async def list(self, *, prefix: str | None = None, limit: int | None = None, cursor: str | None = None) -> LibraryFilePage:
+        return LibraryFilePage.model_validate(await self._c.request("GET", _files_query(prefix, limit, cursor)))
+
+    async def all(self, *, prefix: str | None = None) -> list[LibraryFile]:
+        out: list[LibraryFile] = []
+        cursor: str | None = None
+        while True:
+            page = await self.list(prefix=prefix, cursor=cursor)
+            out.extend(page.data)
+            cursor = page.next_cursor
+            if not cursor:
+                return out
+
+    async def get(self, file_id: str) -> LibraryFile:
+        return LibraryFile.model_validate(await self._c.request("GET", f"/files/{file_id}"))
+
+    async def delete(self, file: LibraryFile | str) -> None:
+        await self._c.request("DELETE", f"/files/{_source_id(file)}")

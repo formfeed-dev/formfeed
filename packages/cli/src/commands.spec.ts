@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, type ProgramContext } from './commands';
@@ -39,12 +40,23 @@ const version = {
   i18n: null,
 };
 
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+const remoteFiles = [
+  { id: 'fil_logo', name: 'logo.png', content_type: 'image/png', bytes: 8, sha256: sha(PNG), url: 'https://cdn.test/a/ws_1/logo.png', created_at: '2026-09-12T10:00:00Z', updated_at: '2026-09-12T10:00:00Z' },
+  { id: 'fil_terms', name: 'terms.pdf', content_type: 'application/pdf', bytes: 5, sha256: 'remote-only', url: 'https://cdn.test/a/ws_1/terms.pdf', created_at: '2026-09-12T10:00:00Z', updated_at: '2026-09-12T10:00:00Z' },
+];
+
 function fakeApi() {
   const calls: Call[] = [];
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input));
-    const call: Call = { method: init?.method ?? 'GET', path: url.pathname + url.search, body: init?.body ? JSON.parse(String(init.body)) : undefined };
+    const call: Call = {
+      method: init?.method ?? 'GET',
+      path: url.pathname + url.search,
+      body: init?.body instanceof FormData ? init.body : init?.body ? JSON.parse(String(init.body)) : undefined,
+    };
     calls.push(call);
     if (call.path === '/v1/auth/device' && call.method === 'POST')
       return json(
@@ -79,6 +91,16 @@ function fakeApi() {
       if (body.base_checksum && body.base_checksum !== 'chk2') return json({ code: 'conflict', title: 'Conflict', status: 409, detail: 'changed' }, 409);
       return json({ ...version, number: 3, status: body.publish ? 'published' : 'draft', checksum: 'chk3' }, 201);
     }
+    // the workspace library: logo.png is in sync with the PNG below, terms.pdf exists only remotely
+    if (call.path.startsWith('/v1/files') && call.method === 'GET')
+      return json({ data: remoteFiles, next_cursor: null });
+    if (call.path === '/v1/files' && call.method === 'POST') {
+      const form = call.body as FormData;
+      const name = String(form.get('name'));
+      return json({ id: 'fil_new', name, content_type: 'image/png', bytes: 8, sha256: 'x', url: `https://cdn.test/a/ws_1/${name}`, created_at: '', updated_at: '' }, 201);
+    }
+    if (call.path === '/v1/files/fil_terms' && call.method === 'DELETE') return new Response(null, { status: 204 });
+    if (String(input) === 'https://cdn.test/a/ws_1/terms.pdf') return new Response(new Uint8Array([37, 80, 68, 70, 45]), { status: 200 });
     if (call.path === '/v1/renders' && call.method === 'POST') return json({ id: 'rnd_1', status: 'succeeded', page_count: 1, units: 0, download_url: 'https://cdn.test/o/x.pdf' }, 201);
     if (call.path.startsWith('/v1/renders?') && call.method === 'GET')
       return json({ data: [{ id: 'rnd_1', status: 'succeeded', output: 'pdf', page_count: 1, units: 1, created_at: '2026-09-09T10:00:00Z', template: { id: 'tpl_1', slug: 'invoice', version: 2 } }], next_cursor: null });
@@ -247,6 +269,57 @@ describe('formfeed CLI', () => {
     const rendered = await (await fetch(base + '/api/render', { method: 'POST', body: '{}' })).json();
     expect(rendered).toMatchObject({ id: 'rnd_1', status: 'succeeded' });
     await server!.close();
+  });
+
+  it('pushes new and changed library files, pulls the missing ones and deletes by name', async () => {
+    await run(['init'], ctx);
+    mkdirSync(join(dir, 'files', 'brand'), { recursive: true });
+    writeFileSync(join(dir, 'files', 'logo.png'), PNG); // same bytes as remote: unchanged
+    writeFileSync(join(dir, 'files', 'brand', 'header.png'), PNG); // new
+    writeFileSync(join(dir, 'files', 'notes.txt'), 'not an image'); // refused locally
+
+    expect(await run(['files', 'push', '--dry-run'], ctx)).toBe(0);
+    expect(api.calls.some((c) => c.method === 'POST' && c.path === '/v1/files')).toBe(false);
+    expect(out.join('\n')).toContain('brand/header.png: new (dry run)');
+    expect(err.join('\n')).toContain('notes.txt: not an image or a PDF');
+
+    out.length = 0;
+    expect(await run(['files', 'push'], ctx)).toBe(0);
+    const uploads = api.calls.filter((c) => c.method === 'POST' && c.path === '/v1/files');
+    expect(uploads).toHaveLength(1);
+    expect((uploads[0]!.body as FormData).get('name')).toBe('brand/header.png');
+    expect(out.join('\n')).toContain('logo.png: unchanged');
+
+    out.length = 0;
+    expect(await run(['files', 'pull'], ctx)).toBe(0);
+    expect(readFileSync(join(dir, 'files', 'terms.pdf'))).toEqual(Buffer.from([37, 80, 68, 70, 45]));
+    expect(out.join('\n')).toContain('terms.pdf: pulled');
+
+    expect(await run(['files', 'delete', 'terms.pdf'], ctx)).toBe(0);
+    expect(api.calls.some((c) => c.method === 'DELETE' && c.path === '/v1/files/fil_terms')).toBe(true);
+    expect(await run(['files', 'delete', 'nothing.png'], ctx)).toBe(2);
+  });
+
+  it('resolves asset() against the files folder in dev and against the library for API renders', async () => {
+    await run(['init'], ctx);
+    mkdirSync(join(dir, 'files'), { recursive: true });
+    writeFileSync(join(dir, 'files', 'logo.png'), PNG);
+    writeFileSync(join(dir, 'templates', 'hello', 'template.html'), `<img src="{{ asset('logo.png') }}">`);
+
+    let server: { url: string; close(): Promise<void> } | null = null;
+    await run(['dev', 'hello', '--port', '0'], { ...ctx, onServer: (s) => (server = s) });
+    const preview = await (await fetch(server!.url + '/preview?mode=flow')).text();
+    expect(preview).toContain(`${server!.url}/files/logo.png`);
+    const served = await fetch(server!.url + '/files/logo.png');
+    expect(served.headers.get('content-type')).toBe('image/png');
+    expect(new Uint8Array(await served.arrayBuffer())).toEqual(PNG);
+    expect((await fetch(server!.url + '/files/..%2Fformfeed.json')).status).toBe(404);
+    await server!.close();
+
+    expect(await run(['render', 'hello', '--output', 'webp', '--out', join(dir, 'hello.webp')], ctx)).toBe(0);
+    const sent = api.calls.find((c) => c.method === 'POST' && c.path === '/v1/renders')!.body as { html: string; output: string };
+    expect(sent.output).toBe('webp');
+    expect(sent.html).toContain('https://cdn.test/a/ws_1/logo.png');
   });
 
   it('signs in through device authorisation and stores the key it receives', async () => {

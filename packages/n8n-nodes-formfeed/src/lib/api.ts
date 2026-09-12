@@ -29,7 +29,7 @@ export interface RenderInput {
   url?: string;
   engine?: 'jinja2' | 'liquid' | 'handlebars';
   data?: Record<string, unknown>;
-  output?: 'pdf' | 'png' | 'jpg';
+  output?: 'pdf' | 'png' | 'jpg' | 'webp';
   filename?: string;
   locale?: string;
   mode?: 'sync' | 'async';
@@ -161,3 +161,24 @@ export const TRIGGER_EVENTS = [
   'quota.exceeded',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
+
+/** One name segment of the file library: a letter or digit, then letters, digits, dot, dash, underscore. */
+const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+
+/**
+ * The library name for an upload (spec 04 §2.3): the name the user typed when it is valid, else the
+ * binary's file name cleaned up the way the API cleans a browser upload. Null when neither gives a
+ * usable name, so the node can say so before the request.
+ */
+export function libraryName(typed: string | undefined, fileName: string | undefined): string | null {
+  const chosen = typed?.trim();
+  if (chosen) return NAME.test(chosen) && !chosen.split('/').includes('..') ? chosen : null;
+  const cleaned = (fileName ?? '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((part) => part && part !== '.' && part !== '..')
+    .map((part) => part.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[^A-Za-z0-9]+/, ''))
+    .filter(Boolean)
+    .join('/');
+  return cleaned && NAME.test(cleaned) ? cleaned : null;
+}

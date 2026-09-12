@@ -10,6 +10,7 @@ import type {
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import {
   baseUrl,
+  libraryName,
   mergeData,
   nestData,
   renderBody,
@@ -45,6 +46,7 @@ export class Formfeed implements INodeType {
           { name: 'Render', value: 'render' },
           { name: 'Template', value: 'template' },
           { name: 'Job', value: 'job' },
+          { name: 'File', value: 'file' },
         ],
       },
       {
@@ -82,6 +84,59 @@ export class Formfeed implements INodeType {
         displayOptions: { show: { resource: ['job'] } },
         default: 'get',
         options: [{ name: 'Get', value: 'get', description: 'Read a batch job', action: 'Get a job' }],
+      },
+
+      {
+        displayName: 'Operation',
+        name: 'operation',
+        type: 'options',
+        noDataExpression: true,
+        displayOptions: { show: { resource: ['file'] } },
+        default: 'upload',
+        options: [
+          { name: 'Upload', value: 'upload', description: 'Upload an image or PDF to the file library', action: 'Upload a file' },
+          { name: 'Get Many', value: 'getAll', description: 'List the file library', action: 'Get many files' },
+          { name: 'Delete', value: 'delete', description: 'Remove a file from the library', action: 'Delete a file' },
+        ],
+      },
+
+      // --- file ------------------------------------------------------------------------------
+      {
+        displayName: 'Input Binary Field',
+        name: 'binaryPropertyName',
+        type: 'string',
+        displayOptions: { show: { resource: ['file'], operation: ['upload'] } },
+        default: 'data',
+        required: true,
+        description: 'The binary field of the incoming item that holds the image or PDF',
+      },
+      {
+        displayName: 'Name in Library',
+        name: 'fileName',
+        type: 'string',
+        displayOptions: { show: { resource: ['file'], operation: ['upload'] } },
+        default: '',
+        placeholder: 'brand/logo.png',
+        description:
+          "The name templates use with asset(). Leave empty to use the binary's file name. Uploading a name again replaces that file.",
+      },
+      {
+        displayName: 'Prefix',
+        name: 'prefix',
+        type: 'string',
+        displayOptions: { show: { resource: ['file'], operation: ['getAll'] } },
+        default: '',
+        placeholder: 'brand/',
+        description: 'Only files whose name starts with this',
+      },
+      {
+        displayName: 'File ID',
+        name: 'fileId',
+        type: 'string',
+        displayOptions: { show: { resource: ['file'], operation: ['delete'] } },
+        default: '',
+        required: true,
+        placeholder: 'fil_…',
       },
 
       // --- render: create -------------------------------------------------------------------
@@ -183,6 +238,7 @@ export class Formfeed implements INodeType {
           { name: 'PDF', value: 'pdf' },
           { name: 'PNG', value: 'png' },
           { name: 'JPG', value: 'jpg' },
+          { name: 'WebP', value: 'webp' },
         ],
       },
       {
@@ -250,7 +306,7 @@ export class Formfeed implements INodeType {
         displayName: 'Return All',
         name: 'returnAll',
         type: 'boolean',
-        displayOptions: { show: { resource: ['render', 'template'], operation: ['getAll'] } },
+        displayOptions: { show: { resource: ['render', 'template', 'file'], operation: ['getAll'] } },
         default: false,
         description: 'Whether to return all results or only up to a given limit',
       },
@@ -259,7 +315,7 @@ export class Formfeed implements INodeType {
         name: 'limit',
         type: 'number',
         typeOptions: { minValue: 1, maxValue: 100 },
-        displayOptions: { show: { resource: ['render', 'template'], operation: ['getAll'], returnAll: [false] } },
+        displayOptions: { show: { resource: ['render', 'template', 'file'], operation: ['getAll'], returnAll: [false] } },
         default: 25,
         description: 'Max number of results to return',
       },
@@ -362,13 +418,39 @@ export class Formfeed implements INodeType {
           continue;
         }
 
-        if ((resource === 'render' || resource === 'template') && operation === 'getAll') {
-          const path = resource === 'render' ? '/renders' : '/templates';
+        if (resource === 'file' && operation === 'upload') {
+          const property = this.getNodeParameter('binaryPropertyName', i) as string;
+          const binary = this.helpers.assertBinaryData(i, property);
+          const name = libraryName(this.getNodeParameter('fileName', i, '') as string, binary.fileName);
+          if (!name)
+            throw new NodeOperationError(
+              this.getNode(),
+              'The name is not a library file name: letters, digits, dot, dash, underscore and / for folders',
+              { itemIndex: i },
+            );
+          const bytes = await this.helpers.getBinaryDataBuffer(i, property);
+          const form = new FormData();
+          form.append('file', new Blob([new Uint8Array(bytes)], { type: binary.mimeType }), name.split('/').pop());
+          form.append('name', name);
+          out.push({ json: (await request(this, 'POST', '/files', form)) as IDataObject, pairedItem: { item: i } });
+          continue;
+        }
+
+        if (resource === 'file' && operation === 'delete') {
+          const id = this.getNodeParameter('fileId', i) as string;
+          await request(this, 'DELETE', `/files/${encodeURIComponent(id)}`);
+          out.push({ json: { id, deleted: true }, pairedItem: { item: i } });
+          continue;
+        }
+
+        if ((resource === 'render' || resource === 'template' || resource === 'file') && operation === 'getAll') {
+          const prefix = resource === 'file' ? (this.getNodeParameter('prefix', i, '') as string) : '';
+          const path = resource === 'render' ? '/renders' : resource === 'template' ? '/templates' : '/files';
           const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
           const limit = returnAll ? 100 : (this.getNodeParameter('limit', i, 25) as number);
           let cursor: string | null = null;
           do {
-            const query = `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+            const query = `?limit=${limit}${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
             const page = (await request(this, 'GET', `${path}${query}`)) as {
               data?: IDataObject[];
               next_cursor?: string | null;
@@ -420,11 +502,13 @@ async function request(
   body?: unknown,
 ): Promise<unknown> {
   const credentials = (await context.getCredentials('formfeedApi')) as unknown as FormfeedCredentials;
+  // A FormData body is a file upload: the HTTP helper sets the multipart boundary itself.
+  const isForm = body instanceof FormData;
   return context.helpers.httpRequestWithAuthentication.call(context, 'formfeedApi', {
     method,
     url: `${baseUrl(credentials)}${path}`,
-    json: true,
-    ...(body === undefined ? {} : { body }),
+    json: !isForm,
+    ...(body === undefined ? {} : { body: body as IDataObject }),
   });
 }
 

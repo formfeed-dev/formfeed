@@ -113,9 +113,9 @@ describe('jsreport importer', () => {
     );
     expect(result.html).toBe('<img src="{{asset "logo.png"}}"><img src="{{asset "gone.png"}}">');
     expect(result.warnings.map((w) => w.code)).toEqual(expect.arrayContaining(['asset-large', 'asset-missing']));
-    // the reference renders a URL that points nowhere until the file library ships
+    // the reference resolves against the workspace library, so the file has to be uploaded there
     for (const warning of result.warnings.filter((w) => w.code.startsWith('asset-')))
-      expect(warning.message).toMatch(/no asset library yet/);
+      expect(warning.message).toMatch(/workspace file library/);
   });
 
   it('finds helper function names in a helpers script', () => {

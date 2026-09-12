@@ -31,7 +31,8 @@ import { formatDiff } from './lib/diff';
 import { CliError, exitCodes } from './lib/errors';
 import { pdfmonkeyTemplate, pdfmonkeyTemplateIds, projectSassCompiler, readJsreportFile, readSnippets } from './lib/importers';
 import { emit, formatDiagnostic, printer, reportError, table, type Printer } from './lib/output';
-import { contentHash, defaultData, diagnose, listTemplateSlugs, readState, readTemplate, recordSync, renderLocal, templateDir, titleFromSlug, versionPayload, writeTemplate, type LocalTemplate, type TemplateMeta } from '@formfeed/devkit';
+import { contentHash, defaultData, diagnose, listLocalFiles, listTemplateSlugs, readState, readTemplate, recordSync, renderLocal, templateDir, titleFromSlug, versionPayload, writeLocalFile, writeTemplate, type LocalTemplate, type TemplateMeta } from '@formfeed/devkit';
+import { onlyNames, planPull, planPush, remoteAssetBase } from './lib/files';
 
 /**
  * Command tree of spec 15 §3. `buildProgram()` is exported for tests: commands never call
@@ -379,9 +380,9 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .description('True render through the API from the local files (test keys are free)')
     .option('--data <name-or-file>', 'data set name or a JSON file')
     .option('--out <file>', 'output file (default: <slug>.<ext>)')
-    .option('--output <format>', 'pdf, png or jpg', parseOutput)
+    .option('--output <format>', 'pdf, png, jpg or webp', parseOutput)
     .option('--remote', 'render the published remote version instead of local files')
-    .action(async (slug: string, opts: { data?: string; out?: string; output?: 'pdf' | 'png' | 'jpg'; remote?: boolean }) => {
+    .action(async (slug: string, opts: { data?: string; out?: string; output?: 'pdf' | 'png' | 'jpg' | 'webp'; remote?: boolean }) => {
       const s = settings();
       const project = requireProject(s);
       const c = client(s);
@@ -391,7 +392,8 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const render = opts.remote
         ? await c.renders.create({ template: slug, data: data as Record<string, unknown>, output })
         : await (async () => {
-            const rendered = await renderLocal(project, tpl, data, { mode: 'print' });
+            // the document leaves complete, so asset() must already point at the workspace library
+            const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c) });
             return c.renders.create({ html: rendered.document, settings: rendered.settings as Record<string, unknown>, output, meta: { source: 'formfeed render', template: slug } });
           })();
       const finished = render.status === 'succeeded' || render.status === 'failed' ? render : await c.renders.waitFor(render.id);
@@ -506,12 +508,13 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
 
       const c = client(s);
       mkdirSync(outDir, { recursive: true });
+      const assetBaseUrl = await remoteAssetBase(c);
       const rows: PreviewRow[] = [];
       for (const one of slugs) {
         const tpl = readTemplate(project, one);
         const set = defaultData(tpl);
         const output = tpl.meta.kind === 'image' ? 'png' : 'pdf';
-        const rendered = await renderLocal(project, tpl, set.data, { mode: 'print' });
+        const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl });
         const created = await c.renders.create({
           html: rendered.document,
           settings: rendered.settings as Record<string, unknown>,
@@ -539,6 +542,87 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         `Summary written to ${summaryFile}`,
       ]);
       if (failed > 0) throw new CliError(`${failed} template(s) failed to render`, exitCodes.validation, { silent: true });
+    });
+
+  // --- files ---------------------------------------------------------------------------------
+  const filesCmd = program.command('files').description("The workspace file library, mirrored in the project's files folder");
+  filesCmd
+    .command('list')
+    .description('Files in the workspace library')
+    .option('--prefix <prefix>', 'only names starting with this, e.g. brand/')
+    .action(async (opts: { prefix?: string }) => {
+      const s = settings();
+      const rows = await client(s).files.all({ prefix: opts.prefix });
+      emit(p(), rows, () =>
+        table(
+          rows.map((f) => [f.name, f.content_type, `${Math.max(1, Math.round(f.bytes / 1024))} kB`, (f.updated_at ?? f.created_at).slice(0, 10)]),
+          ['name', 'type', 'size', 'updated'],
+        ),
+      );
+    });
+
+  filesCmd
+    .command('push [names...]')
+    .description('Upload new and changed files from the files folder; the same name replaces the remote file')
+    .option('--dry-run', 'show what would be uploaded')
+    .action(async (names: string[], opts: { dryRun?: boolean }) => {
+      const s = settings();
+      const project = requireProject(s);
+      const local = listLocalFiles(project);
+      for (const skip of local.skipped) p().err(`skipped ${skip.path}: ${skip.reason}`);
+      const c = client(s);
+      const plan = onlyNames(planPush(local.files, await c.files.all()), names);
+      if (names.length && plan.length === 0)
+        throw new CliError(`None of ${names.join(', ')} is in ${project.filesDir}`, exitCodes.usage);
+      const results: Array<{ name: string; status: string; url?: string }> = [];
+      for (const row of plan) {
+        if (row.status === 'unchanged' || opts.dryRun) {
+          results.push(row);
+          continue;
+        }
+        const file = local.files.find((f) => f.name === row.name)!;
+        const uploaded = await c.files.upload({ data: readFileSync(file.path), name: file.name, contentType: file.contentType ?? undefined });
+        results.push({ name: row.name, status: row.status === 'new' ? 'uploaded' : 'replaced', url: uploaded.url });
+      }
+      emit(p(), results, () =>
+        results.length ? results.map((r) => `${r.name}: ${r.status}${opts.dryRun && r.status !== 'unchanged' ? ' (dry run)' : ''}`) : [`No files in ${project.filesDir}`],
+      );
+    });
+
+  filesCmd
+    .command('pull [names...]')
+    .description('Download library files into the files folder')
+    .action(async (names: string[]) => {
+      const s = settings();
+      const project = requireProject(s);
+      const c = client(s);
+      const remote = await c.files.all();
+      const plan = onlyNames(planPull(remote, listLocalFiles(project).files), names);
+      const results: Array<{ name: string; status: string; path?: string }> = [];
+      for (const row of plan) {
+        if (row.status === 'unchanged') {
+          results.push(row);
+          continue;
+        }
+        const file = remote.find((f) => f.name === row.name)!;
+        const res = await (ctx.fetch ?? fetch)(file.url);
+        if (!res.ok) throw new CliError(`Downloading ${file.name} answered HTTP ${res.status}`, exitCodes.network);
+        const path = writeLocalFile(project, file.name, new Uint8Array(await res.arrayBuffer()));
+        results.push({ name: row.name, status: 'pulled', path });
+      }
+      emit(p(), results, () => (results.length ? results.map((r) => `${r.name}: ${r.status}`) : ['The workspace library is empty']));
+    });
+
+  filesCmd
+    .command('delete <name>')
+    .description('Remove a file from the workspace library (the local copy stays)')
+    .action(async (name: string) => {
+      const s = settings();
+      const c = client(s);
+      const file = (await c.files.all()).find((f) => f.name === name || f.id === name);
+      if (!file) throw new CliError(`No file "${name}" in the workspace library`, exitCodes.usage);
+      await c.files.delete(file);
+      emit(p(), { name: file.name, deleted: true }, () => [`${file.name}: deleted`]);
     });
 
   const rendersCmd = program.command('renders').description('Inspect renders');
@@ -719,9 +803,9 @@ function parseEngine(value: string): EngineId {
   return value as EngineId;
 }
 
-function parseOutput(value: string): 'pdf' | 'png' | 'jpg' {
-  if (!['pdf', 'png', 'jpg'].includes(value)) throw new InvalidArgumentError('output must be pdf, png or jpg');
-  return value as 'pdf' | 'png' | 'jpg';
+function parseOutput(value: string): 'pdf' | 'png' | 'jpg' | 'webp' {
+  if (!['pdf', 'png', 'jpg', 'webp'].includes(value)) throw new InvalidArgumentError('output must be pdf, png, jpg or webp');
+  return value as 'pdf' | 'png' | 'jpg' | 'webp';
 }
 
 function loadData(root: string, tpl: LocalTemplate, nameOrFile?: string): unknown {

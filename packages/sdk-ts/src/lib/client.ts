@@ -47,18 +47,21 @@ export interface RenderRequest {
 
 export type PdfPermission = 'print' | 'copy' | 'modify' | 'annotate';
 
+/** A text or an image watermark; pass one of `text` and `image`. */
 export interface WatermarkOptions {
-  text: string;
+  text?: string;
+  /** A PNG or JPEG of the workspace file library: its id (`fil_…`) or its name. */
+  image?: string;
   /** 0 to 1, default 0.2. */
   opacity?: number;
   /** Degrees clockwise as in CSS, default -45 (bottom left to top right). */
   rotation?: number;
-  /** Hex colour such as `#cc0000`; grey by default. */
+  /** Hex colour such as `#cc0000`; grey by default. Text only. */
   color?: string;
 }
 
 export interface PostProcessing {
-  /** Render ids whose PDFs are appended after this document, in order. */
+  /** PDFs appended after this document, in order: render ids, or file ids and names of library PDFs. */
   merge_after?: string[];
   watermark?: WatermarkOptions;
   password?: { user?: string; owner?: string; permissions?: PdfPermission[] };
@@ -134,6 +137,35 @@ export interface Job {
   meta: Record<string, unknown>;
   created_at: string;
   completed_at: string | null;
+}
+
+/** A file of the workspace library (`/files`); a template reaches it with `asset(name)`. */
+export interface LibraryFile {
+  id: string;
+  name: string;
+  content_type: string;
+  bytes: number;
+  sha256: string;
+  /** The CDN URL, the same one `asset(name)` produces. */
+  url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FileUpload {
+  /** The bytes: a Blob or File, a Uint8Array (Node's Buffer is one) or an ArrayBuffer. */
+  data: Blob | Uint8Array | ArrayBuffer;
+  /** The library name, e.g. `logo.png` or `brand/header.svg`. Uploading a name again replaces it. */
+  name: string;
+  /** Sent with the bytes; the API also goes by the extension when it is missing. */
+  contentType?: string;
+}
+
+export interface FileListOptions {
+  /** Only names starting with this, e.g. `brand/`. */
+  prefix?: string;
+  limit?: number;
+  cursor?: string | null;
 }
 
 export interface WebhookEndpoint {
@@ -375,11 +407,12 @@ export class Formfeed {
   };
 
   /**
-   * PDF tools on the outputs of earlier renders (a `Render` or its id). merge, protect and watermark
-   * return a new render and cost 0.5 units each on live keys; info is free.
+   * PDF tools on the outputs of earlier renders (a `Render` or its id) and on PDFs of the file library
+   * (a `LibraryFile`, its id or its name). merge, protect and watermark return a new render and cost
+   * 0.5 units each on live keys; info is free.
    */
   readonly pdf = {
-    merge: (sources: Array<Render | string>, output: PdfOutputOptions = {}, options: RequestOptions = {}): Promise<Render> =>
+    merge: (sources: Array<Render | LibraryFile | string>, output: PdfOutputOptions = {}, options: RequestOptions = {}): Promise<Render> =>
       this.request<Render>('POST', '/pdf/merge', { ...output, sources: sources.map(idOf) }, withKey(options)),
     protect: (source: Render | string, protect: ProtectOptions, options: RequestOptions = {}): Promise<Render> =>
       this.request<Render>('POST', '/pdf/protect', { ...protect, source: idOf(source) }, withKey(options)),
@@ -387,6 +420,49 @@ export class Formfeed {
       this.request<Render>('POST', '/pdf/watermark', { ...watermark, source: idOf(source) }, withKey(options)),
     info: (source: Render | string, options: RequestOptions = {}): Promise<PdfInfo> =>
       this.request<PdfInfo>('POST', '/pdf/info', { source: idOf(source) }, options),
+  };
+
+  /**
+   * The workspace file library (`/files`): images and PDFs a template references by name with
+   * `asset('logo.png')`, and the sources of image watermarks and merges. Needs `file:read`,
+   * `file:write` or `file:delete`. Files are served without a signature, so keep confidential
+   * documents out of it.
+   */
+  readonly files = {
+    /** Uploads a file; the same name replaces the existing file in place and keeps its URL. */
+    upload: (file: FileUpload, options: RequestOptions = {}): Promise<LibraryFile> => {
+      const blob =
+        file.data instanceof Blob
+          ? file.data
+          : new Blob([file.data as BlobPart], file.contentType ? { type: file.contentType } : {});
+      const form = new FormData();
+      form.set('file', blob, file.name);
+      form.set('name', file.name);
+      return this.request<LibraryFile>('POST', '/files', form, options);
+    },
+    /** Page of files, newest first. */
+    list: (query: FileListOptions = {}, options: RequestOptions = {}): Promise<{ data: LibraryFile[]; next_cursor: string | null }> => {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
+      const qs = params.toString();
+      return this.request('GET', `/files${qs ? `?${qs}` : ''}`, undefined, options);
+    },
+    /** Every file matching the query, following the cursor. */
+    all: async (query: Omit<FileListOptions, 'cursor'> = {}, options: RequestOptions = {}): Promise<LibraryFile[]> => {
+      const out: LibraryFile[] = [];
+      let cursor: string | null = null;
+      do {
+        const page: { data: LibraryFile[]; next_cursor: string | null } = await this.files.list({ ...query, cursor }, options);
+        out.push(...page.data);
+        cursor = page.next_cursor;
+      } while (cursor);
+      return out;
+    },
+    get: (id: string, options: RequestOptions = {}): Promise<LibraryFile> =>
+      this.request<LibraryFile>('GET', `/files/${encodeURIComponent(id)}`, undefined, options),
+    /** Removes the file and its bytes; templates that name it render a missing image afterwards. */
+    delete: (file: LibraryFile | string, options: RequestOptions = {}): Promise<void> =>
+      this.request<void>('DELETE', `/files/${encodeURIComponent(idOf(file))}`, undefined, options),
   };
 
   readonly jobs = {
@@ -492,7 +568,9 @@ export class Formfeed {
       accept: 'application/json',
       'user-agent': 'formfeed-sdk-ts/0.1',
     };
-    if (body !== undefined) headers['content-type'] = 'application/json';
+    // FormData brings its own multipart content type with the boundary; everything else is JSON.
+    const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
+    if (body !== undefined && !isForm) headers['content-type'] = 'application/json';
     if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
     let attempt = 0;
     for (;;) {
@@ -504,7 +582,7 @@ export class Formfeed {
         res = await this.fetchImpl(url, {
           method,
           headers,
-          body: body === undefined ? undefined : JSON.stringify(body),
+          body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
           signal: controller.signal,
         });
       } catch (e) {

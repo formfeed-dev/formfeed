@@ -149,6 +149,24 @@ class PdfInfo(_Model):
     metadata: dict[str, Any] = {}
 
 
+class LibraryFile(_Model):
+    """A file of the workspace library (``/files``); a template reaches it with ``asset(name)``."""
+
+    id: str
+    name: str
+    content_type: str
+    bytes: int
+    sha256: str | None = None
+    url: str
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class LibraryFilePage(_Model):
+    data: list[LibraryFile]
+    next_cursor: str | None = None
+
+
 class RenderPage(_Model):
     data: list[Render]
     next_cursor: str | None = None

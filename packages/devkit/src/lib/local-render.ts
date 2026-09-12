@@ -50,7 +50,12 @@ export function diagnose(tpl: LocalTemplate, sampleData: unknown): Diagnostic[] 
   return diagnostics;
 }
 
-export function renderContext(project: Project, tpl: LocalTemplate): RenderContext {
+/**
+ * `assetBaseUrl` is where `asset()` and relative image paths resolve: the dev server's `/files`
+ * locally, the workspace library's CDN base when the document goes to the API. Without it the
+ * references stay relative, which keeps snapshots independent of any host.
+ */
+export function renderContext(project: Project, tpl: LocalTemplate, assetBaseUrl?: string): RenderContext {
   const settings = mergeSettings(tpl.settings);
   return {
     locale: settings.locale ?? 'en',
@@ -60,6 +65,7 @@ export function renderContext(project: Project, tpl: LocalTemplate): RenderConte
     helpers: defaultHelpers(),
     limits: defaultLimits,
     i18n: tpl.i18n ?? undefined,
+    assetBaseUrl,
   };
 }
 
@@ -67,11 +73,13 @@ export interface LocalRenderOptions {
   mode: 'preview' | 'print';
   locale?: string;
   vendor?: AssembleVendor;
+  /** Where `asset()` and relative image paths resolve (see `renderContext`). */
+  assetBaseUrl?: string;
 }
 
 /** Assembles the complete document with the shared engine; no browser involved. */
 export async function renderLocal(project: Project, tpl: LocalTemplate, data: unknown, options: LocalRenderOptions): Promise<RenderedDocument> {
-  const ctx = renderContext(project, tpl);
+  const ctx = renderContext(project, tpl, options.assetBaseUrl);
   if (options.locale) ctx.locale = options.locale;
   return renderVersion(
     { engine: tpl.meta.engine, html: tpl.html, css: tpl.css, head: tpl.head, settings: mergeSettings(tpl.settings), kind: tpl.meta.kind },

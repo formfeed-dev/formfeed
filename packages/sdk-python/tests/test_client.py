@@ -189,3 +189,59 @@ def test_async_pdf_tools_mirror_the_sync_client():
 
     assert asyncio.run(run()).id == "rnd_9"
     assert json.loads(rec.calls[0].content) == {"sources": ["rnd_1", "rnd_2"]}
+
+
+FILE = {"id": "fil_1", "name": "brand/logo.png", "content_type": "image/png", "bytes": 3, "sha256": "aa", "url": "https://cdn.test/a/ws/brand/logo.png"}
+
+
+def test_files_upload_as_multipart_list_get_and_delete():
+    def respond(req, n):
+        if req.method == "DELETE":
+            return httpx.Response(204)
+        if req.method == "POST":
+            return _json(FILE, 201)
+        if req.url.path.endswith("/files"):
+            return _json({"data": [FILE], "next_cursor": None})
+        return _json(FILE)
+
+    client, rec = sync_client(respond)
+    uploaded = client.files.upload(b"\x01\x02\x03", "brand/logo.png", content_type="image/png")
+    assert uploaded.url == "https://cdn.test/a/ws/brand/logo.png"
+    req = rec.calls[0]
+    assert req.url == "https://api-eu.formfeed.dev/v1/files"
+    assert req.headers["content-type"].startswith("multipart/form-data; boundary=")
+    body = req.content
+    assert b'name="name"\r\n\r\nbrand/logo.png' in body
+    assert b'filename="logo.png"' in body and b"Content-Type: image/png" in body and b"\x01\x02\x03" in body
+
+    assert [f.name for f in client.files.all(prefix="brand/")] == ["brand/logo.png"]
+    assert str(rec.calls[1].url) == "https://api-eu.formfeed.dev/v1/files?prefix=brand%2F"
+    assert client.files.get("fil_1").id == "fil_1"
+    client.files.delete(uploaded)
+    assert rec.calls[3].method == "DELETE" and str(rec.calls[3].url).endswith("/files/fil_1")
+
+
+def test_library_files_as_image_watermarks_and_merge_sources():
+    client, rec = sync_client(lambda req, n: _json(RENDER))
+    client.pdf.watermark("rnd_1", image="draft.png", opacity=0.2)
+    assert json.loads(rec.calls[0].content) == {"source": "rnd_1", "image": "draft.png", "opacity": 0.2}
+    client.pdf.watermark("rnd_1", "COPY")
+    assert json.loads(rec.calls[1].content) == {"source": "rnd_1", "text": "COPY"}
+    with pytest.raises(FormfeedError):
+        client.pdf.watermark("rnd_1")
+    with pytest.raises(FormfeedError):
+        client.pdf.watermark("rnd_1", "COPY", image="draft.png")
+    client.pdf.merge(["rnd_1", "terms.pdf"])
+    assert json.loads(rec.calls[2].content)["sources"] == ["rnd_1", "terms.pdf"]
+
+
+def test_async_files_mirror_the_sync_client():
+    async def run():
+        rec = Recorder(lambda req, n: _json(FILE, 201))
+        async with AsyncFormfeed("ff_test_k", transport=httpx.MockTransport(rec.handler)) as client:
+            uploaded = await client.files.upload(b"x", "logo.png")
+            return uploaded, rec
+
+    uploaded, rec = asyncio.run(run())
+    assert uploaded.id == "fil_1"
+    assert rec.calls[0].headers["content-type"].startswith("multipart/form-data")
