@@ -59,6 +59,43 @@ document.addEventListener('click', function (event) {
 }, true);
 </script>`;
 
+/**
+ * Page navigation for the paged preview (spec 06 §3): the editor asks for a page by index and the
+ * frame scrolls to it, then reports which page is in view so the toolbar follows scrolling too.
+ * The frame is sandboxed without same-origin, so this can only happen by message.
+ */
+const pageNavScript = `<script>
+(function () {
+  var pages = function () { return document.querySelectorAll('.pagedjs_page'); };
+  window.addEventListener('message', function (event) {
+    var data = event.data;
+    if (!data || data.type !== 'formfeed:goto-page') return;
+    var page = pages()[(data.page || 1) - 1];
+    if (page && page.scrollIntoView) page.scrollIntoView({ block: 'start' });
+  });
+  var current = 0;
+  var report = function () {
+    var list = pages();
+    if (!list.length) return;
+    var best = 1;
+    var bestTop = Infinity;
+    for (var i = 0; i < list.length; i++) {
+      var top = Math.abs(list[i].getBoundingClientRect().top);
+      if (top < bestTop) { bestTop = top; best = i + 1; }
+    }
+    if (best === current) return;
+    current = best;
+    try { parent.postMessage({ type: 'formfeed:page', page: best }, '*'); } catch (e) {}
+  };
+  var queued = false;
+  window.addEventListener('scroll', function () {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(function () { queued = false; report(); });
+  }, { passive: true });
+})();
+</script>`;
+
 export function flowDocument(draft: RenderedDraft): string {
   const { settings, kind, headerHtml, footerHtml } = draft;
   const margin = settings.margin ?? {};
@@ -114,6 +151,6 @@ html { background: #e5e7eb; }
     ? `<div class="ff-running-footer">${pageNumberSpans(footerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
     : '';
   return draft.document
-    .replace('</head>', `<style data-formfeed="paged">${runningCss}</style>${config}${script}${inspectScript}</head>`)
+    .replace('</head>', `<style data-formfeed="paged">${runningCss}</style>${config}${script}${inspectScript}${pageNavScript}</head>`)
     .replace(/(<body[^>]*>)/, `$1${header}${footer}`);
 }
