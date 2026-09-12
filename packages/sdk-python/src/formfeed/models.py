@@ -109,6 +109,8 @@ class TemplateVersion(_Model):
     sample_data: dict[str, Any] | None = None
     data_schema: dict[str, Any] | None = None
     i18n: dict[str, Any] | None = None
+    #: Partials the template includes (``name`` → source), as ``formfeed templates push`` sends them.
+    partials: dict[str, str] | None = None
 
 
 class UsageDay(_Model):

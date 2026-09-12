@@ -1,4 +1,5 @@
 import nunjucks, { type NunjucksNode } from 'nunjucks/browser/nunjucks.js';
+import { unavailableHelper } from '../unavailable';
 import {
   jinjaTags,
   missingPathDiagnostics,
@@ -545,6 +546,13 @@ export function analyzeJinja2(
         message: `"${f.name}" is an apitemplate.io compatibility alias; use "${preferred}"`,
         range: f.range,
         fix: { title: `Rename to ${preferred}`, replacement: preferred },
+      });
+    } else if (unavailableHelper(f.name)) {
+      diagnostics.push({
+        severity: 'warning',
+        code: 'unavailable-helper',
+        message: unavailableHelper(f.name) as string,
+        range: f.range,
       });
     } else if (!f.known) {
       diagnostics.push({

@@ -246,7 +246,13 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const s = settings();
       const project = requireProject(s);
       const pulled = await pullTemplates(client(s), project, slug, Boolean(opts.draft));
-      emit(p(), pulled, () => pulled.map((x) => `pulled ${x.slug} v${x.number} (${x.status}) -> ${x.dir}`));
+      emit(p(), pulled, () =>
+        pulled.map(
+          (x) =>
+            `pulled ${x.slug} v${x.number} (${x.status}) -> ${x.dir}` +
+            (x.partials ? ` (+${x.partials} partial${x.partials === 1 ? '' : 's'} in ${project.partialsDir})` : ''),
+        ),
+      );
     });
 
   templates
@@ -266,6 +272,13 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const results: Array<Record<string, unknown>> = [];
       for (const one of slugs) {
         const tpl = readTemplate(project, one);
+        // the partials travel with the version, so an include without a file would fail on the
+        // server exactly as it does locally
+        if (tpl.missingPartials.length)
+          throw new CliError(
+            `${one} includes ${tpl.missingPartials.map((n) => `"${n}"`).join(', ')}, but no such file is in ${project.partialsDir}`,
+            exitCodes.validation,
+          );
         const known = state.templates[one];
         const changed = !known || known.contentHash !== contentHash(tpl);
         if (opts.dryRun) {
@@ -722,13 +735,13 @@ function loadData(root: string, tpl: LocalTemplate, nameOrFile?: string): unknow
 
 async function pullTemplates(c: ReturnType<typeof createClient>, project: ReturnType<typeof requireProject>, slug: string | undefined, draft: boolean) {
   const list = slug ? [await c.templates.get(slug)] : await c.templates.all();
-  const pulled: Array<{ slug: string; number: number; status: string; dir: string }> = [];
+  const pulled: Array<{ slug: string; number: number; status: string; dir: string; partials: number }> = [];
   for (const t of list) {
     const version = await c.templates.versions.get(t.slug, draft || !t.published_version ? 'latest' : 'published');
     const meta: TemplateMeta = { name: t.name, kind: t.kind, engine: t.engine, description: t.description, tags: t.tags };
     const dir = writeTemplate(project, t.slug, meta, version);
     recordSync(project, t.slug, version, readTemplate(project, t.slug));
-    pulled.push({ slug: t.slug, number: version.number, status: version.status, dir });
+    pulled.push({ slug: t.slug, number: version.number, status: version.status, dir, partials: Object.keys(version.partials ?? {}).length });
   }
   return pulled;
 }

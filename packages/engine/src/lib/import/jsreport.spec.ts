@@ -104,7 +104,7 @@ describe('jsreport importer', () => {
     expect(result.errors.map((e) => e.code)).toEqual(expect.arrayContaining(['unsupported-engine', 'unsupported-recipe']));
   });
 
-  it('points large or missing assets at workspace assets', () => {
+  it('keeps large or missing assets as {{asset}} and says the library does not exist yet', () => {
     const bundle = readJsreportExport(exportFiles());
     const result = importJsreport(
       { ...bundle, templates: [{ ...bundle.templates[0], shortid: 'T1', content: '<img src="{{asset "logo.png" "dataURI"}}"><img src="{{asset "gone.png" "dataURI"}}">' }] },
@@ -113,6 +113,9 @@ describe('jsreport importer', () => {
     );
     expect(result.html).toBe('<img src="{{asset "logo.png"}}"><img src="{{asset "gone.png"}}">');
     expect(result.warnings.map((w) => w.code)).toEqual(expect.arrayContaining(['asset-large', 'asset-missing']));
+    // the reference renders a URL that points nowhere until the file library ships
+    for (const warning of result.warnings.filter((w) => w.code.startsWith('asset-')))
+      expect(warning.message).toMatch(/no asset library yet/);
   });
 
   it('finds helper function names in a helpers script', () => {

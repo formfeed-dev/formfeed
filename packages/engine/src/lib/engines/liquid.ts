@@ -1,4 +1,5 @@
 import { Liquid, type FS, type Template as LiquidTemplate } from 'liquidjs';
+import { unavailableHelper } from '../unavailable';
 import {
   liquidTags,
   missingPathDiagnostics,
@@ -392,6 +393,13 @@ export function analyzeLiquid(
         message: `"${f.name}" is a compatibility alias; use "${preferred}"`,
         range: f.range,
         fix: { title: `Rename to ${preferred}`, replacement: preferred },
+      });
+    } else if (unavailableHelper(f.name)) {
+      diagnostics.push({
+        severity: 'warning',
+        code: 'unavailable-helper',
+        message: unavailableHelper(f.name) as string,
+        range: f.range,
       });
     } else if (!f.known) {
       diagnostics.push({

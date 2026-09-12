@@ -417,7 +417,8 @@ export const formatHelpers: HelperDefinition[] = [
     name: 'asset',
     doc: {
       signature: 'asset(name)',
-      description: 'URL of a workspace asset (logo, background) on the CDN.',
+      description:
+        'URL of a workspace asset (logo, background) on the CDN. Not available yet: the asset library is a Phase 2 feature, so the URL points nowhere. Use a full https URL or a data URI, which is what `analyze` warns about.',
       example: '<img src="{{ asset(\'logo.png\') }}">',
       category: 'document',
     },

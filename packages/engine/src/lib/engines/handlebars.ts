@@ -1,4 +1,5 @@
 import Handlebars from 'handlebars';
+import { unavailableHelper } from '../unavailable';
 import { missingPathDiagnostics, rangeAt } from '../analysis/tags';
 import { EngineSyntaxError, RenderError, RenderLimitError } from '../errors';
 import { defaultHelpers } from '../helpers';
@@ -328,6 +329,13 @@ export function analyzeHandlebars(
         message: `"${f.name}" is a compatibility alias; use "${preferred}"`,
         range: f.range,
         fix: { title: `Rename to ${preferred}`, replacement: preferred },
+      });
+    } else if (unavailableHelper(f.name)) {
+      diagnostics.push({
+        severity: 'warning',
+        code: 'unavailable-helper',
+        message: unavailableHelper(f.name) as string,
+        range: f.range,
       });
     } else if (!f.known) {
       diagnostics.push({

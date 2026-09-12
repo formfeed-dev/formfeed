@@ -174,6 +174,8 @@ export interface TemplateFiles {
   data_sets?: Record<string, unknown> | null;
   data_schema?: Record<string, unknown> | null;
   i18n?: Record<string, unknown> | null;
+  /** Partials the template includes (`name` → source); `formfeed templates push` sends them. */
+  partials?: Record<string, string> | null;
 }
 
 export interface TemplateVersion extends Partial<TemplateFiles> {

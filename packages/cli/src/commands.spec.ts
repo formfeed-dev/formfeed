@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, type ProgramContext } from './commands';
@@ -189,6 +189,25 @@ describe('formfeed CLI', () => {
     expect(await run(['templates', 'push', 'invoice'], ctx)).toBe(2);
     expect(err.join('\n')).toMatch(/409|changed|Conflict/i);
     expect(await run(['templates', 'push', 'invoice', '--force'], ctx)).toBe(0);
+  });
+
+  it('pushes the partials a template includes and refuses one without a file', async () => {
+    await run(['init'], ctx);
+    rmSync(join(dir, 'templates', 'hello'), { recursive: true });
+    await run(['templates', 'pull'], ctx);
+    const tplDir = join(dir, 'templates', 'invoice');
+    writeFileSync(join(tplDir, 'template.html'), '<h1>{{ invoice.number }}</h1>{% include "footer" %}');
+
+    // the include has no file yet: push refuses instead of publishing a template that fails
+    err = [];
+    expect(await run(['templates', 'push', 'invoice'], ctx)).toBe(1);
+    expect(err.join('\n')).toMatch(/includes "footer"/);
+
+    mkdirSync(join(dir, 'partials'), { recursive: true });
+    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>Acme</footer>');
+    expect(await run(['templates', 'push', 'invoice'], ctx), err.join('\n')).toBe(0);
+    const push = api.calls.findLast((c) => c.path === '/v1/templates/invoice/versions' && c.method === 'POST');
+    expect(push?.body).toMatchObject({ partials: { footer: '<footer>Acme</footer>' } });
   });
 
   it('creates the remote template on first push and renders through the API into a file', async () => {

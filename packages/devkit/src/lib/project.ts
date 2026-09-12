@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { EngineId, TemplateKind, TemplateSettings } from '@formfeed/engine';
 import type { TemplateVersion } from '@formfeed/sdk-ts';
 import { DevkitError } from './errors';
+import { collectPartials } from './partials';
 import type { Project } from './project-config';
 
 /**
@@ -33,6 +34,10 @@ export interface LocalTemplate {
   dataSets: Record<string, unknown>;
   dataSchema: Record<string, unknown> | null;
   i18n: Record<string, Record<string, string>> | null;
+  /** Partials the template includes, read from the project's folder; they travel with the version. */
+  partials: Record<string, string>;
+  /** Included names without a file; `validate` reports them and `push` refuses them. */
+  missingPartials: string[];
 }
 
 export interface TemplateState {
@@ -96,6 +101,7 @@ export function readTemplate(project: Project, slug: string): LocalTemplate {
       dataSets[basename(file, '.json')] = readJson<unknown>(join(dataDir, file), `data/${file}`);
     }
   }
+  const { partials, missing } = collectPartials(project, meta.engine, [html, settings.header?.html, settings.footer?.html]);
   return {
     slug,
     dir,
@@ -107,6 +113,8 @@ export function readTemplate(project: Project, slug: string): LocalTemplate {
     dataSets,
     dataSchema: readJson<Record<string, unknown>>(join(dir, 'schema.json'), 'schema.json'),
     i18n: readJson<Record<string, Record<string, string>>>(join(dir, 'i18n.json'), 'i18n.json'),
+    partials,
+    missingPartials: missing,
   };
 }
 
@@ -125,6 +133,7 @@ export function writeTemplate(
   meta: TemplateMeta,
   version: Pick<TemplateVersion, 'html' | 'css' | 'head' | 'settings' | 'sample_data' | 'data_schema' | 'i18n'> & {
     data_sets?: Record<string, unknown> | null;
+    partials?: Record<string, string> | null;
   },
 ): string {
   const dir = templateDir(project, slug);
@@ -147,7 +156,29 @@ export function writeTemplate(
       writeFileSync(join(dir, 'data', `${name}.json`), JSON.stringify(data ?? {}, null, 2) + '\n');
   writeOrRemove(join(dir, 'schema.json'), version.data_schema ? JSON.stringify(version.data_schema, null, 2) + '\n' : '');
   writeOrRemove(join(dir, 'i18n.json'), version.i18n ? JSON.stringify(version.i18n, null, 2) + '\n' : '');
+  writePartials(project, version.partials ?? null);
   return dir;
+}
+
+/** A partial name is a path inside the partials folder: relative, no `..`, no backslash. */
+const partialName = /^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$/;
+
+/**
+ * Writes the partials of a pulled version into the project's folder (`name` or `name.html`, the
+ * two spellings `partialResolver` reads). Returns the files whose content changed, so `pull` can
+ * say that a partial shared with another template was replaced.
+ */
+export function writePartials(project: Project, partials: Record<string, string> | null): string[] {
+  const changed: string[] = [];
+  for (const [name, source] of Object.entries(partials ?? {})) {
+    if (!partialName.test(name)) continue; // the API validates as well; never write outside the folder
+    const path = join(project.partialsDir, name.includes('.') ? name : `${name}.html`);
+    if (readText(path) === source) continue;
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, source);
+    changed.push(path);
+  }
+  return changed;
 }
 
 function stripHtml<T extends { html?: string }>(part: T): Omit<T, 'html'> | null {
@@ -178,13 +209,18 @@ export function versionPayload(tpl: LocalTemplate) {
     data_sets: named as Record<string, unknown>,
     data_schema: tpl.dataSchema,
     i18n: tpl.i18n,
+    // only when the template includes one, so a project without partials sends what it always sent
+    ...(Object.keys(tpl.partials).length ? { partials: tpl.partials } : {}),
   };
 }
 
 /** Stable hash of the local files; compared with the state to detect local edits. */
 export function contentHash(tpl: LocalTemplate): string {
   const payload = versionPayload(tpl);
-  return createHash('sha256').update(JSON.stringify([payload.html, payload.css, payload.head, payload.settings, payload.sample_data, payload.data_sets, payload.data_schema, payload.i18n])).digest('hex');
+  const parts: unknown[] = [payload.html, payload.css, payload.head, payload.settings, payload.sample_data, payload.data_sets, payload.data_schema, payload.i18n];
+  // appended only when there are partials, so hashes recorded before they existed still match
+  if (payload.partials) parts.push(payload.partials);
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 
 const statePath = (project: Project) => join(project.root, '.formfeed', 'state.json');

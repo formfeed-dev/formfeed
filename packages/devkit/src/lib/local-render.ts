@@ -39,6 +39,14 @@ export function diagnose(tpl: LocalTemplate, sampleData: unknown): Diagnostic[] 
     if (!source) continue;
     for (const d of engine.analyze(source, { sampleData }).diagnostics) diagnostics.push({ ...d, message: `${part}: ${d.message}` });
   }
+  // an include without a file fails at render time, locally and after `push`
+  for (const name of tpl.missingPartials)
+    diagnostics.push({
+      severity: 'error',
+      code: 'missing-partial',
+      message: `No partial "${name}" in the project's partials folder`,
+      range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+    });
   return diagnostics;
 }
 

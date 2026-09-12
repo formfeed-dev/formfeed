@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,6 +49,66 @@ describe('template folders (spec 15 §2)', () => {
     const before = contentHash(tpl);
     writeFileSync(join(dir, 'templates', 'invoice', 'template.html'), '<h1>changed</h1>');
     expect(contentHash(readTemplate(p, 'invoice'))).not.toBe(before);
+  });
+
+  it('collects the partials a template includes and writes pulled ones back', () => {
+    const p = project();
+    mkdirSync(join(dir, 'partials', 'blocks'), { recursive: true });
+    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>{% include "blocks/address" %}</footer>');
+    writeFileSync(join(dir, 'partials', 'blocks', 'address.html'), '<p>Street 1</p>');
+    writeTemplate(
+      p,
+      'letter',
+      { name: 'Letter', kind: 'pdf', engine: 'jinja2' },
+      {
+        html: '<main>{% include "footer" %}</main>',
+        css: '',
+        head: '',
+        settings: { footer: { html: '{% include "blocks/address" %}' } },
+        sample_data: {},
+        data_schema: null,
+        i18n: null,
+      },
+    );
+    const tpl = readTemplate(p, 'letter');
+    // nested includes and the page footer are collected too
+    expect(Object.keys(tpl.partials).sort()).toEqual(['blocks/address', 'footer']);
+    expect(tpl.missingPartials).toEqual([]);
+    expect(versionPayload(tpl).partials).toEqual(tpl.partials);
+    // editing a partial is a change of the template for the sync state
+    const before = contentHash(tpl);
+    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>changed</footer>');
+    expect(contentHash(readTemplate(p, 'letter'))).not.toBe(before);
+
+    // a template without partials hashes as it did before they existed
+    writeTemplate(p, 'plain', { name: 'Plain', kind: 'pdf', engine: 'jinja2' }, { html: '<p>{{ x }}</p>', css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
+    const plain = readTemplate(p, 'plain');
+    expect(versionPayload(plain).partials).toBeUndefined();
+    expect(contentHash(plain)).toBe(
+      createHash('sha256')
+        .update(JSON.stringify(['<p>{{ x }}</p>', '', '', {}, {}, {}, null, null]))
+        .digest('hex'),
+    );
+
+    // pull writes them into the project folder, nested names included
+    rmSync(join(dir, 'partials'), { recursive: true, force: true });
+    writeTemplate(
+      p,
+      'letter',
+      { name: 'Letter', kind: 'pdf', engine: 'jinja2' },
+      { html: '<main>{% include "footer" %}</main>', css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null, partials: { footer: '<footer>pulled</footer>', 'blocks/address': '<p>Pulled</p>', '../escape': 'no' } },
+    );
+    expect(readFileSync(join(dir, 'partials', 'footer.html'), 'utf8')).toBe('<footer>pulled</footer>');
+    expect(readFileSync(join(dir, 'partials', 'blocks', 'address.html'), 'utf8')).toBe('<p>Pulled</p>');
+    expect(existsSync(join(dir, 'escape'))).toBe(false);
+  });
+
+  it('reports an include without a file', () => {
+    const p = project();
+    writeTemplate(p, 'letter', { name: 'Letter', kind: 'pdf', engine: 'jinja2' }, { html: '<main>{% include "nowhere" %}</main>', css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
+    const tpl = readTemplate(p, 'letter');
+    expect(tpl.missingPartials).toEqual(['nowhere']);
+    expect(diagnose(tpl, {}).some((d) => d.code === 'missing-partial' && d.message.includes('nowhere'))).toBe(true);
   });
 
   it('diagnoses like the editor and renders previews with the shared engine', async () => {

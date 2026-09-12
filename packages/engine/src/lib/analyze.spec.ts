@@ -87,6 +87,19 @@ describe('jinja2 analysis', () => {
     expect(a.filters.map((f) => f.name)).toEqual(['sum', 'money', 'qrcode']);
   });
 
+  it('warns about asset(), which has no asset library to resolve against yet', () => {
+    for (const [engine, source] of [
+      ['jinja2', `<img src="{{ asset('logo.png') }}">`],
+      ['liquid', `<img src="{{ 'logo.png' | asset }}">`],
+      ['handlebars', `<img src="{{asset 'logo.png'}}">`],
+    ] as const) {
+      const a = engines[engine].analyze(source, { sampleData: sample });
+      const warning = a.diagnostics.find((d) => d.code === 'unavailable-helper');
+      expect(warning?.severity, engine).toBe('warning');
+      expect(warning?.message, engine).toMatch(/asset library/);
+    }
+  });
+
   it('reads the values of object literals and keyword arguments, not their keys', () => {
     // the compiler turns `{ type: … }` and `f(size=…)` keys into strings; only the values are data
     const a = engines.jinja2.analyze(
