@@ -36,6 +36,8 @@ export interface RenderRequest {
   mode?: 'sync' | 'async';
   locale?: string | null;
   webhook_url?: string | null;
+  /** Signs the deliveries to `webhook_url`, the way an endpoint secret does; 16 to 200 characters. */
+  webhook_secret?: string | null;
   meta?: Record<string, unknown>;
   region?: Region;
   dedupe?: boolean;
@@ -115,6 +117,7 @@ export interface BatchRequest {
   items: RenderRequest[];
   zip?: boolean;
   webhook_url?: string | null;
+  webhook_secret?: string | null;
   meta?: Record<string, unknown>;
 }
 
