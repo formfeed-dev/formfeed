@@ -43,6 +43,8 @@ export interface RenderRequest {
   dedupe?: boolean;
   /** PDF post-processing: merge, watermark, password, applied in that order (0.5 units each). */
   post?: PostProcessing | null;
+  /** Check `data` against the template's stored schema first; a mismatch throws `data_validation_error`. */
+  validate_data?: boolean;
 }
 
 export type PdfPermission = 'print' | 'copy' | 'modify' | 'annotate';
@@ -196,6 +198,23 @@ export interface Template {
   latest_version: number;
   created_at: string;
   updated_at: string;
+}
+
+/** One finding of `templates.validate`. */
+export interface Diagnostic {
+  severity: 'error' | 'warning' | 'info';
+  code: string;
+  message: string;
+  location?: { line: number; column: number };
+  /** Data errors only: where in the data, e.g. `data.invoice.lines[0].qty`. */
+  path?: string;
+}
+
+export interface TemplateValidation {
+  /** `false` when at least one diagnostic is an error. */
+  ok: boolean;
+  template: { id: string; slug: string; version: number };
+  diagnostics: Diagnostic[];
 }
 
 /** The files of a version as the editor and the CLI keep them. */
@@ -545,6 +564,17 @@ export class Formfeed {
     },
     schema: (idOrSlug: string, options: RequestOptions = {}): Promise<Record<string, unknown>> =>
       this.request<Record<string, unknown>>('GET', `/templates/${encodeURIComponent(idOrSlug)}/schema`, undefined, options),
+    /**
+     * Checks a version with data without rendering: syntax, header and footer, missing partials,
+     * runtime errors and the data against the stored schema. Free. Without `data`, the version's
+     * sample data is checked.
+     */
+    validate: (
+      idOrSlug: string,
+      input: { version?: 'published' | 'latest' | number; data?: Record<string, unknown> } = {},
+      options: RequestOptions = {},
+    ): Promise<TemplateValidation> =>
+      this.request<TemplateValidation>('POST', `/templates/${encodeURIComponent(idOrSlug)}/validate`, input, options),
   };
 
   readonly account = {

@@ -162,6 +162,21 @@ class LibraryFile(_Model):
     updated_at: str | None = None
 
 
+class Diagnostic(_Model):
+    severity: Literal["error", "warning", "info"]
+    code: str
+    message: str
+    location: dict[str, int] | None = None
+    path: str | None = None
+    """Data errors only: where in the data, e.g. ``data.invoice.lines[0].qty``."""
+
+
+class TemplateValidation(_Model):
+    ok: bool
+    template: RenderTemplateRef
+    diagnostics: list[Diagnostic]
+
+
 class LibraryFilePage(_Model):
     data: list[LibraryFile]
     next_cursor: str | None = None

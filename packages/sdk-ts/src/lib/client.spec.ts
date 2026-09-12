@@ -256,6 +256,14 @@ describe('PDF tools', () => {
     expect(calls[3]).toMatchObject({ method: 'DELETE', url: 'https://api-eu.formfeed.dev/v1/files/fil_1' });
   });
 
+  it('validates a template version with data', async () => {
+    const result = { ok: false, template: { id: 'tpl_1', slug: 'invoice', version: 3 }, diagnostics: [{ severity: 'error', code: 'data-validation', path: 'data.n', message: 'data.n: is required' }] };
+    const { calls, fetchImpl } = stub(() => json(result));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    expect(await client.templates.validate('invoice', { version: 'latest', data: { a: 1 } })).toEqual(result);
+    expect(calls[0]).toMatchObject({ method: 'POST', url: 'https://api-eu.formfeed.dev/v1/templates/invoice/validate', body: { version: 'latest', data: { a: 1 } } });
+  });
+
   it('uses library files as image watermarks and merge sources', async () => {
     const { calls, fetchImpl } = stub(() => json(render));
     const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });

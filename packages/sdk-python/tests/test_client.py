@@ -221,6 +221,19 @@ def test_files_upload_as_multipart_list_get_and_delete():
     assert rec.calls[3].method == "DELETE" and str(rec.calls[3].url).endswith("/files/fil_1")
 
 
+def test_templates_validate_sends_version_and_data():
+    result = {
+        "ok": False,
+        "template": {"id": "tpl_1", "slug": "invoice", "version": 3},
+        "diagnostics": [{"severity": "error", "code": "data-validation", "path": "data.n", "message": "data.n: is required"}],
+    }
+    client, rec = sync_client(lambda req, n: _json(result))
+    checked = client.templates.validate("invoice", {"a": 1}, version="latest")
+    assert checked.ok is False and checked.diagnostics[0].path == "data.n" and checked.template.version == 3
+    assert str(rec.calls[0].url).endswith("/templates/invoice/validate")
+    assert json.loads(rec.calls[0].content) == {"version": "latest", "data": {"a": 1}}
+
+
 def test_library_files_as_image_watermarks_and_merge_sources():
     client, rec = sync_client(lambda req, n: _json(RENDER))
     client.pdf.watermark("rnd_1", image="draft.png", opacity=0.2)

@@ -3,6 +3,7 @@
 from .client import AsyncFormfeed, Formfeed
 from .errors import FormfeedError
 from .models import (
+    Diagnostic,
     Job,
     LibraryFile,
     LibraryFilePage,
@@ -11,6 +12,7 @@ from .models import (
     RenderPage,
     Template,
     Usage,
+    TemplateValidation,
     TemplateVersion,
     WebhookEndpoint,
     WebhookEvent,
@@ -21,6 +23,7 @@ __all__ = [
     "AsyncFormfeed",
     "Formfeed",
     "FormfeedError",
+    "Diagnostic",
     "Job",
     "LibraryFile",
     "LibraryFilePage",
@@ -28,6 +31,7 @@ __all__ = [
     "Render",
     "RenderPage",
     "Template",
+    "TemplateValidation",
     "Usage",
     "TemplateVersion",
     "WebhookEndpoint",

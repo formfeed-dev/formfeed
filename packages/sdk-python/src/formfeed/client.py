@@ -21,6 +21,7 @@ from .models import (
     RenderPage,
     Template,
     TemplatePage,
+    TemplateValidation,
     TemplateVersion,
     Usage,
     WebhookEndpoint,
@@ -423,6 +424,13 @@ class _Templates:
     def schema(self, id_or_slug: str) -> dict[str, Any]:
         return self._c.request("GET", f"/templates/{id_or_slug}/schema")
 
+    def validate(self, id_or_slug: str, data: dict[str, Any] | None = None, *, version: str | int = "published") -> TemplateValidation:
+        """Checks a version with data without rendering. Free. Without ``data``, the version's sample data is checked."""
+        body: dict[str, Any] = {"version": version}
+        if data is not None:
+            body["data"] = data
+        return TemplateValidation.model_validate(self._c.request("POST", f"/templates/{id_or_slug}/validate", body))
+
 
 class _Account:
     def __init__(self, client: Formfeed) -> None:
@@ -656,6 +664,12 @@ class _AsyncTemplates:
 
     async def schema(self, id_or_slug: str) -> dict[str, Any]:
         return await self._c.request("GET", f"/templates/{id_or_slug}/schema")
+
+    async def validate(self, id_or_slug: str, data: dict[str, Any] | None = None, *, version: str | int = "published") -> TemplateValidation:
+        body: dict[str, Any] = {"version": version}
+        if data is not None:
+            body["data"] = data
+        return TemplateValidation.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/validate", body))
 
 
 class _AsyncAccount:
