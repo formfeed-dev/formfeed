@@ -596,7 +596,7 @@ export class Formfeed {
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.apiKey}`,
       accept: 'application/json',
-      'user-agent': 'formfeed-sdk-ts/0.1',
+      'user-agent': 'formfeed-sdk-ts/0.2',
     };
     // FormData brings its own multipart content type with the boundary; everything else is JSON.
     const isForm = typeof FormData !== 'undefined' && body instanceof FormData;

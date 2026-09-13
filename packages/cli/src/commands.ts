@@ -52,7 +52,7 @@ export interface ProgramContext {
   wait?: (ms: number) => Promise<void>;
 }
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 export function buildProgram(ctx: ProgramContext = {}): Command {
   const program = new Command('formfeed')
