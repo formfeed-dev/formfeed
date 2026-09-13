@@ -10,6 +10,25 @@ const sample = {
 };
 
 describe('jinja2 analysis', () => {
+  it('checks each loop variable against its own list, and knows macro arguments and Jinja2 globals', () => {
+    const a = engines.jinja2.analyze(
+      [
+        `{% macro fmt(value, places, suffix='') %}{{ value }}{{ places }}{{ suffix }}{% endmacro %}`,
+        `{% for item in materials.inverters %}{{ item.manufacturer_name }}{% endfor %}`,
+        `{% for item in plan.inverters %}{{ item.manufacturer }}{% for m in item.mppts %}{{ m.index }}{{ m.nope }}{% endfor %}{% endfor %}`,
+        `{% set ns = namespace(total=0) %}{% set ns.total = ns.total + 1 %}{{ ns.total }}{{ s | truncate(5, True) }}`,
+      ].join('\n'),
+      {
+        sampleData: {
+          materials: { inverters: [{ manufacturer_name: 'SMA' }] },
+          plan: { inverters: [{ manufacturer: 'SMA', mppts: [{ index: 1 }] }] },
+          s: 'x',
+        },
+      },
+    );
+    expect(a.diagnostics.map((d) => d.message)).toEqual(['"m.nope" is not present in the sample data']);
+  });
+
   it('collects variables, loop sources, filters, includes and blocks', () => {
     const a = engines.jinja2.analyze(
       `{% include "footer" %}{% for line in invoice.lines %}{{ line.price | money }} {{ line.missing }}{% endfor %}{{ invoice.customer.phone }}{{ company.name | upper }}`,

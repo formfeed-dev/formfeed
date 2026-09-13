@@ -233,7 +233,10 @@ export function missingPathDiagnostics(
     const root = v.path[0];
     if (!root || builtinRoots.has(root)) continue;
     let path = v.path;
-    if (loopSources.has(root)) {
+    if (v.source !== undefined) {
+      if (!v.source) continue; // bound to something that is not a data path
+      path = [...v.source, ...v.path.slice(1)];
+    } else if (loopSources.has(root)) {
       const source = loopSources.get(root);
       if (!source) continue; // loop over an unknown expression: nothing to check against
       path = [...source, ...v.path.slice(1)];

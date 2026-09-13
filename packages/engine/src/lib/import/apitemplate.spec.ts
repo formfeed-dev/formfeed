@@ -56,6 +56,19 @@ describe('apitemplate.io importer', () => {
     expect(broken.errors[0]?.code).toBe('syntax-error');
   });
 
+  it("hides the visual editor's loop wrappers and runs namespaces without errors", () => {
+    const result = importApitemplate({
+      name: 'Wrapped',
+      html: '<table><tr class="apitemplate-is-content-hidden"><td>{%for r in rows%}</td></tr><tr><td>{{ r }}</td></tr><tr class="apitemplate-is-content-hidden"><td>{%endfor%}</td></tr></table>{% set ns = namespace(n=0) %}{% set ns.n = ns.n + 1 %}',
+      css: 'td { padding: 2px }',
+      sample_data: { rows: [1] },
+    });
+    expect(result.css).toBe('.apitemplate-is-content-hidden { display: none !important; }\ntd { padding: 2px }');
+    expect(result.changes.join(' ')).toContain('apitemplate-is-content-hidden');
+    expect(result.errors).toEqual([]);
+    expect(importApitemplate({ name: 'Plain', html: '<p>x</p>' }).css).toBe('');
+  });
+
   it('turns JPEG templates into image templates and derives slugs', () => {
     const result = importApitemplate({ name: 'Social Card ✨', html: '<div>{{ title }}</div>', format: 'JPEG', settings: { output_image_type: 'jpeg', viewport_width: 800, viewport_height: 418 } });
     expect(result.kind).toBe('image');

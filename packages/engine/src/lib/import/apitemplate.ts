@@ -23,6 +23,8 @@ export interface ApitemplateExport {
   format?: string | null;
 }
 
+const HIDDEN_WRAPPER = 'apitemplate-is-content-hidden';
+
 /** Python Jinja2 constructs Nunjucks does not run (spec 05 §8), found by pattern with a position. */
 const pythonisms: Array<{ pattern: RegExp; code: string; message: string; docs: string }> = [
   {
@@ -99,7 +101,14 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
   if (sample.error) warnings.push({ code: 'sample-json', message: `Sample data is not valid JSON (${sample.error}); the draft starts without sample data.`, docs: '/migrate/apitemplate-io#sample-data' });
 
   const html = input.html ?? '';
-  const css = input.css ?? '';
+  let css = input.css ?? '';
+  // apitemplate.io's visual editor wraps each `{% for %}`/`{% endfor %}` in an element of this class
+  // (table rows of empty cells, too) and hides it with its own stylesheet; without the rule every
+  // loop iteration adds an empty row or block to the document
+  if (html.includes(HIDDEN_WRAPPER)) {
+    css = `.${HIDDEN_WRAPPER} { display: none !important; }\n${css}`;
+    changes.push(`elements of the editor class "${HIDDEN_WRAPPER}" are hidden by a rule added to the CSS`);
+  }
   for (const rule of pythonisms) {
     const m = rule.pattern.exec(html);
     if (m) warnings.push({ code: rule.code, message: rule.message, docs: rule.docs, ...positionOf(html, m.index) });

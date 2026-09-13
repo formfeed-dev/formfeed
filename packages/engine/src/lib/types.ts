@@ -30,6 +30,12 @@ export interface VariableRef {
   path: string[];
   range: Range;
   kind: 'read' | 'loop-var' | 'assigned';
+  /**
+   * For a variable bound in the template (loop variable, macro argument, `set`): the data path it
+   * stands for where it is used, `null` when that is not a data path. Resolved per scope, so two loops
+   * that reuse a name each check against their own list.
+   */
+  source?: string[] | null;
 }
 export interface FilterRef {
   name: string;

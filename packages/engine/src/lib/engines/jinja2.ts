@@ -9,6 +9,7 @@ import {
 import { EngineSyntaxError, RenderError } from '../errors';
 import { defaultHelpers } from '../helpers';
 import { enforceLimits } from '../limits';
+import { pythonFormat } from './python-format';
 import type {
   Analysis,
   AnalyzeOptions,
@@ -81,6 +82,11 @@ const builtinRoots = new Set([
   'lipsum',
   'varargs',
   'kwargs',
+  'namespace',
+  // Jinja2's spelling of the literals, which the compat layer resolves at runtime
+  'True',
+  'False',
+  'None',
 ]);
 
 // --- Python compatibility (spec 05 §8) -------------------------------------------------------
@@ -117,15 +123,8 @@ const stringMethods: StringMethods = {
       : s.split(String(sep), max === undefined ? undefined : Number(max) + 1),
   join: (s, list) => (Array.isArray(list) ? list.join(s) : String(list)),
   format: (s, ...args) => {
-    let i = 0;
-    const named = (
-      args.at(-1) && typeof args.at(-1) === 'object'
-        ? (args.at(-1) as Record<string, unknown>)
-        : {}
-    ) as Record<string, unknown>;
-    return s.replace(/\{(\w*)\}/g, (_, key: string) =>
-      String(key ? (named[key] ?? '') : (args[i++] ?? '')),
-    );
+    const named = keywordArgs(args);
+    return pythonFormat(s, named ? args.slice(0, -1) : args, named ?? {});
   },
   zfill: (s, width) => s.padStart(Number(width), '0'),
   count: (s, sub) => s.split(String(sub)).length - 1,
@@ -140,6 +139,127 @@ const stringMethods: StringMethods = {
     return f.repeat(left) + s + f.repeat(total - left);
   },
 };
+
+/** Nunjucks passes `name=value` arguments as a trailing object marked `__keywords`. */
+function keywordArgs(args: unknown[]): Record<string, unknown> | undefined {
+  const last = args.at(-1);
+  if (!last || typeof last !== 'object' || !Object.prototype.hasOwnProperty.call(last, '__keywords')) return undefined;
+  const { __keywords: _marker, ...named } = last as Record<string, unknown>;
+  return named;
+}
+
+/** `namespace(total=0)`: the one object Jinja2 lets a template change with `{% set ns.total = … %}`. */
+class JinjaNamespace {
+  [key: string]: unknown;
+}
+
+function namespace(...args: unknown[]): JinjaNamespace {
+  const ns = new JinjaNamespace();
+  const named = keywordArgs(args);
+  for (const arg of named ? [...args.slice(0, -1), named] : args)
+    if (arg && typeof arg === 'object') Object.assign(ns, arg);
+  return ns;
+}
+
+function setNamespaceAttribute(target: unknown, key: unknown, value: unknown): void {
+  if (!(target instanceof JinjaNamespace)) throw new Error('Cannot assign attribute on non-namespace object');
+  target[String(key)] = value;
+}
+
+const toList = (v: unknown): unknown[] =>
+  Array.isArray(v) ? v : v === undefined || v === null ? [] : typeof v === 'string' ? [...v] : [v];
+
+const attributeOf = (item: unknown, path: unknown): unknown =>
+  String(path ?? '')
+    .split('.')
+    .reduce<unknown>((acc, key) => (acc !== null && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined), item);
+
+/** Jinja2 test names Nunjucks spells differently or does not have. */
+const jinjaTests: Record<string, (value: unknown, arg: unknown) => boolean> = {
+  none: (v) => v === null,
+  true: (v) => v === true,
+  false: (v) => v === false,
+  in: (v, container) =>
+    typeof container === 'string'
+      ? container.includes(String(v))
+      : Array.isArray(container)
+        ? container.includes(v)
+        : !!container && typeof container === 'object' && String(v) in container,
+  '==': (v, a) => v === a,
+  '!=': (v, a) => v !== a,
+  '>': (v, a) => (v as number) > (a as number),
+  '>=': (v, a) => (v as number) >= (a as number),
+  '<': (v, a) => (v as number) < (a as number),
+  '<=': (v, a) => (v as number) <= (a as number),
+};
+
+type FilterThis = { env: { getTest(name: string): (this: unknown, v: unknown, a?: unknown) => boolean; getFilter(name: string): (...a: unknown[]) => unknown } };
+
+function runTest(self: FilterThis, name: string, value: unknown, arg: unknown): boolean {
+  const own = jinjaTests[name];
+  if (own) return own(value, arg);
+  return self.env.getTest(name).call(self, value, arg) === true;
+}
+
+/**
+ * Jinja2's call shapes for filters whose Formfeed helper takes different arguments. Each adapter
+ * recognises the Jinja2 form and otherwise hands the call to the helper, so the documented helper
+ * signature keeps working in Jinja2 templates too.
+ */
+function installJinjaFilters(env: InstanceType<typeof nunjucks.Environment>): void {
+  const lookup = env as unknown as FilterThis['env'] & { addFilter(name: string, fn: unknown): void };
+  const helperTruncate = lookup.getFilter('truncate');
+  // truncate(s, length=255, killwords=False, end='...', leeway=5)
+  lookup.addFilter('truncate', function (this: FilterThis, value: unknown, ...args: unknown[]) {
+    const named = keywordArgs(args);
+    const p = named ? args.slice(0, -1) : args;
+    if (!named && typeof p[1] !== 'boolean' && p.length < 3) return helperTruncate.call(this, value, ...args);
+    const s = String(value ?? '');
+    const length = Number(p[0] ?? named?.['length'] ?? 255);
+    const killwords = Boolean(p[1] ?? named?.['killwords'] ?? false);
+    const end = String(p[2] ?? named?.['end'] ?? '...');
+    const leeway = Number(p[3] ?? named?.['leeway'] ?? 5);
+    if (s.length <= length + leeway) return s;
+    const cut = s.slice(0, Math.max(0, length - end.length));
+    if (killwords) return cut + end;
+    const space = cut.lastIndexOf(' ');
+    return (space >= 0 ? cut.slice(0, space) : cut) + end;
+  });
+
+  const helperMap = lookup.getFilter('map');
+  // map(attribute='x', default=…) and map('upper'); map('field') on objects stays the pluck helper
+  lookup.addFilter('map', function (this: FilterThis, value: unknown, ...args: unknown[]) {
+    const named = keywordArgs(args);
+    const p = named ? args.slice(0, -1) : args;
+    if (named && 'attribute' in named)
+      return toList(value).map((item) => {
+        const v = attributeOf(item, named['attribute']);
+        return v === undefined && 'default' in named ? named['default'] : v;
+      });
+    const items = toList(value);
+    if (typeof p[0] === 'string' && !items.some((item) => item !== null && typeof item === 'object')) {
+      let filter: ((...a: unknown[]) => unknown) | undefined;
+      try {
+        filter = lookup.getFilter(p[0]);
+      } catch {
+        filter = undefined;
+      }
+      if (filter) return items.map((item) => filter.call(this, item, ...p.slice(1)));
+    }
+    return helperMap.call(this, value, ...args);
+  });
+
+  // selectattr('category', 'equalto', 'ROOF'); Nunjucks only knows the one-argument form
+  const byAttribute = (keep: boolean) =>
+    function (this: FilterThis, value: unknown, attribute: unknown, test?: unknown, arg?: unknown) {
+      return toList(value).filter((item) => {
+        const v = attributeOf(item, attribute);
+        return (test === undefined ? Boolean(v) : runTest(this, String(test), v, arg)) === keep;
+      });
+    };
+  lookup.addFilter('selectattr', byAttribute(true));
+  lookup.addFilter('rejectattr', byAttribute(false));
+}
 
 function trimChars(
   s: string,
@@ -173,6 +293,22 @@ function installCompat(): void {
     this._emit('!(');
     this.compile(node.target, frame);
     this._emit(')');
+  };
+  // `{% set ns.total = ns.total + 1 %}` (Jinja2 namespaces): nunjucks' parser accepts an attribute as
+  // the target, but its code generator only handles names and crashed reading the target's name.
+  const compileSet = nunjucks.compiler.Compiler.prototype.compileSet;
+  (nunjucks.runtime as unknown as Record<string, unknown>)['formfeedSetAttribute'] = setNamespaceAttribute;
+  nunjucks.compiler.Compiler.prototype.compileSet = function (node, frame) {
+    const [target, ...more] = node.targets;
+    if (!target || more.length || target.typename !== 'LookupVal') return compileSet.call(this, node, frame);
+    this._emit('runtime.formfeedSetAttribute(');
+    this._compileExpression(target['target'], frame);
+    this._emit(', ');
+    this._compileExpression(target['val'], frame);
+    this._emit(', ');
+    if (node.value) this._compileExpression(node.value, frame);
+    else this.compile(node.body, frame);
+    this._emitLine(');');
   };
   const original = nunjucks.runtime.memberLookup;
   nunjucks.runtime.memberLookup = (obj: unknown, val: unknown, ...rest: unknown[]) => {
@@ -255,6 +391,8 @@ function createEnvironment(
     env.addFilter(name, wrapped as never);
     env.addGlobal(name, wrapped);
   }
+  env.addGlobal('namespace', namespace);
+  installJinjaFilters(env);
   return env;
 }
 
@@ -319,13 +457,22 @@ interface Walk {
   variables: VariableRef[];
   filters: FilterRef[];
   includes: IncludeRef[];
-  loopSources: Map<string, string[] | null>;
-  scopes: Array<Set<string>>;
+  /** Names bound by the template, innermost last: name → the data path it stands for, or null. */
+  scopes: Array<Map<string, string[] | null>>;
   helpers: HelperRegistry;
 }
 
 function inScope(w: Walk, name: string): boolean {
   return w.scopes.some((s) => s.has(name));
+}
+
+/** The data path a bound name stands for in the innermost scope that binds it. */
+function sourceOf(w: Walk, name: string): string[] | null {
+  for (let i = w.scopes.length - 1; i >= 0; i--) {
+    const scope = w.scopes[i];
+    if (scope?.has(name)) return scope.get(name) ?? null;
+  }
+  return null;
 }
 
 function walk(node: NunjucksNode | undefined, w: Walk): void {
@@ -336,10 +483,12 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
       const p = pathOf(node);
       if (p) {
         const root = p.path[0] ?? '';
+        const bound = inScope(w, root);
         w.variables.push({
           path: p.path,
           range: nodeRange(p.root, p.path.join('.').length),
-          kind: inScope(w, root) ? 'loop-var' : 'read',
+          kind: bound ? 'loop-var' : 'read',
+          ...(bound ? { source: sourceOf(w, root) } : {}),
         });
       }
       if (node.typename === 'LookupVal' && !p) {
@@ -391,23 +540,24 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
       const nameNode = node['name'] as NunjucksNode;
       const names =
         nameNode.typename === 'Array' ? (nameNode.children ?? []) : [nameNode];
-      const scope = new Set<string>();
+      // `for line in group.items` inside `for group in groups` → groups.items
+      const root = source?.path[0] ?? '';
+      const items = !source
+        ? null
+        : inScope(w, root)
+          ? ((s) => (s ? [...s, ...source.path.slice(1)] : null))(sourceOf(w, root))
+          : source.path;
+      const scope = new Map<string, string[] | null>();
       for (const n of names) {
         const name = String(n.value);
-        scope.add(name);
         // `for k, v in dict` unpacks; only a single loop variable maps onto the array items
-        w.loopSources.set(
-          name,
-          names.length === 1 && source && !inScope(w, source.path[0] ?? '')
-            ? source.path
-            : names.length === 1 && source
-              ? resolveLoopSource(w, source.path)
-              : null,
-        );
+        const bound = names.length === 1 ? items : null;
+        scope.set(name, bound);
         w.variables.push({
           path: [name],
           range: nodeRange(n, name.length),
           kind: 'loop-var',
+          source: bound,
         });
       }
       w.scopes.push(scope);
@@ -425,8 +575,8 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
             range: nodeRange(p.root, p.path.join('.').length),
             kind: 'assigned',
           });
-          w.scopes[0]?.add(p.path[0] ?? '');
-          w.loopSources.set(p.path[0] ?? '', null);
+          // `{% set ns.total = … %}` changes a namespace that is already bound; do not rebind it
+          if (p.path.length === 1 || !inScope(w, p.path[0] ?? '')) w.scopes[0]?.set(p.path[0] ?? '', null);
         }
       }
       walk(node['value'] as NunjucksNode, w);
@@ -435,12 +585,19 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
     }
     case 'Macro': {
       const args = node['args'] as NunjucksNode;
-      const scope = new Set<string>();
-      for (const child of args.children ?? [])
-        if (child.typename === 'Symbol') scope.add(String(child.value));
+      const scope = new Map<string, string[] | null>();
+      for (const child of args.children ?? []) {
+        if (child.typename === 'Symbol') scope.set(String(child.value), null);
+        // `macro f(a, b=1)`: the defaulted arguments sit in a KeywordArgs node of key/value pairs
+        if (child.typename === 'KeywordArgs')
+          for (const pair of child.children ?? []) {
+            const key = pair['key'] as NunjucksNode | undefined;
+            if (key) scope.set(String(key.value), null);
+            walk(pair['value'] as NunjucksNode, w);
+          }
+      }
       const nameNode = node['name'] as NunjucksNode;
-      w.scopes[0]?.add(String(nameNode.value));
-      w.loopSources.set(String(nameNode.value), null);
+      w.scopes[0]?.set(String(nameNode.value), null);
       w.scopes.push(scope);
       walk(node['body'] as NunjucksNode, w);
       w.scopes.pop();
@@ -464,17 +621,19 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
         });
       else walk(tpl, w);
       if (node.typename === 'Import')
-        w.scopes[0]?.add(
+        w.scopes[0]?.set(
           String((node['target'] as NunjucksNode | undefined)?.value ?? ''),
+          null,
         );
       if (node.typename === 'FromImport')
         for (const n of (node['names'] as NunjucksNode).children ?? [])
-          w.scopes[0]?.add(
+          w.scopes[0]?.set(
             String(
               n.typename === 'Pair'
                 ? (n['value'] as NunjucksNode).value
                 : n.value,
             ),
+            null,
           );
       return;
     }
@@ -497,14 +656,6 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
   }
 }
 
-/** `for line in group.items` inside `for group in groups` → groups[].items */
-function resolveLoopSource(w: Walk, path: string[]): string[] | null {
-  const root = path[0] ?? '';
-  if (!w.loopSources.has(root)) return path;
-  const source = w.loopSources.get(root);
-  return source ? [...source, ...path.slice(1)] : null;
-}
-
 export function analyzeJinja2(
   source: string,
   opts: AnalyzeOptions = {},
@@ -515,8 +666,7 @@ export function analyzeJinja2(
     variables: [],
     filters: [],
     includes: [],
-    loopSources: new Map(),
-    scopes: [new Set()],
+    scopes: [new Map()],
     helpers,
   };
   try {
@@ -567,7 +717,7 @@ export function analyzeJinja2(
   const dataDiagnostics: Diagnostic[] = missingPathDiagnostics(
     w.variables,
     opts.sampleData,
-    w.loopSources,
+    new Map(),
     builtin,
   );
   return {

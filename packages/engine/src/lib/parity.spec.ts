@@ -643,6 +643,38 @@ describe('jinja2 python compatibility', () => {
     expect(out).toBe('open|true|true|true');
   });
 
+  it('runs Python format specs, namespaces and the Jinja2 forms of truncate, map and selectattr', async () => {
+    const render = (src: string, data: unknown) => engines.jinja2.render(engines.jinja2.compile(src), data, ctx);
+    // apitemplate.io's German number formatting idiom
+    expect(
+      await render(
+        `{% macro de(v, places) %}{{ "{:,.{}f}".format(v, places|default(0)).replace(',', 'x').replace('.', ',').replace('x', '.') }}{% endmacro %}{{ de(1234.5, 2) }}|{{ de(72) }}`,
+        {},
+      ),
+    ).toBe('1.234,50|72');
+    expect(
+      await render(
+        `{% set ns = namespace(count=0, power=0) %}{% for m in mods %}{% set ns.count = ns.count + m.n %}{% set ns.power = ns.power + m.n * m.w %}{% endfor %}{{ ns.count }}/{{ ns.power }}`,
+        { mods: [{ n: 2, w: 400 }, { n: 3, w: 450 }] },
+      ),
+    ).toBe('5/2150');
+    await expect(render(`{% set data.x = 1 %}`, { data: {} })).rejects.toThrow('non-namespace');
+    expect(await render(`{{ s | truncate(12, True, '~') }}|{{ s | truncate(12) }}|{{ short | truncate(12, False) }}`, { s: 'one two three four', short: 'tiny' })).toBe(
+      'one two thr~|one two thr…|tiny',
+    );
+    expect(await render(`{{ s | truncate(12, False, '~', 0) }}`, { s: 'one two three four' })).toBe('one two~');
+    expect(await render(`{{ xs | map(attribute='a.b') | join(',') }}|{{ words | map('upper') | join(',') }}|{{ xs | map('a') | length }}`, { xs: [{ a: { b: 1 } }, { a: { b: 2 } }], words: ['x', 'y'] })).toBe(
+      '1,2|X,Y|2',
+    );
+    const items = { xs: [{ c: 'ROOF', n: 1 }, { c: 'OTHER', n: 2 }, { c: 'ROOF', n: 3, on: true }] };
+    expect(
+      await render(
+        `{% for x in xs | selectattr("c", "equalto", "ROOF") %}{{ x.n }}{% endfor %}|{% for x in xs | rejectattr("c", "==", "ROOF") %}{{ x.n }}{% endfor %}|{{ xs | selectattr("on") | length }}|{{ xs | selectattr("n", "gt", 1) | length }}|{{ xs | selectattr("c", "in", ["OTHER"]) | length }}`,
+        items,
+      ),
+    ).toBe('13|2|1|2|1');
+  });
+
   it('keeps slice bounds, which the member lookup used to drop', async () => {
     const tpl = engines.jinja2.compile(`{{ nums[1:3] | join(',') }}`);
     expect(await engines.jinja2.render(tpl, { nums: [1, 2, 3, 4] }, ctx)).toBe('2,3');

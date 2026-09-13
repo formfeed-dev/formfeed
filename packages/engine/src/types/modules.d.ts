@@ -16,7 +16,15 @@ declare module 'nunjucks/browser/nunjucks.js' {
 
   export interface NunjucksCompiler {
     _emit(code: string): void;
+    _emitLine(code: string): void;
+    _compileExpression(node: unknown, frame: unknown): void;
     compile(node: unknown, frame: unknown): void;
+  }
+
+  export interface NunjucksSetNode {
+    targets: NunjucksNode[];
+    value: NunjucksNode | null;
+    body: NunjucksNode | null;
   }
 
   export interface NunjucksModule {
@@ -26,11 +34,12 @@ declare module 'nunjucks/browser/nunjucks.js' {
     runtime: typeof N.runtime & {
       memberLookup: (obj: unknown, val: unknown, ...rest: unknown[]) => unknown;
     };
-    /** The code generator; patched for `not` precedence (engines/jinja2.ts). */
+    /** The code generator; patched for `not` precedence and namespace attributes (engines/jinja2.ts). */
     compiler: {
       Compiler: {
         prototype: {
           compileNot(this: NunjucksCompiler, node: { target: unknown }, frame: unknown): void;
+          compileSet(this: NunjucksCompiler, node: NunjucksSetNode, frame: unknown): void;
         };
       };
     };
