@@ -142,6 +142,13 @@ html { background: #e5e7eb; }
 .pagedjs_pages { margin: 0 auto; }
 .pagedjs_page { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08); margin: 16px auto; }
 `;
+  // Paged.js turns CSS rules with `+` or `:nth-of-type` into `querySelectorAll` calls on the parsed
+  // content without a try/catch. A stylesheet that is not really CSS turns into rules with invalid
+  // selectors, e.g. the HTML error page Google Fonts sends for a family it does not have, which
+  // apitemplate.io's autofonts script links for every font-family it sees ("' 0' is not a valid
+  // selector"). One such selector threw and left the whole paged preview blank; here it matches
+  // nothing and says so in the console.
+  const selectorGuard = `<script>(function(){var q=DocumentFragment.prototype.querySelectorAll;DocumentFragment.prototype.querySelectorAll=function(s){try{return q.call(this,s);}catch(e){console.warn('formfeed paged preview: skipped a selector Paged.js could not use:',s);return q.call(this,':not(*)');}};})();</script>`;
   const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} } };</script>`;
   const script = `<script src="${options.pagedScriptUrl}"></script>`;
   const header = headerHtml
@@ -151,6 +158,6 @@ html { background: #e5e7eb; }
     ? `<div class="ff-running-footer">${pageNumberSpans(footerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
     : '';
   return draft.document
-    .replace('</head>', `<style data-formfeed="paged">${runningCss}</style>${config}${script}${inspectScript}${pageNavScript}</head>`)
+    .replace('</head>', `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${config}${script}${inspectScript}${pageNavScript}</head>`)
     .replace(/(<body[^>]*>)/, `$1${header}${footer}`);
 }

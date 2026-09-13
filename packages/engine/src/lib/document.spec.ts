@@ -6,6 +6,7 @@ import {
   renderVersion,
 } from './assemble';
 import { defaultHelpers } from './helpers';
+import { pagedDocument } from './preview';
 import { inferSchema, schemaPaths } from './schema';
 import type { RenderContext } from './types';
 
@@ -146,6 +147,18 @@ describe('settings and assembly', () => {
     expect(out.footerHtml).toBe('<span class="pageNumber"></span>');
     expect(out.title).toBe('Rechnung 42');
     expect(out.settings.locale).toBe('de-DE');
+  });
+});
+
+describe('paged preview document', () => {
+  it('guards selector queries before Paged.js loads, so an unusable stylesheet cannot blank the preview', () => {
+    const doc = pagedDocument(
+      { document: assembleDocument({ html: '<p>x</p>' }), settings: {}, kind: 'pdf' },
+      { pagedScriptUrl: 'https://app.example/vendor/pagedjs/paged.polyfill.min.js' },
+    );
+    const guard = doc.indexOf('DocumentFragment.prototype.querySelectorAll');
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(doc.indexOf('paged.polyfill.min.js'));
   });
 });
 
