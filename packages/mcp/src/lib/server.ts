@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getEngine, inferSchema, type Diagnostic } from '@formfeed/engine';
+import { getEngine, inferSchema, outputFormats, type Diagnostic } from '@formfeed/engine';
 import { Formfeed, FormfeedError, type Render } from '@formfeed/sdk-ts';
 import { z } from 'zod';
 
@@ -18,7 +18,7 @@ export interface ServerOptions {
 export const SERVER_INFO = { name: 'formfeed', version: '0.2.0' };
 
 const engineSchema = z.enum(['jinja2', 'liquid', 'handlebars']);
-const outputSchema = z.enum(['pdf', 'png', 'jpg']);
+const outputSchema = z.enum(outputFormats);
 
 const templateSummary = (t: { id: string; slug: string; name: string; kind: string; engine: string; description: string | null; tags: string[]; published_version: number | null; updated_at: string }) => ({
   id: t.id,
@@ -164,7 +164,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
         html: z.string().optional().describe('Raw HTML instead of a template'),
         engine: engineSchema.optional().describe('Engine for html that contains template syntax'),
         data: z.record(z.string(), z.unknown()).optional(),
-        output: outputSchema.default('pdf'),
+        output: outputSchema.optional().describe('Left out: PDF for PDF templates and html, the template\'s image format for image templates'),
         filename: z.string().optional(),
         locale: z.string().optional().describe('BCP 47 tag for helpers and translations, e.g. de-DE'),
         wait: z.boolean().default(true).describe('Wait for the render to finish (sync renders finish immediately)'),
@@ -179,7 +179,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           ...(html ? { html } : {}),
           ...(engine ? { engine } : {}),
           data: data ?? {},
-          output,
+          ...(output ? { output } : {}),
           ...(filename ? { filename } : {}),
           ...(locale ? { locale } : {}),
           meta: { source: 'mcp' },

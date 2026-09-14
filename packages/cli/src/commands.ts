@@ -3,17 +3,20 @@ import { spawnSync } from 'node:child_process';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import {
+  defaultOutput,
   EngineSyntaxError,
   importApitemplate,
   importJsreport,
   importPdfmonkey,
   inferSchemaFromDataSets,
+  isOutputFormat,
   isScss,
   jsreportTemplates,
   RenderError,
   type Diagnostic as EngineDiagnostic,
   type EngineId,
   type ImportResult,
+  type OutputFormat,
   type TemplateKind,
 } from '@formfeed/engine';
 import type { Channel, FormfeedError, RenderInput, SchemaChange, SharedPartialPutResult, TemplateVersion } from '@formfeed/sdk-ts';
@@ -551,17 +554,19 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .description('True render through the API from the local files (test keys are free)')
     .option('--data <name-or-file>', 'data set name or a JSON file')
     .option('--out <file>', 'output file (default: <slug>.<ext>)')
-    .option('--output <format>', 'pdf, png, jpg or webp', parseOutput)
+    .option('--output <format>', 'pdf, png, jpg or webp (default: the template\'s kind and image format)', parseOutput)
     .option('--remote', 'render the published remote version instead of local files')
-    .action(async (slug: string, opts: { data?: string; out?: string; output?: 'pdf' | 'png' | 'jpg' | 'webp'; remote?: boolean }) => {
+    .action(async (slug: string, opts: { data?: string; out?: string; output?: OutputFormat; remote?: boolean }) => {
       const s = settings();
       const project = requireProject(s);
       const c = client(s);
       const tpl = readTemplate(project, slug);
       const data = loadData(project.root, tpl, opts.data);
-      const output = opts.output ?? (tpl.meta.kind === 'image' ? 'png' : 'pdf');
+      // local files leave as HTML, which has no kind, so the output is decided here; the published
+      // version decides its own
+      const output = opts.output ?? defaultOutput(tpl.meta.kind, tpl.settings);
       const render = opts.remote
-        ? await c.renders.create({ template: slug, data: data as Record<string, unknown>, output })
+        ? await c.renders.create({ template: slug, data: data as Record<string, unknown>, ...(opts.output ? { output: opts.output } : {}) })
         : await (async () => {
             // the document leaves complete, so asset() must already point at the workspace library
             const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c), brand: readBrand(project) });
@@ -570,7 +575,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const finished = render.status === 'succeeded' || render.status === 'failed' ? render : await c.renders.waitFor(render.id);
       if (finished.status !== 'succeeded') throw new CliError(`render ${finished.id} failed: ${JSON.stringify(finished.error)}`, exitCodes.network, finished);
       const bytes = await c.renders.download(finished);
-      const file = resolve(ctx.cwd ?? process.cwd(), opts.out ?? `${slug}.${output}`);
+      const file = resolve(ctx.cwd ?? process.cwd(), opts.out ?? `${slug}.${finished.output || output}`);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, bytes);
       emit(p(), { ...finished, file }, () => [`${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s) -> ${file}`]);
@@ -686,7 +691,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       for (const one of slugs) {
         const tpl = readTemplate(project, one);
         const set = defaultData(tpl);
-        const output = tpl.meta.kind === 'image' ? 'png' : 'pdf';
+        const output = defaultOutput(tpl.meta.kind, tpl.settings);
         const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl, brand });
         const created = await c.renders.create({
           html: rendered.document,
@@ -1383,9 +1388,9 @@ function parseEngine(value: string): EngineId {
   return value as EngineId;
 }
 
-function parseOutput(value: string): 'pdf' | 'png' | 'jpg' | 'webp' {
-  if (!['pdf', 'png', 'jpg', 'webp'].includes(value)) throw new InvalidArgumentError('output must be pdf, png, jpg or webp');
-  return value as 'pdf' | 'png' | 'jpg' | 'webp';
+function parseOutput(value: string): OutputFormat {
+  if (!isOutputFormat(value)) throw new InvalidArgumentError('output must be pdf, png, jpg or webp');
+  return value;
 }
 
 function loadData(root: string, tpl: LocalTemplate, nameOrFile?: string): unknown {

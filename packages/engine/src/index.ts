@@ -32,6 +32,8 @@ export {
   nunjucksBuiltinFilters,
 } from './lib/engines';
 export { diffSchemas, inferSchema, inferSchemaFromDataSets, schemaPaths } from './lib/schema';
+export { defaultOutput, imageOutput, isOutputFormat, outputFormats } from './lib/output';
+export type { OutputFormat } from './lib/output';
 export { brandCss, emptyBrand, layeredPartials, normalisePartialName } from './lib/brand';
 export type { BrandContext, SharedPartial } from './lib/brand';
 export {

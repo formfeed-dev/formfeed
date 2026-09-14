@@ -28,6 +28,7 @@ export interface RenderRequest {
   url?: string;
   engine?: Engine;
   data?: Record<string, unknown>;
+  /** Left out, the template decides: PDF, or an image template's `settings.image.format`. */
   output?: OutputFormat;
   settings?: Record<string, unknown>;
   filename?: string;
@@ -147,6 +148,8 @@ export interface BatchRequest<T extends string = string> {
   template?: T;
   /** Default `canary_key` of the items; without one the whole batch lands on one version. */
   canary_key?: string;
+  /** Default `output` of the items; an item's own wins, without either its template decides. */
+  output?: OutputFormat;
   items: Array<Omit<RenderRequest, 'data'> & { data?: TemplateData<T> }>;
   zip?: boolean;
   webhook_url?: string | null;

@@ -28,6 +28,9 @@
       "@formfeed/engine/schema": [
         "./packages/engine/src/lib/schema.ts"
       ],
+      "@formfeed/engine/output": [
+        "./packages/engine/src/lib/output.ts"
+      ],
       "@formfeed/api-types": [
         "./packages/api-types/src/index.ts"
       ],
