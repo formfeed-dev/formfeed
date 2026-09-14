@@ -103,8 +103,8 @@ export const snippets: Snippet[] = [
 </div>$0`,
     ),
     sampleData: {
-      company: { name: 'Acme GmbH', street: 'Hauptstraße 5', zip: '80331', city: 'München' },
-      customer: { name: 'Muster GmbH', street: 'Musterstraße 1', zip: '10115', city: 'Berlin' },
+      company: { name: 'Fennlor Studio GmbH', street: 'Musterstraße 1', zip: '12345', city: 'Musterstadt' },
+      customer: { name: 'Olvarest GmbH', street: 'Beispielweg 2', zip: '54321', city: 'Beispielstadt' },
     },
     // Form B puts the field 45 mm below the top edge and 20 mm from the left; the page margins decide where it lands
     css: `.ff-window { width: 85mm; height: 45mm; box-sizing: border-box; padding: 0 5mm; overflow: hidden; }\n.ff-window .sender { height: 5mm; line-height: 5mm; margin-bottom: 3mm; font-size: 7pt; color: #555; border-bottom: 0.5pt solid #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.ff-window address { font-style: normal; font-size: 10pt; line-height: 1.35; }`,
@@ -238,9 +238,9 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     sampleData: {
       invoice: { due_date: '2026-10-13' },
       payment: {
-        name: 'Acme GmbH',
-        iban: 'DE02120300000000202051',
-        bic: 'BYLADEM1001',
+        name: 'Fennlor Studio GmbH',
+        iban: 'DE00000000000000000000',
+        bic: 'XXXXDEXXXXX',
         amount: 3760.4,
         reference: '2026-0042',
       },
@@ -283,7 +283,7 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     source: forAll(
       (e) => `<p class="ff-note">${tr(e, 'vat.reverse_charge')} ${tr(e, 'vat.customer_id')} ${val(e, 'customer.vat_id')}</p>$0`,
     ),
-    sampleData: { customer: { vat_id: 'ATU12345678' } },
+    sampleData: { customer: { vat_id: 'ATU00000000' } },
     css: `.ff-note { margin-top: 12px; font-size: 9pt; color: #444; }`,
     i18n: {
       en: {
@@ -311,10 +311,10 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     ),
     sampleData: {
       customer: {
-        name: 'Muster GmbH',
-        street: 'Musterstraße 1',
-        zip: '10115',
-        city: 'Berlin',
+        name: 'Olvarest GmbH',
+        street: 'Beispielweg 2',
+        zip: '54321',
+        city: 'Beispielstadt',
         country: 'Deutschland',
       },
     },
@@ -335,7 +335,7 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
   <span>${tr(e, 'footer.page')} <span class="pageNumber"></span> ${tr(e, 'footer.of')} <span class="totalPages"></span></span>
 </div>$0`,
     ),
-    sampleData: { company: { name: 'Acme GmbH', email: 'hello@acme.example' } },
+    sampleData: { company: { name: 'Fennlor Studio GmbH', email: 'hello@fennlor.example' } },
     i18n: {
       en: { 'footer.page': 'Page', 'footer.of': 'of' },
       de: { 'footer.page': 'Seite', 'footer.of': 'von' },
@@ -411,9 +411,9 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     },
     sampleData: {
       payment: {
-        name: 'Acme GmbH',
-        iban: 'DE02120300000000202051',
-        bic: 'BYLADEM1001',
+        name: 'Fennlor Studio GmbH',
+        iban: 'DE00000000000000000000',
+        bic: 'XXXXDEXXXXX',
         amount: 3760.4,
         reference: '2026-0042',
       },

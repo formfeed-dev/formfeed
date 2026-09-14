@@ -47,12 +47,12 @@ const version = {
 
 const brand = {
   version: 5,
-  name: 'Acme GmbH',
+  name: 'Fennlor Studio GmbH',
   colors: { primary: '#0f766e' },
   fonts: { heading: 'Inter', body: null },
   font_size: null,
   logo: { primary: 'https://cdn.test/a/brand/org_1/primary-3f9a1c2b7d4e.svg', inverse: null, mark: null },
-  legal_footer: 'Acme GmbH · HRB 12345',
+  legal_footer: 'Fennlor Studio GmbH · HRB 00000',
   page_defaults: { paper: { format: 'A4' } },
   updated_at: '2026-09-13T00:00:00Z',
 };
@@ -76,7 +76,7 @@ const remoteFiles = [
 const renderInputs: Record<string, Record<string, unknown>> = {
   rnd_abc123: {
     template: { id: 'tpl_1', slug: 'invoice', version: 1, channel: 'published' },
-    data: { invoice: { number: 'INV-7' }, customer: { name: 'Jane Doe', email: 'jane@acme.com' }, total: 99.5 },
+    data: { invoice: { number: 'INV-7' }, customer: { name: 'Jane Doe', email: 'jane@mail.test' }, total: 99.5 },
     locale: 'de-DE',
   },
   rnd_bad001: {
@@ -115,10 +115,10 @@ function fakeApi() {
       return json({
         api_key: 'ff_live_from_device',
         workspace: { id: 'ws_1', slug: 'production', name: 'Production', region: 'eu' },
-        organization: { id: 'org_1', slug: 'acme', name: 'Acme' },
+        organization: { id: 'org_1', slug: 'fennlor', name: 'Fennlor' },
       });
     }
-    if (call.path === '/v1/account') return json({ workspace: { name: 'Production', slug: 'production', region: 'eu' }, organization: { name: 'Acme', slug: 'acme' }, plan: { name: 'Pro' }, units: { used: 3, included: 100 }, environment: 'test' });
+    if (call.path === '/v1/account') return json({ workspace: { name: 'Production', slug: 'production', region: 'eu' }, organization: { name: 'Fennlor', slug: 'fennlor' }, plan: { name: 'Pro' }, units: { used: 3, included: 100 }, environment: 'test' });
     if ((call.path === '/v1/templates' || call.path.startsWith('/v1/templates?')) && call.method === 'GET') return json({ data: [template], next_cursor: null });
     if (call.path === '/v1/templates/invoice') return json(template);
     if (call.path === '/v1/templates/new-one') return json({ code: 'template_not_found', title: 'Not found', status: 404 }, 404);
@@ -263,7 +263,7 @@ describe('formfeed CLI', () => {
     expect(await run(['login', '--api-key', 'ff_test_abcdefgh'], noKeyCtx), err.join('\n')).toBe(0);
     expect(readFileSync(join(dir, 'user', 'config.json'), 'utf8')).toContain('ff_test_abcdefgh');
     expect(await run(['whoami'], noKeyCtx)).toBe(0);
-    expect(out.join('\n')).toContain('Acme (acme) / Production');
+    expect(out.join('\n')).toContain('Fennlor (fennlor) / Production');
     expect(api.calls.filter((c) => c.path === '/v1/account')).toHaveLength(2);
   });
 
@@ -332,10 +332,10 @@ describe('formfeed CLI', () => {
     expect(err.join('\n')).toMatch(/includes "footer"/);
 
     mkdirSync(join(dir, 'partials'), { recursive: true });
-    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>Acme</footer>');
+    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>Fennlor</footer>');
     expect(await run(['templates', 'push', 'invoice'], ctx), err.join('\n')).toBe(0);
     const push = api.calls.findLast((c) => c.path === '/v1/templates/invoice/versions' && c.method === 'POST');
-    expect(push?.body).toMatchObject({ partials: { footer: '<footer>Acme</footer>' } });
+    expect(push?.body).toMatchObject({ partials: { footer: '<footer>Fennlor</footer>' } });
   });
 
   it('pulls the brand kit and renders, tests and previews with it', async () => {
@@ -349,22 +349,22 @@ describe('formfeed CLI', () => {
 
     expect(await run(['brand', 'pull'], ctx), err.join('\n')).toBe(0);
     expect(JSON.parse(readFileSync(join(dir, '.formfeed', 'brand.json'), 'utf8'))).toEqual(brand);
-    expect(out.join('\n')).toContain('brand v5 (Acme GmbH)');
+    expect(out.join('\n')).toContain('brand v5 (Fennlor Studio GmbH)');
 
     // the approved snapshot no longer matches: the brand is part of the output
     out = [];
     expect(await run(['test'], ctx)).toBe(1);
-    expect(out.join('\n')).toContain('+ <footer>Acme GmbH · HRB 12345</footer>');
+    expect(out.join('\n')).toContain('+ <footer>Fennlor Studio GmbH · HRB 00000</footer>');
     expect(await run(['validate'], ctx)).toBe(0);
 
     expect(await run(['render', 'hello', '--out', join(dir, 'hello.pdf')], ctx), err.join('\n')).toBe(0);
     const sent = api.calls.find((c) => c.method === 'POST' && c.path === '/v1/renders')!.body as { html: string };
-    expect(sent.html).toContain('<footer>Acme GmbH · HRB 12345</footer>');
+    expect(sent.html).toContain('<footer>Fennlor Studio GmbH · HRB 00000</footer>');
     expect(sent.html).toContain('--brand-color-primary: #0f766e;');
 
     let server: { url: string; close(): Promise<void> } | null = null;
     await run(['dev', 'hello', '--port', '0'], { ...ctx, onServer: (s) => (server = s) });
-    expect(await (await fetch(server!.url + '/preview?mode=flow')).text()).toContain('Acme GmbH · HRB 12345');
+    expect(await (await fetch(server!.url + '/preview?mode=flow')).text()).toContain('Fennlor Studio GmbH · HRB 00000');
     await server!.close();
 
     // a broken kit file is a validation error, not a crash
@@ -542,7 +542,7 @@ describe('formfeed CLI', () => {
     expect(err.join(' | ')).toContain('https://app.test/device');
     expect(readFileSync(join(dir, 'user', 'config.json'), 'utf8')).toContain('ff_live_from_device');
     expect(api.calls.filter((c) => c.path === '/v1/auth/device/token')).toHaveLength(2);
-    expect(out.join(' | ')).toContain('Acme');
+    expect(out.join(' | ')).toContain('Fennlor');
   });
 
   it('lists renders and deletes their outputs', async () => {
@@ -810,7 +810,7 @@ describe('formfeed CLI: local webhooks and render to test (spec 20)', () => {
     // everything redacted, shape and numbers kept
     err = [];
     expect(await run(['renders', 'pull', 'rnd_abc123', '--force', '--redact'], ctx), err.join('\n')).toBe(0);
-    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ invoice: { number: 'AAA-0' }, customer: { name: 'Aaaa Aaa', email: 'aaaa@aaaa.aaa' }, total: 99.5 });
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ invoice: { number: 'AAA-0' }, customer: { name: 'Aaaa Aaa', email: 'aaaa@aaaa.aaaa' }, total: 99.5 });
     expect(err.join('\n')).not.toContain('personal data');
 
     // only the named paths
@@ -818,7 +818,7 @@ describe('formfeed CLI: local webhooks and render to test (spec 20)', () => {
     expect(await run(['renders', 'pull', 'rnd_abc123', '--as', 'customer-only', '--redact', 'customer.*', '--json'], ctx), err.join('\n')).toBe(0);
     expect(JSON.parse(readFileSync(join(tplDir, 'data', 'customer-only.json'), 'utf8'))).toEqual({
       invoice: { number: 'INV-7' },
-      customer: { name: 'Aaaa Aaa', email: 'aaaa@aaaa.aaa' },
+      customer: { name: 'Aaaa Aaa', email: 'aaaa@aaaa.aaaa' },
       total: 99.5,
     });
     expect(JSON.parse(out.at(-1)!)).toMatchObject({ template: 'invoice', version: 1, local_version: 2, data_set: 'customer-only', redacted: ['customer.*'] });
@@ -827,7 +827,7 @@ describe('formfeed CLI: local webhooks and render to test (spec 20)', () => {
     const config = JSON.parse(readFileSync(join(dir, 'formfeed.json'), 'utf8'));
     writeFileSync(join(dir, 'formfeed.json'), JSON.stringify({ ...config, pull: { redact: ['invoice.number'] } }));
     expect(await run(['renders', 'pull', 'rnd_abc123', '--as', 'configured'], ctx)).toBe(0);
-    expect(JSON.parse(readFileSync(join(tplDir, 'data', 'configured.json'), 'utf8'))).toMatchObject({ invoice: { number: 'AAA-0' }, customer: { email: 'jane@acme.com' } });
+    expect(JSON.parse(readFileSync(join(tplDir, 'data', 'configured.json'), 'utf8'))).toMatchObject({ invoice: { number: 'AAA-0' }, customer: { email: 'jane@mail.test' } });
     expect(await run(['renders', 'pull', 'rnd_abc123', '--as', 'raw', '--no-redact'], ctx)).toBe(0);
     expect(JSON.parse(readFileSync(join(tplDir, 'data', 'raw.json'), 'utf8'))).toMatchObject({ invoice: { number: 'INV-7' } });
   });

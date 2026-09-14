@@ -15,13 +15,13 @@ describe('config precedence (spec 15 §1)', () => {
   it('reads flags over environment over formfeed.json over the user config', () => {
     saveUserConfig({ apiKey: 'ff_test_user', region: 'us', workspace: 'user/ws' }, env);
     expect(readFileSync(userConfigPath(env), 'utf8')).toContain('ff_test_user');
-    writeProjectConfig(dir, { workspace: 'acme/production', region: 'eu' });
+    writeProjectConfig(dir, { workspace: 'fennlor/production', region: 'eu' });
     const nested = join(dir, 'templates', 'deep');
     mkdirSync(nested, { recursive: true });
 
     const fromFiles = resolveSettings({}, nested, env);
     expect(fromFiles.apiKey).toBe('ff_test_user');
-    expect(fromFiles.workspace).toBe('acme/production'); // project beats user config
+    expect(fromFiles.workspace).toBe('fennlor/production'); // project beats user config
     expect(fromFiles.region).toBe('eu');
     expect(fromFiles.project?.root).toBe(dir);
 

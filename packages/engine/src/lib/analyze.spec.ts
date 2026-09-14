@@ -6,7 +6,7 @@ const sample = {
     lines: [{ description: 'a', price: 1 }],
     customer: { name: 'x' },
   },
-  company: { name: 'Acme' },
+  company: { name: 'Fennlor' },
 };
 
 describe('jinja2 analysis', () => {

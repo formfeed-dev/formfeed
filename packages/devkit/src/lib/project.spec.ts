@@ -112,7 +112,7 @@ describe('template folders (spec 15 §2)', () => {
     writeFileSync(join(dir, 'partials', 'address.html'), '<p>Street 1</p>');
     const html = '<main>{% include "Letterhead.j2" %}{% include "footer" %}</main>';
     writeTemplate(p, 'letter', { name: 'Letter', kind: 'pdf', engine: 'jinja2' }, { html, css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
-    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>Acme</footer>');
+    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>Fennlor</footer>');
 
     // before the partial is known as shared it travels with the version like any other
     const plain = readTemplate(p, 'letter');
@@ -121,19 +121,19 @@ describe('template folders (spec 15 §2)', () => {
 
     recordSharedPartial(p, 'letterhead', { version: 3, engine: 'jinja2' }, readFileSync(join(dir, 'partials', 'letterhead.html'), 'utf8'));
     // a shared partial of another engine never matches
-    recordSharedPartial(p, 'footer', { version: 1, engine: 'liquid' }, '<footer>Acme</footer>');
+    recordSharedPartial(p, 'footer', { version: 1, engine: 'liquid' }, '<footer>Fennlor</footer>');
     const tpl = readTemplate(p, 'letter');
     expect(tpl.sharedPartials).toEqual(['letterhead']);
     expect(tpl.missingPartials).toEqual([]);
     // what the shared partial includes that is not shared itself still goes with the version
-    expect(versionPayload(tpl).partials).toEqual({ address: '<p>Street 1</p>', footer: '<footer>Acme</footer>' });
+    expect(versionPayload(tpl).partials).toEqual({ address: '<p>Street 1</p>', footer: '<footer>Fennlor</footer>' });
     expect(contentHash(tpl)).not.toBe(hashWithout);
     expect(readState(p).sharedPartials?.['letterhead']).toMatchObject({ version: 3, engine: 'jinja2', contentHash: partialContentHash('<header>{{ brand.name }}{% include "address" %}</header>') });
 
     // local renders resolve the normalised name from the partials folder and see the pulled brand
-    writeBrand(p, { version: 2, name: 'Acme GmbH', colors: { primary: '#0f766e', bad: 3 }, fonts: { heading: 'Inter' }, logo: {}, page_defaults: {} });
+    writeBrand(p, { version: 2, name: 'Fennlor Studio GmbH', colors: { primary: '#0f766e', bad: 3 }, fonts: { heading: 'Inter' }, logo: {}, page_defaults: {} });
     const rendered = await renderLocal(p, tpl, {}, { mode: 'print' });
-    expect(rendered.document).toContain('<header>Acme GmbH<p>Street 1</p></header>');
+    expect(rendered.document).toContain('<header>Fennlor Studio GmbH<p>Street 1</p></header>');
     expect(rendered.document).toContain('--brand-color-primary: #0f766e;');
     expect(rendered.document).toContain('--brand-font-heading: "Inter";');
   });

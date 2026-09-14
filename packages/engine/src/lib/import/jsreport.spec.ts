@@ -49,7 +49,7 @@ function exportFiles(): Record<string, string> {
         waitForJS: true,
       },
       data: { shortid: 'D1' },
-      pdfMeta: { title: 'Invoice', author: 'ACME' },
+      pdfMeta: { title: 'Invoice', author: 'Fennlor' },
       scripts: [{ shortid: 'S1' }],
     }),
     entity('templates', { _id: 't2', shortid: 'T2', name: 'lines', folder: { shortid: 'F1' }, engine: 'handlebars', recipe: 'html', content: '<ul>{{#each lines}}<li>{{this}}</li>{{/each}}</ul>' }),
@@ -80,7 +80,7 @@ describe('jsreport importer', () => {
     expect(result.settings.margin).toEqual({ top: '2cm', bottom: '15mm' });
     expect(result.settings.footer?.html).toContain('<span class="pageNumber"></span>');
     expect(result.settings.printBackground).toBe(true);
-    expect(result.settings.pdf?.metadata).toEqual({ title: 'Invoice', author: 'ACME' });
+    expect(result.settings.pdf?.metadata).toEqual({ title: 'Invoice', author: 'Fennlor' });
     expect(result.sampleData).toEqual({ number: 'R-7', total: 12.5, lines: ['a', 'b'] });
     expect(result.html).toContain('<style>h1 { color: navy }</style>');
     expect(result.html).toContain('src="data:image/png;base64,iVBORw=="');

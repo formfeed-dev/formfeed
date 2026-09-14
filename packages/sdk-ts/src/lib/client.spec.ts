@@ -167,12 +167,12 @@ describe('render inputs, resend and listen sessions', () => {
 describe('brand kit and shared partials', () => {
   const brand = {
     version: 7,
-    name: 'Acme GmbH',
+    name: 'Fennlor Studio GmbH',
     colors: { primary: '#0f766e' },
     fonts: { heading: 'Inter', body: null },
     font_size: '10pt',
     logo: { primary: 'https://cdn.test/a/brand/org/primary-3f9a1c2b7d4e.svg', inverse: null, mark: null },
-    legal_footer: 'Acme GmbH',
+    legal_footer: 'Fennlor Studio GmbH',
     page_defaults: { paper: { format: 'A4' } },
     updated_at: '2026-09-13T00:00:00Z',
   };
@@ -193,12 +193,12 @@ describe('brand kit and shared partials', () => {
         return json({ ...partial, source: body.source, version: body.base_version ? body.base_version + 1 : 1 }, body.base_version ? 200 : 201);
       }
       if (call.url.endsWith('/partials')) return json({ data: [partial] });
-      return json({ ...partial, source: '<header>Acme</header>' });
+      return json({ ...partial, source: '<header>Fennlor</header>' });
     });
     const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
 
     expect(await client.partials.list()).toEqual([partial]);
-    expect((await client.partials.get('letterhead')).source).toBe('<header>Acme</header>');
+    expect((await client.partials.get('letterhead')).source).toBe('<header>Fennlor</header>');
     expect(calls[1]!.url).toBe('https://api-eu.formfeed.dev/v1/partials/letterhead');
 
     const created = await client.partials.put('footer', { engine: 'jinja2', source: '<footer/>' });

@@ -9,12 +9,12 @@ import type { EngineId, RenderContext } from './types';
 const brand: BrandContext = {
   ...emptyBrand(),
   version: 4,
-  name: 'Acme GmbH',
+  name: 'Fennlor Studio GmbH',
   colors: { primary: '#0f766e', accent: '#f59e0b' },
   fonts: { heading: 'Inter', body: null },
   font_size: '10pt',
   logo: { primary: 'https://cdn.example/a/brand/o/primary-1.svg', inverse: null, mark: null },
-  legal_footer: 'Acme GmbH · HRB 1',
+  legal_footer: 'Fennlor Studio GmbH · HRB 1',
 };
 
 const context = (overrides: Partial<RenderContext> = {}): RenderContext => ({
@@ -43,7 +43,7 @@ describe('brand global', () => {
   for (const engine of ['jinja2', 'liquid', 'handlebars'] as const) {
     it(`${engine}: renders the kit and lets data of the same name win`, async () => {
       await expect(render(engine, sources[engine], { total: 1 })).resolves.toBe(
-        'Acme GmbH|#0f766e|https://cdn.example/a/brand/o/primary-1.svg',
+        'Fennlor Studio GmbH|#0f766e|https://cdn.example/a/brand/o/primary-1.svg',
       );
       await expect(
         render(engine, sources[engine], { brand: { name: 'Data', colors: { primary: 'red' }, logo: {} } }),
@@ -105,7 +105,7 @@ describe('renderVersion with a brand kit', () => {
     expect(doc).toContain('font-family: "Inter"');
     expect(rendered.inlineCss).toContain('--brand-color-primary: #0f766e');
     expect(rendered.inlineCss).toContain('@font-face');
-    expect(rendered.footerHtml).toBe('Acme GmbH · HRB 1');
+    expect(rendered.footerHtml).toBe('Fennlor Studio GmbH · HRB 1');
   });
 });
 

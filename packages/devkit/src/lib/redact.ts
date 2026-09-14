@@ -3,7 +3,7 @@
  *
  * Strings become placeholders of the same length that keep the character classes: upper-case
  * letters become `A`, other letters `a`, digits `0`, and everything else (spaces, `@`, `.`, `-`)
- * stays, so `jane@acme.com` becomes `aaaa@aaaa.aaa` and `DE89 3704` becomes `AA00 0000`. Numbers,
+ * stays, so `jane@mail.test` becomes `aaaa@aaaa.aaaa` and `DE00 0000` becomes `AA00 0000`. Numbers,
  * booleans and null are kept: they are usually what made the render go wrong, and they rarely
  * identify a person. Arrays and objects keep their keys and lengths.
  *

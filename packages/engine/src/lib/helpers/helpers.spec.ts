@@ -112,9 +112,9 @@ describe('code helpers', () => {
 
   it('builds a valid EPC payload', () => {
     const payload = epcPayload({
-      name: 'Acme GmbH',
-      iban: 'DE02 1203 0000 0000 2020 51',
-      bic: 'BYLADEM1001',
+      name: 'Fennlor Studio GmbH',
+      iban: 'DE00 0000 0000 0000 0000 00',
+      bic: 'XXXXDEXXXXX',
       amount: 123.4,
       reference: 'RE-2026-0042',
     });
@@ -123,9 +123,9 @@ describe('code helpers', () => {
       '002',
       '1',
       'SCT',
-      'BYLADEM1001',
-      'Acme GmbH',
-      'DE02120300000000202051',
+      'XXXXDEXXXXX',
+      'Fennlor Studio GmbH',
+      'DE00000000000000000000',
       'EUR123.40',
       '',
       'RE-2026-0042',

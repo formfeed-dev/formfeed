@@ -321,12 +321,12 @@ def test_async_files_mirror_the_sync_client():
 
 BRAND = {
     "version": 7,
-    "name": "Acme GmbH",
+    "name": "Fennlor Studio GmbH",
     "colors": {"primary": "#0f766e"},
     "fonts": {"heading": "Inter", "body": None},
     "font_size": "10pt",
     "logo": {"primary": "https://cdn.test/a/brand/org/primary-3f9a1c2b7d4e.svg", "inverse": None, "mark": None},
-    "legal_footer": "Acme GmbH",
+    "legal_footer": "Fennlor Studio GmbH",
     "page_defaults": {"paper": {"format": "A4"}},
     "updated_at": "2026-09-13T00:00:00Z",
 }
@@ -344,7 +344,7 @@ def _partials_responder(req, n):
         return _json(BRAND)
     if req.url.path == "/v1/partials":
         return _json({"data": [PARTIAL]})
-    return _json({**PARTIAL, "source": "<header>Acme</header>"})
+    return _json({**PARTIAL, "source": "<header>Fennlor</header>"})
 
 
 def test_brand_kit_is_read():
@@ -358,7 +358,7 @@ def test_brand_kit_is_read():
 def test_partials_list_get_put_and_delete():
     client, rec = sync_client(_partials_responder)
     assert [p.name for p in client.partials.list()] == ["letterhead"]
-    assert client.partials.get("letterhead").source == "<header>Acme</header>"
+    assert client.partials.get("letterhead").source == "<header>Fennlor</header>"
     assert str(rec.calls[1].url) == "https://api-eu.formfeed.dev/v1/partials/letterhead"
 
     created = client.partials.put("footer", engine="jinja2", source="<footer/>")
@@ -398,7 +398,7 @@ def test_async_brand_and_partials_mirror_the_sync_client():
             return brand, listed, one, created
 
     brand, listed, one, created = asyncio.run(run())
-    assert brand.name == "Acme GmbH" and listed[0].version == 3 and one.source
+    assert brand.name == "Fennlor Studio GmbH" and listed[0].version == 3 and one.source
     assert created.created is True and created.partial.engine == "jinja2"
     assert [c.method for c in rec.calls] == ["GET", "GET", "GET", "PUT", "DELETE"]
 

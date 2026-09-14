@@ -23,7 +23,7 @@ interface ParityCase {
 }
 
 const data = {
-  company: { name: 'Acme GmbH', iban: 'DE02 1203 0000 0000 2020 51' },
+  company: { name: 'Fennlor Studio GmbH', iban: 'DE00 0000 0000 0000 0000 00' },
   invoice: {
     number: '2026-0042',
     date: '2026-09-07',
@@ -88,7 +88,7 @@ const cases: ParityCase[] = [
       handlebars: `<main>x</main>{{> footer}}`,
     },
     expected:
-      '<main>x</main><footer>Acme GmbH · DE02120300000000202051</footer>',
+      '<main>x</main><footer>Fennlor Studio GmbH · DE00000000000000000000</footer>',
   },
   {
     name: 'html helpers are not escaped',
@@ -157,7 +157,7 @@ const ledger = {
   markup: '<em>x</em>',
   obj: { a: 1, b: [true, null] },
   quote: 'Tom & "Jerry"',
-  iban: 'DE02120300000000202051',
+  iban: 'DE00000000000000000000',
 };
 
 const helperCases: ParityCase[] = [
@@ -451,9 +451,9 @@ const helperCases: ParityCase[] = [
     name: 'epcQr from the same payment in every engine',
     data: ledger,
     sources: {
-      jinja2: `{{ epcQr({ name: 'Acme GmbH', iban: iban, amount: 12.5, reference: 'RE-1' }) }}`,
-      liquid: `{{ iban | epcQr: name: 'Acme GmbH', amount: 12.5, reference: 'RE-1' }}`,
-      handlebars: `{{epcQr name='Acme GmbH' iban=iban amount=12.5 reference='RE-1'}}`,
+      jinja2: `{{ epcQr({ name: 'Fennlor Studio GmbH', iban: iban, amount: 12.5, reference: 'RE-1' }) }}`,
+      liquid: `{{ iban | epcQr: name: 'Fennlor Studio GmbH', amount: 12.5, reference: 'RE-1' }}`,
+      handlebars: `{{epcQr name='Fennlor Studio GmbH' iban=iban amount=12.5 reference='RE-1'}}`,
     },
     expected: /^data:image\/svg\+xml;utf8,/,
   },

@@ -32,10 +32,10 @@ const ctx = (
 const fullBrand: BrandContext = {
   ...emptyBrand(),
   version: 3,
-  name: 'Acme GmbH',
+  name: 'Fennlor Studio GmbH',
   colors: { primary: '#0f766e' },
   logo: { primary: 'https://cdn.example/logo.svg', inverse: null, mark: null },
-  legal_footer: 'Acme GmbH · Musterstraße 1 · 10115 Berlin',
+  legal_footer: 'Fennlor Studio GmbH · Musterstraße 1 · 12345 Musterstadt',
 };
 
 const stripTabstops = snippetText;
@@ -77,9 +77,9 @@ describe('snippet library', () => {
       expect(
         await render('letterhead', { ...fullBrand, logo: emptyBrand().logo }),
         engine,
-      ).toContain('<strong class="name">Acme GmbH</strong>');
+      ).toContain('<strong class="name">Fennlor Studio GmbH</strong>');
       expect(await render('legal-footer', fullBrand), engine).toContain(
-        '10115 Berlin',
+        '12345 Musterstadt',
       );
       // the chart takes the kit's primary colour, and the palette without a kit
       expect(await render('chart', fullBrand), engine).toContain('#0f766e');
@@ -176,15 +176,15 @@ describe('snippet library', () => {
   it('shows its sample values in every engine', async () => {
     // one value per data-driven block; data only a helper consumes (QR code, chart config) is left out
     const visible: Record<string, string[]> = {
-      'window-address': ['Hauptstraße 5', 'Musterstraße 1'],
+      'window-address': ['Musterstraße 1', 'Beispielweg 2'],
       'reference-block': ['K-1042', '2026-0042', '13/09/2026'],
       'invoice-heading': ['Invoice 2026-0042', '01/09/2026', '30/09/2026'],
       'invoice-table': ['Consulting', 'Implementation', '2,200.00'],
       totals: ['3,760.40', 'VAT 19 %'],
-      'payment-terms': ['3,760.40', '13/10/2026', 'DE02120300000000202051'],
-      'reverse-charge-note': ['ATU12345678'],
-      'address-block': ['Musterstraße 1'],
-      'page-footer': ['hello@acme.example', 'Page'],
+      'payment-terms': ['3,760.40', '13/10/2026', 'DE00000000000000000000'],
+      'reverse-charge-note': ['ATU00000000'],
+      'address-block': ['Beispielweg 2'],
+      'page-footer': ['hello@fennlor.example', 'Page'],
       'cover-page': ['Quarterly report'],
       signature: ['Erika Mustermann'],
       'epc-qr': ['Scan to pay'],

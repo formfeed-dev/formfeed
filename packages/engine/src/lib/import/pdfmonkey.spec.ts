@@ -49,7 +49,7 @@ describe('PDFMonkey importer', () => {
           paper_format: 'a4',
           orientation: 'landscape',
           margin: { top: 20, right: null, bottom: '15', left: undefined },
-          footer: { left: 'ACME', center: '', right: 'Page [page] of [topage]' },
+          footer: { left: 'Fennlor', center: '', right: 'Page [page] of [topage]' },
         },
       },
     });

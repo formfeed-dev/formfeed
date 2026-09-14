@@ -138,12 +138,12 @@ describe('settings and assembly', () => {
           pdf: { metadata: { title: 'Rechnung {{ invoice.number }}' } },
         },
       },
-      { invoice: { number: '42' }, company: 'Acme' },
+      { invoice: { number: '42' }, company: 'Fennlor' },
       ctx,
     );
     expect(out.document).toContain('<h1>42</h1>');
     expect(out.document).toContain('lang="de-DE"');
-    expect(out.headerHtml).toBe('<div>Acme</div>');
+    expect(out.headerHtml).toBe('<div>Fennlor</div>');
     expect(out.footerHtml).toBe('<span class="pageNumber"></span>');
     expect(out.title).toBe('Rechnung 42');
     expect(out.settings.locale).toBe('de-DE');
