@@ -69,7 +69,7 @@ describe('snippet library', () => {
       const render = async (id: string, brand: BrandContext) => {
         const snippet = snippetsFor(engine).find((s) => s.id === id)!;
         const tpl = engines[engine].compile(stripTabstops(snippet.code), { name: id });
-        return engines[engine].render(tpl, {}, ctx(engine, brand));
+        return engines[engine].render(tpl, snippet.sampleData ?? {}, ctx(engine, brand));
       };
       expect(await render('letterhead', fullBrand), engine).toContain(
         'src="https://cdn.example/logo.svg"',
@@ -81,6 +81,9 @@ describe('snippet library', () => {
       expect(await render('legal-footer', fullBrand), engine).toContain(
         '10115 Berlin',
       );
+      // the chart takes the kit's primary colour, and the palette without a kit
+      expect(await render('chart', fullBrand), engine).toContain('#0f766e');
+      expect(await render('chart', emptyBrand()), engine).toContain('#3E63DD');
     }
   });
 
@@ -185,7 +188,7 @@ describe('snippet library', () => {
       'cover-page': ['Quarterly report'],
       signature: ['Erika Mustermann'],
       'epc-qr': ['Scan to pay'],
-      chart: ['Revenue per quarter'],
+      chart: ['Revenue per quarter', '[12000,15500,14200,18900]', '&quot;type&quot;:&quot;bar&quot;'],
       'kpi-cards': ['New customers', '€ 61,600', '−0.4 pt on Q2'],
     };
     for (const snippet of snippets.filter((s) => s.sampleData))

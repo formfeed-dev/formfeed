@@ -1,5 +1,6 @@
 import type { HelperContext } from '../types';
 import { epcPayload } from './codes';
+import { CHART_PALETTE, chartDataFromPlain, chartPayload } from './document';
 import { createHelperRegistry, helperDocs } from './index';
 
 const ctx: HelperContext = {
@@ -159,5 +160,46 @@ describe('document helpers', () => {
       '<img src="https://x/y.png" alt="Logo &lt;1&gt;" style="width:4cm;object-fit:contain">',
     );
     expect(helperDocs().map((d) => d.name)).toEqual(expect.arrayContaining(['chart', 'image']));
+  });
+
+  it('builds chart data from labels and values or series', () => {
+    // numbers from strings, gaps for anything else; one series takes the first palette colour
+    expect(chartDataFromPlain({ labels: ['a', 'b', 'c'], values: [1, '2', 'n/a'] })).toEqual({
+      labels: ['a', 'b', 'c'],
+      datasets: [{ data: [1, 2, null], backgroundColor: CHART_PALETTE[0], borderColor: CHART_PALETTE[0] }],
+    });
+    // named series, each with its own or the next palette colour
+    const series = chartDataFromPlain({
+      type: 'line',
+      labels: ['Q1'],
+      series: [{ label: '2025', values: [3] }, { label: '2026', values: [4], color: '#111111' }],
+    });
+    expect(series.datasets).toEqual([
+      { label: '2025', data: [3], backgroundColor: CHART_PALETTE[0], borderColor: CHART_PALETTE[0], fill: false },
+      { label: '2026', data: [4], backgroundColor: '#111111', borderColor: '#111111', fill: false },
+    ]);
+    // a pie colours every slice, unless the data gives a list
+    expect(chartDataFromPlain({ type: 'pie', labels: ['a', 'b'], values: [1, 2] }).datasets[0]?.['backgroundColor']).toEqual(
+      CHART_PALETTE.slice(0, 2),
+    );
+    expect(
+      chartDataFromPlain({ type: 'doughnut', labels: ['a', 'b'], values: [1, 2], color: ['#000', '#fff'] }).datasets[0]?.[
+        'backgroundColor'
+      ],
+    ).toEqual(['#000', '#fff']);
+  });
+
+  it('hides the legend of one unnamed series, but keeps the options a template sets', () => {
+    const payload = (spec: object) => chartPayload(spec);
+    expect(payload({ labels: ['a'], values: [1] }).options['plugins']).toEqual({ legend: { display: false } });
+    expect(payload({ labels: ['a'], values: [1], label: 'Revenue' }).options['plugins']).toBeUndefined();
+    expect(payload({ type: 'pie', labels: ['a'], values: [1] }).options['plugins']).toBeUndefined();
+    expect(
+      payload({ labels: ['a'], values: [1], options: { plugins: { legend: { position: 'bottom' } } } }).options['plugins'],
+    ).toEqual({ legend: { position: 'bottom' } });
+    // a full Chart.js configuration wins over plain fields
+    expect(payload({ data: { datasets: [] }, values: [1] }).data).toEqual({ datasets: [] });
+    // a missing colour (an empty brand kit) falls back to the palette
+    expect(chartDataFromPlain({ labels: ['a'], values: [1], color: '' }).datasets[0]?.['backgroundColor']).toBe(CHART_PALETTE[0]);
   });
 });

@@ -425,28 +425,18 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     group: 'report',
     title: 'Chart',
     description:
-      'Bar chart drawn with Chart.js from a chart configuration in the data.',
+      'Bar chart from labels and values in the data, in the brand colour.',
+    // the colour comes from the brand kit; without one the helper takes its palette
     source: {
-      jinja2: `<figure class="ff-chart-box">\n  {{ chart(salesChart) }}\n  <figcaption>{{ salesChart.caption }}</figcaption>\n</figure>$0`,
-      liquid: `<figure class="ff-chart-box">\n  {{ salesChart | chart }}\n  <figcaption>{{ salesChart.caption }}</figcaption>\n</figure>$0`,
-      handlebars: `<figure class="ff-chart-box">\n  {{chart salesChart}}\n  <figcaption>{{salesChart.caption}}</figcaption>\n</figure>$0`,
+      jinja2: `<figure class="ff-chart-box">\n  {{ chart(sales, { type: '\${1:bar}', width: 480, height: 240, color: brand.colors.primary }) }}\n  <figcaption>{{ sales.caption }}</figcaption>\n</figure>$0`,
+      liquid: `<figure class="ff-chart-box">\n  {{ sales | chart: type: '\${1:bar}', width: 480, height: 240, color: brand.colors.primary }}\n  <figcaption>{{ sales.caption }}</figcaption>\n</figure>$0`,
+      handlebars: `<figure class="ff-chart-box">\n  {{chart sales type='\${1:bar}' width=480 height=240 color=brand.colors.primary}}\n  <figcaption>{{sales.caption}}</figcaption>\n</figure>$0`,
     },
     sampleData: {
-      salesChart: {
-        type: 'bar',
+      sales: {
         caption: 'Revenue per quarter',
-        width: 480,
-        height: 240,
-        data: {
-          labels: ['Q1', 'Q2', 'Q3', 'Q4'],
-          datasets: [
-            {
-              label: 'Revenue',
-              data: [12000, 15500, 14200, 18900],
-              backgroundColor: '#3E63DD',
-            },
-          ],
-        },
+        labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+        values: [12000, 15500, 14200, 18900],
       },
     },
     css: `.ff-chart-box { margin: 16px 0; break-inside: avoid; }\n.ff-chart-box figcaption { font-size: 9pt; color: #666; margin-top: 4px; }`,

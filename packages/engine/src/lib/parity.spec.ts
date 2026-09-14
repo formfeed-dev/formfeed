@@ -120,6 +120,24 @@ const cases: ParityCase[] = [
     expected:
       '<canvas class="ff-chart" width="300" height="150" style="width:300px;height:150px" data-ff-chart="{&quot;type&quot;:&quot;line&quot;,&quot;data&quot;:{&quot;labels&quot;:[&quot;a&quot;,&quot;b&quot;],&quot;datasets&quot;:[{&quot;data&quot;:[1,2]}]},&quot;options&quot;:{&quot;animation&quot;:false,&quot;responsive&quot;:false}}"></canvas><img src="https://cdn.example/p.jpg" alt="" style="width:120px;height:80px;object-fit:cover">',
   },
+  {
+    // plain data with its options beside it: an object literal, keyword arguments, hash arguments
+    name: 'chart from labels and values',
+    data: { sales: { labels: ['Q1', 'Q2'], values: [1, '2.5'] }, accent: '#0f766e' },
+    sources: {
+      jinja2: `{{ chart(sales, { type: 'line', width: 300, height: 150, color: accent }) }}`,
+      liquid: `{{ sales | chart: type: 'line', width: 300, height: 150, color: accent }}`,
+      handlebars: `{{chart sales type='line' width=300 height=150 color=accent}}`,
+    },
+    expected: `<canvas class="ff-chart" width="300" height="150" style="width:300px;height:150px" data-ff-chart="${JSON.stringify({
+      type: 'line',
+      data: {
+        labels: ['Q1', 'Q2'],
+        datasets: [{ data: [1, 2.5], backgroundColor: '#0f766e', borderColor: '#0f766e', fill: false }],
+      },
+      options: { animation: false, responsive: false, plugins: { legend: { display: false } } },
+    }).replace(/"/g, '&quot;')}"></canvas>`,
+  },
 ];
 
 /** Data for the helper catalogue cases: every helper appears in at least one case (CLAUDE.md). */
