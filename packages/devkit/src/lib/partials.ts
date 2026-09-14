@@ -1,5 +1,5 @@
-import { getEngine, type EngineId } from '@formfeed/engine';
-import { partialResolver } from './project';
+import { getEngine, normalisePartialName, type EngineId } from '@formfeed/engine';
+import { partialResolver, sharedPartialNames } from './project';
 import type { Project } from './project-config';
 
 /**
@@ -15,6 +15,8 @@ export interface CollectedPartials {
   partials: Record<string, string>;
   /** Names no file in the partials folder matches. */
   missing: string[];
+  /** Normalised names of included shared partials of the organisation (from the project state). */
+  shared: string[];
 }
 
 /** Names a source includes, or none when it does not parse (the syntax error is reported elsewhere). */
@@ -30,8 +32,10 @@ function includeNames(engine: EngineId, source: string): string[] {
 
 export function collectPartials(project: Project, engine: EngineId, sources: Array<string | undefined>): CollectedPartials {
   const resolve = partialResolver(project);
+  const sharedNames = sharedPartialNames(project, engine);
   const partials: Record<string, string> = {};
   const missing = new Set<string>();
+  const shared = new Set<string>();
   const queue = sources.filter((source): source is string => Boolean(source));
   const seen = new Set<string>();
   while (queue.length) {
@@ -39,6 +43,13 @@ export function collectPartials(project: Project, engine: EngineId, sources: Arr
       if (seen.has(name)) continue;
       seen.add(name);
       const source = resolve(name);
+      // a shared partial resolves live on the server: it never travels with the version and is not
+      // missing without a local copy, but what it includes locally still counts
+      if (sharedNames.has(normalisePartialName(name))) {
+        shared.add(normalisePartialName(name));
+        if (source !== undefined) queue.push(source);
+        continue;
+      }
       if (source === undefined) {
         missing.add(name);
         continue;
@@ -47,5 +58,5 @@ export function collectPartials(project: Project, engine: EngineId, sources: Arr
       queue.push(source);
     }
   }
-  return { partials, missing: [...missing].sort() };
+  return { partials, missing: [...missing].sort(), shared: [...shared].sort() };
 }

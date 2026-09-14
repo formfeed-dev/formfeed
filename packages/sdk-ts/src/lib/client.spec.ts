@@ -120,6 +120,114 @@ describe('Formfeed client', () => {
   });
 });
 
+describe('render inputs, resend and listen sessions', () => {
+  it('reads a stored render request and maps an expired one to a typed error', async () => {
+    const input = { render_id: 'rnd_1', template: { id: 'tpl_1', slug: 'invoice', version: 3 }, data: { n: 1 }, environment: 'test', created_at: '' };
+    const { calls, fetchImpl } = stub((call) =>
+      call.url.endsWith('/renders/rnd_2/input')
+        ? json({ code: 'render_input_expired', status: 410, detail: 'gone', request_data_retention: 'off' }, 410)
+        : json(input),
+    );
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
+    expect(await client.renders.input('rnd_1')).toEqual(input);
+    expect(calls[0]).toMatchObject({ method: 'GET', url: 'https://api-eu.formfeed.dev/v1/renders/rnd_1/input' });
+    await expect(client.renders.input('rnd_2')).rejects.toMatchObject({
+      code: 'render_input_expired',
+      status: 410,
+      problem: { request_data_retention: 'off' },
+    });
+  });
+
+  it('resends an event and starts and ends a listen session', async () => {
+    const session = { id: 's1', secret: 'whsec_s', events: ['render.completed'], environments: ['test'], expires_at: '', websocket_url: 'wss://gw.test/x' };
+    const { calls, fetchImpl } = stub((call) => {
+      if (call.method === 'DELETE') return new Response(null, { status: 204 });
+      if (call.url.endsWith('/resend')) return json({ delivery_id: 'd1', event_id: 'evt_1', event: 'render.completed', endpoint_id: 's1' }, 202);
+      if (call.url.endsWith('/webhooks/listen')) return json(session, 201);
+      return json({ id: 'w1', environments: (call.body as { environments?: string[] }).environments });
+    });
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
+
+    expect(await client.webhooks.resend('evt_1', 's1')).toMatchObject({ delivery_id: 'd1' });
+    expect(calls[0]).toMatchObject({ method: 'POST', url: 'https://api-eu.formfeed.dev/v1/webhooks/events/evt_1/resend', body: { endpoint_id: 's1' } });
+
+    expect(await client.webhooks.listen.start({ events: ['render.completed'], live: false })).toEqual(session);
+    expect(calls[1]).toMatchObject({ method: 'POST', url: 'https://api-eu.formfeed.dev/v1/webhooks/listen', body: { events: ['render.completed'], live: false } });
+    await client.webhooks.listen.start();
+    expect(calls[2]!.body).toEqual({});
+    await expect(client.webhooks.listen.end('s1')).resolves.toBeUndefined();
+    expect(calls[3]).toMatchObject({ method: 'DELETE', url: 'https://api-eu.formfeed.dev/v1/webhooks/listen/s1' });
+
+    const updated = await client.webhooks.update('w1', { environments: ['live'] });
+    expect(updated.environments).toEqual(['live']);
+    expect(calls[4]).toMatchObject({ method: 'PUT', body: { environments: ['live'] } });
+  });
+});
+
+describe('brand kit and shared partials', () => {
+  const brand = {
+    version: 7,
+    name: 'Acme GmbH',
+    colors: { primary: '#0f766e' },
+    fonts: { heading: 'Inter', body: null },
+    font_size: '10pt',
+    logo: { primary: 'https://cdn.test/a/brand/org/primary-3f9a1c2b7d4e.svg', inverse: null, mark: null },
+    legal_footer: 'Acme GmbH',
+    page_defaults: { paper: { format: 'A4' } },
+    updated_at: '2026-09-13T00:00:00Z',
+  };
+  const partial = { name: 'letterhead', engine: 'jinja2', description: null, version: 3, created_at: '', updated_at: '' };
+
+  it('reads the brand kit', async () => {
+    const { calls, fetchImpl } = stub(() => json(brand));
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
+    expect(await client.brand.get()).toEqual(brand);
+    expect(calls[0]).toMatchObject({ method: 'GET', url: 'https://api-eu.formfeed.dev/v1/brand' });
+  });
+
+  it('lists, reads, creates, updates and deletes partials', async () => {
+    const { calls, fetchImpl } = stub((call) => {
+      if (call.method === 'DELETE') return new Response(null, { status: 204 });
+      if (call.method === 'PUT') {
+        const body = call.body as { source: string; base_version?: number };
+        return json({ ...partial, source: body.source, version: body.base_version ? body.base_version + 1 : 1 }, body.base_version ? 200 : 201);
+      }
+      if (call.url.endsWith('/partials')) return json({ data: [partial] });
+      return json({ ...partial, source: '<header>Acme</header>' });
+    });
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
+
+    expect(await client.partials.list()).toEqual([partial]);
+    expect((await client.partials.get('letterhead')).source).toBe('<header>Acme</header>');
+    expect(calls[1]!.url).toBe('https://api-eu.formfeed.dev/v1/partials/letterhead');
+
+    const created = await client.partials.put('footer', { engine: 'jinja2', source: '<footer/>' });
+    expect(created).toMatchObject({ created: true, partial: { version: 1, source: '<footer/>' } });
+    expect(calls[2]).toMatchObject({ method: 'PUT', url: 'https://api-eu.formfeed.dev/v1/partials/footer', body: { engine: 'jinja2', source: '<footer/>' } });
+
+    const updated = await client.partials.put('letterhead', { engine: 'jinja2', source: '<header/>', base_version: 3 });
+    expect(updated).toMatchObject({ created: false, partial: { version: 4 } });
+    expect(calls[3]!.body).toEqual({ engine: 'jinja2', source: '<header/>', base_version: 3 });
+
+    await expect(client.partials.delete('letterhead')).resolves.toBeUndefined();
+    expect(calls[4]).toMatchObject({ method: 'DELETE', url: 'https://api-eu.formfeed.dev/v1/partials/letterhead' });
+  });
+
+  it('maps a stale base_version to a conflict error', async () => {
+    const { fetchImpl } = stub(() =>
+      json({ type: 'https://docs.formfeed.dev/errors/conflict', title: 'Conflict', status: 409, code: 'conflict', detail: 'The partial is at version 4, not 3; pull it first', current: { ...partial, version: 4 } }, 409),
+    );
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
+    await expect(client.partials.put('letterhead', { engine: 'liquid', source: 'x', base_version: 3 })).rejects.toMatchObject({
+      name: 'FormfeedError',
+      code: 'conflict',
+      status: 409,
+      message: 'The partial is at version 4, not 3; pull it first',
+      problem: { current: { name: 'letterhead', version: 4 } },
+    });
+  });
+});
+
 describe('webhook signatures', () => {
   const secret = 'whsec_test';
   const body = '{"id":"evt_1","type":"render.completed","data":{"id":"rnd_1"}}';
@@ -206,6 +314,48 @@ describe('templates', () => {
     const published = await client.templates.versions.publish('invoice', 4);
     expect(published.status).toBe('published');
     expect(calls.at(-1)?.url).toMatch(/\/templates\/invoice\/versions\/4\/publish$/);
+    expect(calls.at(-1)?.body).toBeUndefined();
+    await client.templates.versions.publish('invoice', 4, { allowBreaking: true });
+    expect(calls.at(-1)?.body).toEqual({ allow_breaking: true });
+  });
+
+  it('manages release channels and surfaces a breaking schema change as a typed error', async () => {
+    const channel = { name: 'staging', version: 5, canary: null, previous_version: 4, updated_at: '2026-09-13T10:00:00Z' };
+    const { calls, fetchImpl } = stub((call) => {
+      const url = new URL(call.url);
+      if (url.pathname.endsWith('/channels') && call.method === 'GET')
+        return json({ data: [{ ...channel, name: 'published' }, channel], limits: { channels: 2, canary: false } });
+      if (call.method === 'PUT' && !(call.body as { allow_breaking?: boolean }).allow_breaking)
+        return json(
+          { type: 'https://docs.formfeed.dev/errors/schema-breaking-change', title: 'Schema change breaks callers', status: 409, code: 'schema_breaking_change', detail: 'x', breaking: [{ path: 'a', kind: 'field-added-required' }] },
+          409,
+        );
+      if (call.method === 'DELETE') return new Response(null, { status: 204 });
+      return json({ ...channel, schema_check: { source: 'stored', breaking: [], safe: [] } });
+    });
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl, maxRetries: 0 });
+    const list = await client.templates.channels.list('invoice');
+    expect(list.limits).toEqual({ channels: 2, canary: false });
+    expect(list.data.map((c) => c.name)).toEqual(['published', 'staging']);
+
+    const refused = await client.templates.channels.set('invoice', 'staging', { version: 5 }).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(FormfeedError);
+    expect((refused as FormfeedError).code).toBe('schema_breaking_change');
+    expect((refused as FormfeedError).problem?.['breaking']).toEqual([{ path: 'a', kind: 'field-added-required' }]);
+
+    const moved = await client.templates.channels.set('invoice', 'staging', { version: 5, canary: { version: 6, percent: 10 } }, { allowBreaking: true });
+    expect(moved.schema_check?.source).toBe('stored');
+    expect(calls.at(-1)).toMatchObject({ method: 'PUT', body: { version: 5, canary: { version: 6, percent: 10 }, allow_breaking: true } });
+    await client.templates.channels.promote('invoice', 'staging');
+    expect(calls.at(-1)?.url).toMatch(/\/templates\/invoice\/channels\/staging\/promote$/);
+    await client.templates.channels.rollback('invoice', 'staging', { allowBreaking: true });
+    expect(calls.at(-1)).toMatchObject({ body: { allow_breaking: true } });
+    expect(calls.at(-1)?.url).toMatch(/\/rollback$/);
+    await client.templates.channels.delete('invoice', 'staging', { force: true });
+    expect(calls.at(-1)?.url).toMatch(/\/channels\/staging\?force=true$/);
+
+    await client.templates.versions.get('invoice', 'staging');
+    expect(calls.at(-1)?.url).toMatch(/\/versions\/staging$/);
   });
 });
 

@@ -41,15 +41,21 @@ export const pageNumberSpans = (html: string, page: string, total: string): stri
 
 /**
  * Click-to-source: the frame reports what was clicked so the editor can jump to the line that
- * produced it (spec 06 §3). Only descriptive attributes travel, never the rendered data.
+ * produced it (spec 06 §3). `src` is the nearest `data-ff-src` position written by
+ * `annotateSourcePositions` (`exact` when the clicked element carries it itself); tag, id, classes
+ * and text remain for the editor's search when there is no position. Only descriptive attributes
+ * and a short text excerpt travel.
  */
 const inspectScript = `<script>
 document.addEventListener('click', function (event) {
   var el = event.target;
   if (!el || el.nodeType !== 1) return;
   try {
+    var annotated = el.closest ? el.closest('[data-ff-src]') : null;
     parent.postMessage({
       type: 'formfeed:inspect',
+      src: annotated ? annotated.getAttribute('data-ff-src') : null,
+      exact: annotated === el,
       tag: el.tagName.toLowerCase(),
       id: el.id || null,
       classes: (el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || '').toString().trim().split(' ').filter(Boolean),

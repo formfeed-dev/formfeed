@@ -7,24 +7,34 @@ import random
 import time
 import uuid
 from typing import Any, Generic, TypeVar
+from urllib.parse import quote
 
 import httpx
 
 from .errors import FormfeedError
 from .models import (
+    Brand,
+    Channel,
+    ChannelList,
+    Engine,
     Job,
     LibraryFile,
     LibraryFilePage,
+    ListenSession,
     PdfInfo,
     Region,
     Render,
+    RenderInput,
     RenderPage,
+    SharedPartial,
+    SharedPartialPutResult,
     Template,
     TemplatePage,
     TemplateValidation,
     TemplateVersion,
     Usage,
     WebhookEndpoint,
+    WebhookResend,
 )
 
 HOSTS: dict[str, str] = {"eu": "https://api-eu.formfeed.dev/v1", "us": "https://api-us.formfeed.dev/v1"}
@@ -119,6 +129,8 @@ class Formfeed(_Base[Any]):
         self.account = _Account(self)
         self.pdf = _Pdf(self)
         self.files = _Files(self)
+        self.brand = _Brand(self)
+        self.partials = _Partials(self)
 
     def close(self) -> None:
         self._http.close()
@@ -136,6 +148,12 @@ class Formfeed(_Base[Any]):
 
         ``files`` and ``form`` send ``multipart/form-data`` instead of a JSON body (httpx sets the boundary).
         """
+        return self._send(method, path, body, idempotency_key=idempotency_key, files=files, form=form)[1]
+
+    def _send(
+        self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None, files: Any = None, form: dict[str, str] | None = None
+    ) -> tuple[int, Any]:
+        """``request`` with the HTTP status, for endpoints whose answer depends on it (201 created, 200 updated)."""
         url = f"{self.base_url}{path}"
         headers = self._headers(body, idempotency_key)
         attempt = 0
@@ -157,7 +175,7 @@ class Formfeed(_Base[Any]):
                 continue
             if res.is_error:
                 raise _problem_error(res)
-            return self._decode(res)
+            return res.status_code, self._decode(res)
 
     def download_url(self, url: str) -> bytes:
         res = self._http.get(url)
@@ -179,6 +197,8 @@ class AsyncFormfeed(_Base[Any]):
         self.account = _AsyncAccount(self)
         self.pdf = _AsyncPdf(self)
         self.files = _AsyncFiles(self)
+        self.brand = _AsyncBrand(self)
+        self.partials = _AsyncPartials(self)
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -192,6 +212,11 @@ class AsyncFormfeed(_Base[Any]):
     async def request(
         self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None, files: Any = None, form: dict[str, str] | None = None
     ) -> Any:
+        return (await self._send(method, path, body, idempotency_key=idempotency_key, files=files, form=form))[1]
+
+    async def _send(
+        self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None, files: Any = None, form: dict[str, str] | None = None
+    ) -> tuple[int, Any]:
         url = f"{self.base_url}{path}"
         headers = self._headers(body, idempotency_key)
         attempt = 0
@@ -213,7 +238,7 @@ class AsyncFormfeed(_Base[Any]):
                 continue
             if res.is_error:
                 raise _problem_error(res)
-            return self._decode(res)
+            return res.status_code, self._decode(res)
 
     async def download_url(self, url: str) -> bytes:
         res = await self._http.get(url)
@@ -332,6 +357,10 @@ class _Renders:
         """Removes the stored files of a render before they expire (needs the file:delete scope)."""
         self._c.request("DELETE", f"/renders/{render_id}/outputs")
 
+    def input(self, render_id: str) -> RenderInput:
+        """The stored request of a render (needs ``render:input``); ``render_input_expired`` (410) when not kept."""
+        return RenderInput.model_validate(self._c.request("GET", f"/renders/{quote(render_id, safe='')}/input"))
+
     def batch(self, items: list[dict[str, Any]], *, template: str | None = None, idempotency_key: str | None = None, **options: Any) -> Job:
         body: dict[str, Any] = {"items": items, **{k: v for k, v in options.items() if v is not None}}
         if template is not None:
@@ -357,15 +386,46 @@ class _Jobs:
             time.sleep(interval)
 
 
+def _listen_body(events: list[str] | None, live: bool | None) -> dict[str, Any]:
+    return _query(events=events, live=live)
+
+
+def _resend_path(event_id: str) -> str:
+    return f"/webhooks/events/{quote(event_id, safe='')}/resend"
+
+
+class _Listen:
+    """Listen sessions, what ``formfeed listen`` uses (``webhook:listen``). Starting a session ends the previous
+    one of the same key; the WebSocket at ``websocket_url`` is up to the caller."""
+
+    def __init__(self, client: Formfeed) -> None:
+        self._c = client
+
+    def start(self, *, events: list[str] | None = None, live: bool | None = None) -> ListenSession:
+        """``live=True`` includes live-environment events and needs ``webhook:manage``."""
+        return ListenSession.model_validate(self._c.request("POST", "/webhooks/listen", _listen_body(events, live)))
+
+    def end(self, session_id: str) -> None:
+        self._c.request("DELETE", f"/webhooks/listen/{quote(session_id, safe='')}")
+
+
 class _Webhooks:
     def __init__(self, client: Formfeed) -> None:
         self._c = client
+        self.listen = _Listen(client)
 
     def list(self) -> list[WebhookEndpoint]:
         return [WebhookEndpoint.model_validate(e) for e in self._c.request("GET", "/webhooks")["data"]]
 
-    def create(self, url: str, *, events: list[str] | None = None, description: str | None = None) -> WebhookEndpoint:
-        return WebhookEndpoint.model_validate(self._c.request("POST", "/webhooks", _query(url=url, events=events, description=description)))
+    def create(
+        self, url: str, *, events: list[str] | None = None, environments: list[str] | None = None, description: str | None = None
+    ) -> WebhookEndpoint:
+        body = _query(url=url, events=events, environments=environments, description=description)
+        return WebhookEndpoint.model_validate(self._c.request("POST", "/webhooks", body))
+
+    def resend(self, event_id: str, endpoint_id: str) -> WebhookResend:
+        """Sends a stored event (``evt_…``) again as a new delivery to an endpoint or a running listen session."""
+        return WebhookResend.model_validate(self._c.request("POST", _resend_path(event_id), {"endpoint_id": endpoint_id}))
 
     def update(self, endpoint_id: str, **patch: Any) -> WebhookEndpoint:
         return WebhookEndpoint.model_validate(self._c.request("PUT", f"/webhooks/{endpoint_id}", patch))
@@ -377,9 +437,46 @@ class _Webhooks:
         return self._c.request("POST", f"/webhooks/{endpoint_id}/test")
 
 
+def _channel_body(version: int, canary: dict[str, int] | None, allow_breaking: bool) -> dict[str, Any]:
+    body: dict[str, Any] = {"version": version, "canary": canary}
+    if allow_breaking:
+        body["allow_breaking"] = True
+    return body
+
+
+def _guard(allow_breaking: bool) -> dict[str, Any] | None:
+    return {"allow_breaking": True} if allow_breaking else None
+
+
+class _Channels:
+    """Release channels: a render with ``version="staging"`` uses the version the channel points at.
+    Moves reach renders within a minute; a breaking data schema change raises ``schema_breaking_change``
+    unless ``allow_breaking=True``."""
+
+    def __init__(self, client: Formfeed) -> None:
+        self._c = client
+
+    def list(self, id_or_slug: str) -> ChannelList:
+        return ChannelList.model_validate(self._c.request("GET", f"/templates/{id_or_slug}/channels"))
+
+    def set(self, id_or_slug: str, name: str, *, version: int, canary: dict[str, int] | None = None, allow_breaking: bool = False) -> Channel:
+        """Creates or moves a channel; ``canary={"version": 6, "percent": 10}`` sends a share of its renders to another version."""
+        return Channel.model_validate(self._c.request("PUT", f"/templates/{id_or_slug}/channels/{name}", _channel_body(version, canary, allow_breaking)))
+
+    def promote(self, id_or_slug: str, name: str, *, allow_breaking: bool = False) -> Channel:
+        return Channel.model_validate(self._c.request("POST", f"/templates/{id_or_slug}/channels/{name}/promote", _guard(allow_breaking)))
+
+    def rollback(self, id_or_slug: str, name: str, *, allow_breaking: bool = False) -> Channel:
+        return Channel.model_validate(self._c.request("POST", f"/templates/{id_or_slug}/channels/{name}/rollback", _guard(allow_breaking)))
+
+    def delete(self, id_or_slug: str, name: str, *, force: bool = False) -> None:
+        self._c.request("DELETE", f"/templates/{id_or_slug}/channels/{name}{'?force=true' if force else ''}")
+
+
 class _Templates:
     def __init__(self, client: Formfeed) -> None:
         self._c = client
+        self.channels = _Channels(client)
 
     def list(self, *, kind: str | None = None, engine: str | None = None, tag: str | None = None, q: str | None = None, limit: int | None = None, cursor: str | None = None) -> TemplatePage:
         params = httpx.QueryParams(_query(kind=kind, engine=engine, tag=tag, q=q, limit=limit, cursor=cursor))
@@ -409,7 +506,7 @@ class _Templates:
         self._c.request("DELETE", f"/templates/{id_or_slug}")
 
     def version(self, id_or_slug: str, which: str | int = "published") -> TemplateVersion:
-        """``which``: ``published``, ``latest`` or a version number; carries the files."""
+        """``which``: ``published``, ``latest``, a version number or a channel name; carries the files."""
         return TemplateVersion.model_validate(self._c.request("GET", f"/templates/{id_or_slug}/versions/{which}"))
 
     def versions(self, id_or_slug: str) -> list[TemplateVersion]:
@@ -418,8 +515,9 @@ class _Templates:
     def create_version(self, id_or_slug: str, **version: Any) -> TemplateVersion:
         return TemplateVersion.model_validate(self._c.request("POST", f"/templates/{id_or_slug}/versions", version))
 
-    def publish(self, id_or_slug: str, number: int) -> TemplateVersion:
-        return TemplateVersion.model_validate(self._c.request("POST", f"/templates/{id_or_slug}/versions/{number}/publish"))
+    def publish(self, id_or_slug: str, number: int, *, allow_breaking: bool = False) -> TemplateVersion:
+        """Publishes a version; a data schema that breaks callers of the published one raises ``schema_breaking_change`` unless ``allow_breaking``."""
+        return TemplateVersion.model_validate(self._c.request("POST", f"/templates/{id_or_slug}/versions/{number}/publish", _guard(allow_breaking)))
 
     def schema(self, id_or_slug: str) -> dict[str, Any]:
         return self._c.request("GET", f"/templates/{id_or_slug}/schema")
@@ -506,6 +604,61 @@ class _Files:
         self._c.request("DELETE", f"/files/{_source_id(file)}")
 
 
+def _partial_path(name: str) -> str:
+    return f"/partials/{quote(name, safe='')}"
+
+
+def _partial_body(engine: Engine, source: str, description: str | None, base_version: int | None, has_description: bool) -> dict[str, Any]:
+    body: dict[str, Any] = {"engine": engine, "source": source}
+    # ``description=None`` clears it; leaving it out keeps the stored one
+    if has_description:
+        body["description"] = description
+    if base_version is not None:
+        body["base_version"] = base_version
+    return body
+
+
+_UNSET: Any = object()
+
+
+class _Brand:
+    """The organisation's brand kit, read-only through the API (it is edited in the app)."""
+
+    def __init__(self, client: Formfeed) -> None:
+        self._c = client
+
+    def get(self) -> Brand:
+        return Brand.model_validate(self._c.request("GET", "/brand"))
+
+
+class _Partials:
+    """Shared partials of the organisation. Renders use the current source, so a change reaches every
+    template that includes the partial without a new version."""
+
+    def __init__(self, client: Formfeed) -> None:
+        self._c = client
+
+    def list(self) -> list[SharedPartial]:
+        """Every shared partial, without its source."""
+        return [SharedPartial.model_validate(p) for p in self._c.request("GET", "/partials")["data"]]
+
+    def get(self, name: str) -> SharedPartial:
+        """One partial with its source."""
+        return SharedPartial.model_validate(self._c.request("GET", _partial_path(name)))
+
+    def put(
+        self, name: str, *, engine: Engine, source: str, description: str | None = _UNSET, base_version: int | None = None
+    ) -> SharedPartialPutResult:
+        """Creates or replaces a partial; ``base_version`` fails with 409 ``conflict`` when it changed since you read it."""
+        body = _partial_body(engine, source, None if description is _UNSET else description, base_version, description is not _UNSET)
+        status, data = self._c._send("PUT", _partial_path(name), body)
+        return SharedPartialPutResult(partial=SharedPartial.model_validate(data), created=status == 201)
+
+    def delete(self, name: str) -> None:
+        """Removes a partial; templates that still include it fail to render afterwards."""
+        self._c.request("DELETE", _partial_path(name))
+
+
 # --- async namespaces -------------------------------------------------------------------------
 
 
@@ -575,6 +728,10 @@ class _AsyncRenders:
         """Removes the stored files of a render before they expire (needs the file:delete scope)."""
         await self._c.request("DELETE", f"/renders/{render_id}/outputs")
 
+    async def input(self, render_id: str) -> RenderInput:
+        """The stored request of a render (needs ``render:input``); ``render_input_expired`` (410) when not kept."""
+        return RenderInput.model_validate(await self._c.request("GET", f"/renders/{quote(render_id, safe='')}/input"))
+
     async def batch(self, items: list[dict[str, Any]], *, template: str | None = None, idempotency_key: str | None = None, **options: Any) -> Job:
         body: dict[str, Any] = {"items": items, **{k: v for k, v in options.items() if v is not None}}
         if template is not None:
@@ -600,15 +757,33 @@ class _AsyncJobs:
             await asyncio.sleep(interval)
 
 
+class _AsyncListen:
+    def __init__(self, client: AsyncFormfeed) -> None:
+        self._c = client
+
+    async def start(self, *, events: list[str] | None = None, live: bool | None = None) -> ListenSession:
+        return ListenSession.model_validate(await self._c.request("POST", "/webhooks/listen", _listen_body(events, live)))
+
+    async def end(self, session_id: str) -> None:
+        await self._c.request("DELETE", f"/webhooks/listen/{quote(session_id, safe='')}")
+
+
 class _AsyncWebhooks:
     def __init__(self, client: AsyncFormfeed) -> None:
         self._c = client
+        self.listen = _AsyncListen(client)
 
     async def list(self) -> list[WebhookEndpoint]:
         return [WebhookEndpoint.model_validate(e) for e in (await self._c.request("GET", "/webhooks"))["data"]]
 
-    async def create(self, url: str, *, events: list[str] | None = None, description: str | None = None) -> WebhookEndpoint:
-        return WebhookEndpoint.model_validate(await self._c.request("POST", "/webhooks", _query(url=url, events=events, description=description)))
+    async def create(
+        self, url: str, *, events: list[str] | None = None, environments: list[str] | None = None, description: str | None = None
+    ) -> WebhookEndpoint:
+        body = _query(url=url, events=events, environments=environments, description=description)
+        return WebhookEndpoint.model_validate(await self._c.request("POST", "/webhooks", body))
+
+    async def resend(self, event_id: str, endpoint_id: str) -> WebhookResend:
+        return WebhookResend.model_validate(await self._c.request("POST", _resend_path(event_id), {"endpoint_id": endpoint_id}))
 
     async def update(self, endpoint_id: str, **patch: Any) -> WebhookEndpoint:
         return WebhookEndpoint.model_validate(await self._c.request("PUT", f"/webhooks/{endpoint_id}", patch))
@@ -620,9 +795,30 @@ class _AsyncWebhooks:
         return await self._c.request("POST", f"/webhooks/{endpoint_id}/test")
 
 
+class _AsyncChannels:
+    def __init__(self, client: AsyncFormfeed) -> None:
+        self._c = client
+
+    async def list(self, id_or_slug: str) -> ChannelList:
+        return ChannelList.model_validate(await self._c.request("GET", f"/templates/{id_or_slug}/channels"))
+
+    async def set(self, id_or_slug: str, name: str, *, version: int, canary: dict[str, int] | None = None, allow_breaking: bool = False) -> Channel:
+        return Channel.model_validate(await self._c.request("PUT", f"/templates/{id_or_slug}/channels/{name}", _channel_body(version, canary, allow_breaking)))
+
+    async def promote(self, id_or_slug: str, name: str, *, allow_breaking: bool = False) -> Channel:
+        return Channel.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/channels/{name}/promote", _guard(allow_breaking)))
+
+    async def rollback(self, id_or_slug: str, name: str, *, allow_breaking: bool = False) -> Channel:
+        return Channel.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/channels/{name}/rollback", _guard(allow_breaking)))
+
+    async def delete(self, id_or_slug: str, name: str, *, force: bool = False) -> None:
+        await self._c.request("DELETE", f"/templates/{id_or_slug}/channels/{name}{'?force=true' if force else ''}")
+
+
 class _AsyncTemplates:
     def __init__(self, client: AsyncFormfeed) -> None:
         self._c = client
+        self.channels = _AsyncChannels(client)
 
     async def list(self, *, kind: str | None = None, engine: str | None = None, tag: str | None = None, q: str | None = None, limit: int | None = None, cursor: str | None = None) -> TemplatePage:
         params = httpx.QueryParams(_query(kind=kind, engine=engine, tag=tag, q=q, limit=limit, cursor=cursor))
@@ -659,8 +855,8 @@ class _AsyncTemplates:
     async def create_version(self, id_or_slug: str, **version: Any) -> TemplateVersion:
         return TemplateVersion.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/versions", version))
 
-    async def publish(self, id_or_slug: str, number: int) -> TemplateVersion:
-        return TemplateVersion.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/versions/{number}/publish"))
+    async def publish(self, id_or_slug: str, number: int, *, allow_breaking: bool = False) -> TemplateVersion:
+        return TemplateVersion.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/versions/{number}/publish", _guard(allow_breaking)))
 
     async def schema(self, id_or_slug: str) -> dict[str, Any]:
         return await self._c.request("GET", f"/templates/{id_or_slug}/schema")
@@ -732,3 +928,32 @@ class _AsyncFiles:
 
     async def delete(self, file: LibraryFile | str) -> None:
         await self._c.request("DELETE", f"/files/{_source_id(file)}")
+
+
+class _AsyncBrand:
+    def __init__(self, client: AsyncFormfeed) -> None:
+        self._c = client
+
+    async def get(self) -> Brand:
+        return Brand.model_validate(await self._c.request("GET", "/brand"))
+
+
+class _AsyncPartials:
+    def __init__(self, client: AsyncFormfeed) -> None:
+        self._c = client
+
+    async def list(self) -> list[SharedPartial]:
+        return [SharedPartial.model_validate(p) for p in (await self._c.request("GET", "/partials"))["data"]]
+
+    async def get(self, name: str) -> SharedPartial:
+        return SharedPartial.model_validate(await self._c.request("GET", _partial_path(name)))
+
+    async def put(
+        self, name: str, *, engine: Engine, source: str, description: str | None = _UNSET, base_version: int | None = None
+    ) -> SharedPartialPutResult:
+        body = _partial_body(engine, source, None if description is _UNSET else description, base_version, description is not _UNSET)
+        status, data = await self._c._send("PUT", _partial_path(name), body)
+        return SharedPartialPutResult(partial=SharedPartial.model_validate(data), created=status == 201)
+
+    async def delete(self, name: str) -> None:
+        await self._c.request("DELETE", _partial_path(name))

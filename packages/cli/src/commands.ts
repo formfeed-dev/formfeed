@@ -3,16 +3,20 @@ import { spawnSync } from 'node:child_process';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import {
+  EngineSyntaxError,
   importApitemplate,
   importJsreport,
   importPdfmonkey,
+  inferSchemaFromDataSets,
   isScss,
   jsreportTemplates,
+  RenderError,
+  type Diagnostic as EngineDiagnostic,
   type EngineId,
   type ImportResult,
   type TemplateKind,
 } from '@formfeed/engine';
-import type { FormfeedError, TemplateVersion } from '@formfeed/sdk-ts';
+import type { Channel, FormfeedError, RenderInput, SchemaChange, SharedPartialPutResult, TemplateVersion } from '@formfeed/sdk-ts';
 import {
   createClient,
   defaultProjectConfig,
@@ -30,8 +34,36 @@ import { startDevServer } from './lib/dev-server';
 import { formatDiff } from './lib/diff';
 import { CliError, exitCodes } from './lib/errors';
 import { pdfmonkeyTemplate, pdfmonkeyTemplateIds, projectSassCompiler, readJsreportFile, readSnippets } from './lib/importers';
+import { defaultConnect, listenStatePath, readListenState, runListen, type Connect } from './lib/listen';
 import { emit, formatDiagnostic, printer, reportError, table, type Printer } from './lib/output';
-import { contentHash, defaultData, diagnose, listLocalFiles, listTemplateSlugs, readState, readTemplate, recordSync, renderLocal, templateDir, titleFromSlug, versionPayload, writeLocalFile, writeTemplate, type LocalTemplate, type TemplateMeta } from '@formfeed/devkit';
+import {
+  contentHash,
+  defaultData,
+  defaultTypesFile,
+  diagnose,
+  generateTypes,
+  listLocalFiles,
+  listTemplateSlugs,
+  localTypeSource,
+  partialContentHash,
+  readBrand,
+  readState,
+  readTemplate,
+  recordSharedPartial,
+  recordSync,
+  redactData,
+  renderLocal,
+  sharedPartialPath,
+  templateDir,
+  titleFromSlug,
+  versionPayload,
+  writeBrand,
+  writeLocalFile,
+  writeTemplate,
+  type LocalTemplate,
+  type TemplateMeta,
+  type TypeSource,
+} from '@formfeed/devkit';
 import { onlyNames, planPull, planPush, remoteAssetBase } from './lib/files';
 
 /**
@@ -48,8 +80,14 @@ export interface ProgramContext {
   onServer?: (server: { url: string; close(): Promise<void> }) => void;
   /** Runs git for `ci preview`; injected in tests. Returns stdout, or null when git is unavailable. */
   git?: (args: string[], cwd: string) => string | null;
-  /** Waits between device-login polls; injected in tests so they do not sleep. */
+  /** Waits between device-login polls and listen reconnects; injected in tests so they do not sleep. */
   wait?: (ms: number) => Promise<void>;
+  /** Opens the relay WebSocket of `listen`; Node's global `WebSocket` by default, a fake in tests. */
+  connect?: Connect;
+  /** Stops long-running commands (`listen`) like Ctrl+C does; SIGINT by default. */
+  signal?: AbortSignal;
+  /** The clock of `listen` output lines. */
+  now?: () => Date;
 }
 
 const VERSION = '0.2.0';
@@ -263,7 +301,9 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .option('--message <note>', 'change note')
     .option('--dry-run', 'show what would change without pushing')
     .option('--force', 'push even when the remote changed since the last pull')
-    .action(async (slug: string | undefined, opts: { publish?: boolean; message?: string; dryRun?: boolean; force?: boolean }) => {
+    .option('--channel <name>', 'point this release channel at the new version (e.g. staging)')
+    .option('--allow-breaking', 'publish or move the channel although the data schema breaks callers of the current version')
+    .action(async (slug: string | undefined, opts: { publish?: boolean; message?: string; dryRun?: boolean; force?: boolean; channel?: string; allowBreaking?: boolean }) => {
       const s = settings();
       const project = requireProject(s);
       const slugs = slug ? [slug] : listTemplateSlugs(project);
@@ -286,21 +326,41 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           results.push({ slug: one, status: known ? (changed ? 'modified' : 'unchanged') : 'new' });
           continue;
         }
-        if (known && !changed && !opts.publish) {
+        if (known && !changed && !opts.publish && !opts.channel) {
           results.push({ slug: one, status: 'unchanged' });
           continue;
         }
-        const version = await pushTemplate(c!, project, tpl, {
-          publish: Boolean(opts.publish),
-          message: opts.message,
-          baseChecksum: opts.force ? undefined : known?.checksum,
-        });
-        results.push({ slug: one, status: version.status, number: version.number, checksum: version.checksum });
+        // only moving a channel to what was pushed before needs no new version
+        const version =
+          known && !changed && !opts.publish
+            ? await c!.templates.versions.get(one, known.number)
+            : await schemaGuard(() =>
+                pushTemplate(c!, project, tpl, {
+                  publish: Boolean(opts.publish),
+                  message: opts.message,
+                  baseChecksum: opts.force ? undefined : known?.checksum,
+                  allowBreaking: Boolean(opts.allowBreaking),
+                }),
+              );
+        const result: Record<string, unknown> = { slug: one, status: version.status, number: version.number, checksum: version.checksum };
+        if (opts.channel) {
+          const channel = await schemaGuard(() =>
+            c!.templates.channels.set(one, opts.channel!, { version: version.number }, { allowBreaking: Boolean(opts.allowBreaking) }),
+          );
+          result['channel'] = channel.name;
+          result['schema_check'] = channel.schema_check ?? null;
+        } else if (version.schema_check) {
+          result['schema_check'] = version.schema_check;
+        }
+        results.push(result);
       }
       emit(p(), results, () =>
-        results.map((r) =>
-          r['number'] ? `${r['slug']}: v${r['number']} ${r['status']}` : `${r['slug']}: ${r['status']}`,
-        ),
+        results.flatMap((r) => [
+          r['number']
+            ? `${r['slug']}: v${r['number']} ${r['status']}${r['channel'] ? ` -> channel ${r['channel']}` : ''}`
+            : `${r['slug']}: ${r['status']}`,
+          ...schemaWarnings(r['schema_check'] as TemplateVersion['schema_check']),
+        ]),
       );
     });
 
@@ -349,6 +409,114 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       emit(p(), json, () => out);
     });
 
+  // --- release channels (spec 19 §4) ---------------------------------------------------------
+  const channelsCmd = program
+    .command('channels')
+    .description('Release channels: which version a render with version=<channel> uses');
+  channelsCmd
+    .command('list <slug>')
+    .description('Channels of a template with their versions, canaries and renders of the last 24 hours')
+    .action(async (slug: string) => {
+      const s = settings();
+      const list = await client(s).templates.channels.list(slug);
+      emit(p(), list, () => [
+        ...table(
+          list.data.map((ch) => {
+            const usage = (ch.usage_24h ?? []).reduce((sum, u) => ({ renders: sum.renders + u.renders, failed: sum.failed + u.failed }), { renders: 0, failed: 0 });
+            return [
+              ch.name,
+              ch.version === null ? '-' : `v${ch.version}`,
+              ch.canary ? `v${ch.canary.version} ${ch.canary.percent}%` : '-',
+              ch.previous_version === null ? '-' : `v${ch.previous_version}`,
+              `${usage.renders} (${usage.failed} failed)`,
+            ];
+          }),
+          ['channel', 'version', 'canary', 'previous', 'renders 24h'],
+        ),
+        `plan: ${list.limits.channels === null ? 'unlimited' : list.limits.channels} channel(s) besides published, canary ${list.limits.canary ? 'allowed' : 'not included'}`,
+      ]);
+    });
+  channelsCmd
+    .command('set <slug> <name> <version>')
+    .description('Create a channel or point it at a version; on published this publishes')
+    .option('--canary <version>', 'a second version that receives --percent of the renders', positiveInt)
+    .option('--percent <n>', 'share of the canary, 1 to 50', positiveInt)
+    .option('--allow-breaking', 'go ahead although the data schema breaks callers of the current version')
+    .action(async (slug: string, name: string, versionArg: string, opts: { canary?: number; percent?: number; allowBreaking?: boolean }) => {
+      const version = positiveInt(versionArg);
+      if ((opts.canary === undefined) !== (opts.percent === undefined))
+        throw new CliError('--canary and --percent go together', exitCodes.usage);
+      const s = settings();
+      const channel = await schemaGuard(() =>
+        client(s).templates.channels.set(
+          slug,
+          name,
+          { version, canary: opts.canary !== undefined ? { version: opts.canary, percent: opts.percent! } : null },
+          { allowBreaking: Boolean(opts.allowBreaking) },
+        ),
+      );
+      emit(p(), channel, () => [describeChannel(slug, channel), ...schemaWarnings(channel.schema_check)]);
+    });
+  for (const action of ['promote', 'rollback'] as const) {
+    channelsCmd
+      .command(`${action} <slug> <name>`)
+      .description(action === 'promote' ? 'Make the canary the main version of the channel' : 'Return the channel to the version before its last move')
+      .option('--allow-breaking', 'go ahead although the data schema breaks callers of the current version')
+      .action(async (slug: string, name: string, opts: { allowBreaking?: boolean }) => {
+        const s = settings();
+        const channels = client(s).templates.channels;
+        const guard = { allowBreaking: Boolean(opts.allowBreaking) };
+        const channel = await schemaGuard(() => (action === 'promote' ? channels.promote(slug, name, guard) : channels.rollback(slug, name, guard)));
+        emit(p(), channel, () => [describeChannel(slug, channel), ...schemaWarnings(channel.schema_check)]);
+      });
+  }
+  channelsCmd
+    .command('delete <slug> <name>')
+    .description('Delete a channel; --force when renders of the last hour still used it')
+    .option('--force', 'delete even when the channel was used in the last hour')
+    .action(async (slug: string, name: string, opts: { force?: boolean }) => {
+      const s = settings();
+      await client(s).templates.channels.delete(slug, name, { force: Boolean(opts.force) });
+      emit(p(), { ok: true, slug, channel: name }, () => [`deleted channel ${name} of ${slug}`]);
+    });
+
+  // --- generated types (spec 19 §2) ------------------------------------------------------------
+  program
+    .command('types [slugs...]')
+    .description('Generate TypeScript or Python types for the data of templates')
+    .option('--lang <lang>', 'ts or python (default: formfeed.json types.lang, else ts)')
+    .option('--out <file>', 'output file (default: formfeed.d.ts or formfeed_templates.py in the project root)')
+    .option('--channel <name>', 'read the schemas of this channel from the API (default: published)')
+    .option('--remote', 'read schemas from the API even inside a project')
+    .option('--sdk-module <name>', 'module the TypeScript file augments (default @formfeed/sdk)')
+    .option('--check', 'write nothing; exit 1 when the file differs from what would be generated')
+    .action(async (slugs: string[], opts: { lang?: string; out?: string; channel?: string; remote?: boolean; sdkModule?: string; check?: boolean }) => {
+      const s = settings();
+      const project = s.project;
+      const defaults = project?.config.types ?? {};
+      const lang = opts.lang ?? defaults.lang ?? 'ts';
+      if (lang !== 'ts' && lang !== 'python') throw new CliError('--lang must be ts or python', exitCodes.usage);
+      const out = resolve(project?.root ?? ctx.cwd ?? process.cwd(), opts.out ?? defaults.out ?? defaultTypesFile[lang]);
+      const sources =
+        project && !opts.remote && !opts.channel
+          ? (slugs.length ? slugs : listTemplateSlugs(project)).map((slug) => localTypeSource(readTemplate(project, slug)))
+          : await remoteTypeSources(client(s), slugs, opts.channel);
+      const text = generateTypes(sources, lang, { sdkModule: opts.sdkModule ?? defaults.sdkModule });
+      const summary = { file: out, lang, templates: sources.map((x) => ({ slug: x.slug, origin: x.origin, version: x.version ?? null })) };
+      const lines = sources.map((x) => `  ${x.slug}: ${x.origin}${x.version ? ` v${x.version}` : ''}${x.origin === 'inferred' ? ' (every field optional; store a schema to make it a contract)' : ''}`);
+      if (opts.check) {
+        // line endings may differ after a checkout on Windows; the content is what matters
+        const current = existsSync(out) ? readFileSync(out, 'utf8').replace(/\r\n/g, '\n') : null;
+        if (current !== text)
+          throw new CliError(`${out} is out of date; run \`formfeed types\` and commit the result`, exitCodes.validation, summary);
+        emit(p(), { ...summary, ok: true }, () => [`${out} is up to date`, ...lines]);
+        return;
+      }
+      mkdirSync(dirname(out), { recursive: true });
+      writeFileSync(out, text);
+      emit(p(), summary, () => [`wrote ${out}`, ...lines]);
+    });
+
   // --- validate / render / dev ----------------------------------------------------------------
   program
     .command('validate [slug]')
@@ -360,6 +528,9 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const slugs = slug ? [slug] : listTemplateSlugs(project);
       if (slugs.length === 0) throw new CliError(`No templates in ${project.templatesDir}`, exitCodes.usage);
       const report: Array<{ slug: string; diagnostics: ReturnType<typeof diagnose> }> = [];
+      // `brand` is a built-in root of the analysis; a broken .formfeed/brand.json fails here rather
+      // than in the first render
+      readBrand(project);
       let errors = 0;
       for (const one of slugs) {
         const tpl = readTemplate(project, one);
@@ -393,7 +564,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         ? await c.renders.create({ template: slug, data: data as Record<string, unknown>, output })
         : await (async () => {
             // the document leaves complete, so asset() must already point at the workspace library
-            const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c) });
+            const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c), brand: readBrand(project) });
             return c.renders.create({ html: rendered.document, settings: rendered.settings as Record<string, unknown>, output, meta: { source: 'formfeed render', template: slug } });
           })();
       const finished = render.status === 'succeeded' || render.status === 'failed' ? render : await c.renders.waitFor(render.id);
@@ -443,6 +614,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
 
       const results: TestResult[] = [];
       const lines: string[] = [];
+      const brand = readBrand(project);
       for (const one of slugs) {
         const tpl = readTemplate(project, one);
         const names = Object.keys(tpl.dataSets);
@@ -456,7 +628,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
             lines.push(...errors.map((d) => formatDiagnostic(`${one}/template.html`, d)));
             continue;
           }
-          const rendered = await renderLocal(project, tpl, data, { mode: 'preview' });
+          const rendered = await renderLocal(project, tpl, data, { mode: 'preview', brand });
           const file = snapshotPath(project, one, name);
           if (opts.updateSnapshots) {
             mkdirSync(dirname(file), { recursive: true });
@@ -509,12 +681,13 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const c = client(s);
       mkdirSync(outDir, { recursive: true });
       const assetBaseUrl = await remoteAssetBase(c);
+      const brand = readBrand(project);
       const rows: PreviewRow[] = [];
       for (const one of slugs) {
         const tpl = readTemplate(project, one);
         const set = defaultData(tpl);
         const output = tpl.meta.kind === 'image' ? 'png' : 'pdf';
-        const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl });
+        const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl, brand });
         const created = await c.renders.create({
           html: rendered.document,
           settings: rendered.settings as Record<string, unknown>,
@@ -542,6 +715,135 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         `Summary written to ${summaryFile}`,
       ]);
       if (failed > 0) throw new CliError(`${failed} template(s) failed to render`, exitCodes.validation, { silent: true });
+    });
+
+  // --- brand kit and shared partials (spec 18 §8) ---------------------------------------------
+  const brandCmd = program.command('brand').description("The organisation's brand kit, for local previews and renders");
+  brandCmd
+    .command('pull')
+    .description('Download the brand kit into .formfeed/brand.json; dev, render, test and ci preview use it as brand')
+    .action(async () => {
+      const s = settings();
+      const project = requireProject(s);
+      const brand = await client(s).brand.get();
+      const file = writeBrand(project, brand);
+      const colors = Object.keys(brand.colors ?? {});
+      emit(p(), { ...brand, file }, () => [
+        `brand v${brand.version}${brand.name ? ` (${brand.name})` : ''} -> ${file}`,
+        `  colors: ${colors.length ? colors.join(', ') : 'none'}; logos: ${Object.entries(brand.logo ?? {}).filter(([, url]) => url).map(([variant]) => variant).join(', ') || 'none'}`,
+      ]);
+    });
+
+  const partialsCmd = program
+    .command('partials')
+    .description("Shared partials of the organisation, kept in the project's partials folder as <name>.html");
+  partialsCmd
+    .command('list')
+    .description('Remote shared partials with version and local sync status')
+    .action(async () => {
+      const s = settings();
+      const rows = await client(s).partials.list();
+      const project = s.project ? requireProject(s) : null;
+      const state = project ? (readState(project).sharedPartials ?? {}) : {};
+      const local = (name: string, version: number) => {
+        const known = state[name];
+        if (!project || !known) return '-';
+        const path = sharedPartialPath(project, name);
+        const edited = existsSync(path) && partialContentHash(readFileSync(path, 'utf8')) !== known.contentHash;
+        return `v${known.version}${known.version !== version ? ' (behind)' : ''}${edited ? ' modified' : ''}`;
+      };
+      const json = rows.map((r) => ({ ...r, local: local(r.name, r.version) }));
+      emit(p(), json, () =>
+        table(
+          json.map((r) => [r.name, r.engine, `v${r.version}`, r.local, (r.updated_at ?? '').slice(0, 10)]),
+          ['name', 'engine', 'version', 'local', 'updated'],
+        ),
+      );
+    });
+
+  partialsCmd
+    .command('pull [names...]')
+    .description('Download shared partials (all when no name is given) and record their versions in .formfeed/state.json')
+    .action(async (names: string[]) => {
+      const s = settings();
+      const project = requireProject(s);
+      const c = client(s);
+      const remote = await c.partials.list();
+      const unknown = names.filter((name) => !remote.some((r) => r.name === name));
+      if (unknown.length) throw new CliError(`No shared partial ${unknown.map((n) => `"${n}"`).join(', ')} in the organisation`, exitCodes.usage);
+      const results: Array<{ name: string; engine: string; version: number; status: 'pulled' | 'unchanged'; path: string }> = [];
+      for (const row of remote.filter((r) => !names.length || names.includes(r.name))) {
+        const partial = await c.partials.get(row.name);
+        const source = partial.source ?? '';
+        const path = sharedPartialPath(project, partial.name);
+        const unchanged = existsSync(path) && readFileSync(path, 'utf8') === source;
+        if (!unchanged) {
+          mkdirSync(dirname(path), { recursive: true });
+          writeFileSync(path, source);
+        }
+        recordSharedPartial(project, partial.name, { version: partial.version, engine: partial.engine }, source);
+        results.push({ name: partial.name, engine: partial.engine, version: partial.version, status: unchanged ? 'unchanged' : 'pulled', path });
+      }
+      emit(p(), results, () =>
+        results.length ? results.map((r) => `${r.name}: v${r.version} ${r.status}${r.status === 'pulled' ? ` -> ${r.path}` : ''}`) : ['The organisation has no shared partials'],
+      );
+    });
+
+  partialsCmd
+    .command('push [names...]')
+    .description('Create or update shared partials from the partials folder (all recorded ones when no name is given)')
+    .option('--engine <id>', 'engine of new partials (default: the recorded engine, else the project engine)', parseEngine)
+    .option('--dry-run', 'show what would be pushed')
+    .option('--force', 'push even when the remote partial changed since the last pull')
+    .action(async (names: string[], opts: { engine?: EngineId; dryRun?: boolean; force?: boolean }) => {
+      const s = settings();
+      const project = requireProject(s);
+      const state = readState(project).sharedPartials ?? {};
+      const targets = names.length ? names : Object.keys(state).sort();
+      if (!targets.length)
+        throw new CliError('No shared partials are recorded in .formfeed/state.json; name the ones to push, e.g. formfeed partials push letterhead', exitCodes.usage);
+      for (const name of targets) {
+        if (!sharedPartialName.test(name))
+          throw new CliError(`"${name}" is not a shared partial name: lowercase letters, digits, - and _, at most 64 characters`, exitCodes.usage);
+        if (!existsSync(sharedPartialPath(project, name))) throw new CliError(`No file ${sharedPartialPath(project, name)}`, exitCodes.usage);
+      }
+      const c = opts.dryRun ? null : client(s);
+      // a name without a state entry is new here; refuse to overwrite a remote partial nobody pulled
+      const remote = c && targets.some((name) => !state[name]) ? await c.partials.list() : [];
+      const results: Array<{ name: string; status: string; version?: number; engine: EngineId }> = [];
+      for (const name of targets) {
+        const source = readFileSync(sharedPartialPath(project, name), 'utf8');
+        const known = state[name];
+        const engine = opts.engine ?? known?.engine ?? project.config.engine;
+        const changed = !known || known.contentHash !== partialContentHash(source) || known.engine !== engine;
+        if (!c) {
+          results.push({ name, engine, status: known ? (changed ? 'modified' : 'unchanged') : 'new' });
+          continue;
+        }
+        if (!changed) {
+          results.push({ name, engine, status: 'unchanged', version: known.version });
+          continue;
+        }
+        if (!known && !opts.force && remote.some((r) => r.name === name))
+          throw new CliError(`A shared partial "${name}" exists already; run formfeed partials pull ${name} first, or push with --force to replace it`, exitCodes.usage);
+        let written: SharedPartialPutResult;
+        try {
+          written = await c.partials.put(name, { engine, source, ...(known && !opts.force ? { base_version: known.version } : {}) });
+        } catch (e) {
+          if ((e as FormfeedError).status === 409)
+            throw new CliError(
+              `${name} changed remotely since v${known?.version}; run formfeed partials pull ${name} and merge, or push with --force`,
+              exitCodes.usage,
+              (e as FormfeedError).problem,
+            );
+          throw e;
+        }
+        recordSharedPartial(project, name, { version: written.partial.version, engine: written.partial.engine }, source);
+        results.push({ name, engine, status: written.created ? 'created' : 'updated', version: written.partial.version });
+      }
+      emit(p(), results, () =>
+        results.map((r) => `${r.name}: ${r.version !== undefined && r.status !== 'unchanged' ? `v${r.version} ` : ''}${r.status}${opts.dryRun && r.status !== 'unchanged' ? ' (dry run)' : ''}`),
+      );
     });
 
   // --- files ---------------------------------------------------------------------------------
@@ -682,6 +984,219 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       emit(p(), { id, deleted: true }, () => [`${id}: outputs deleted`]);
     });
 
+  // --- render to data set and test case (spec 20 §3.3) ----------------------------------------
+  rendersCmd
+    .command('pull <id>')
+    .description("Save a render's stored request data as a data set of its template; --run reproduces it locally")
+    .option('--as <name>', 'data set name (default: render-<last 6 characters of the id>)')
+    .option('--redact [paths...]', 'replace strings with same-shape placeholders; only these data paths when given (customer.*, items[].name)')
+    .option('--no-redact', 'skip the redaction formfeed.json sets in pull.redact')
+    .option('--run', 'render the data set locally and print diagnostics with template line and column')
+    .option('--snapshot', 'write tests/__snapshots__/<name>.html from the local render (not for failed renders)')
+    .option('--force', 'overwrite an existing data set of that name')
+    .action(async (id: string, opts: { as?: string; redact?: boolean | string[]; run?: boolean; snapshot?: boolean; force?: boolean }) => {
+      const s = settings();
+      const project = requireProject(s);
+      const c = client(s);
+      const printer = p();
+      const name = opts.as ?? `render-${id.slice(-6)}`;
+      if (!/^[\w.-]+$/.test(name) || name === 'default')
+        throw new CliError(`"${name}" is not a data set name: letters, digits, _, . and -, and not "default"`, exitCodes.usage);
+
+      let input: RenderInput;
+      try {
+        input = await c.renders.input(id);
+      } catch (e) {
+        throw renderInputError(id, e as FormfeedError);
+      }
+      if (!input.template)
+        throw new CliError(`${id} rendered ${input.url ? 'a URL' : 'ad-hoc HTML'}, not a template; only template renders can become a data set`, exitCodes.usage);
+      const { slug, version: renderVersion } = input.template;
+      if (!existsSync(join(templateDir(project, slug), 'template.html')))
+        throw new CliError(`${id} used template "${slug}", which has no folder in ${project.templatesDir}; run formfeed templates pull ${slug} first`, exitCodes.usage);
+      const file = join(templateDir(project, slug), 'data', `${name}.json`);
+      if (existsSync(file) && !opts.force) throw new CliError(`${file} exists already; choose another name with --as or overwrite it with --force`, exitCodes.usage);
+      if (opts.snapshot) {
+        const render = await c.renders.get(id);
+        if (render.status === 'failed')
+          throw new CliError(`${id} failed, so its output is no reference for a snapshot; pull it with --run to reproduce the failure`, exitCodes.usage);
+      }
+
+      const localVersion = readState(project).templates[slug]?.number ?? null;
+      const warnings: string[] = [];
+      if (localVersion !== null && localVersion !== renderVersion)
+        warnings.push(`${id} used ${slug} v${renderVersion}, the local folder is at v${localVersion}: the data may not fit the local template`);
+
+      // --redact [paths] > --no-redact > formfeed.json pull.redact > nothing
+      const configured = project.config.pull?.redact?.length ? project.config.pull.redact : undefined;
+      const paths: string[] | 'all' | null =
+        Array.isArray(opts.redact) && opts.redact.length
+          ? opts.redact.flatMap((x) => x.split(',')).map((x) => x.trim()).filter(Boolean)
+          : opts.redact === true
+            ? (configured ?? 'all')
+            : opts.redact === false
+              ? null
+              : (configured ?? null);
+      const raw = input.data ?? {};
+      const data = paths === null ? raw : redactData(raw, paths === 'all' ? undefined : paths);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
+      if (paths === null)
+        warnings.push(`${file} holds the data of a real render and may contain personal data; pull with --redact before committing it`);
+
+      const result: Record<string, unknown> = {
+        render_id: id,
+        template: slug,
+        version: renderVersion,
+        local_version: localVersion,
+        data_set: name,
+        file,
+        redacted: paths === null ? false : paths,
+      };
+      const lines = [`${id} -> ${file}${paths === null ? '' : ` (redacted: ${paths === 'all' ? 'all strings' : paths.join(', ')})`}`];
+      let errors = 0;
+      if (opts.run || opts.snapshot) {
+        const tpl = readTemplate(project, slug);
+        const brand = readBrand(project);
+        const diagnostics = diagnose(tpl, data);
+        let rendered: Awaited<ReturnType<typeof renderLocal>> | null = null;
+        if (!diagnostics.some((d) => d.severity === 'error')) {
+          try {
+            // --run reproduces with the render's locale; the snapshot renders the way `formfeed test` compares it
+            if (opts.run && input.locale) await renderLocal(project, tpl, data, { mode: 'preview', brand, locale: input.locale });
+            rendered = await renderLocal(project, tpl, data, { mode: 'preview', brand });
+          } catch (e) {
+            diagnostics.push(runtimeDiagnostic(e));
+          }
+        }
+        errors = diagnostics.filter((d) => d.severity === 'error').length;
+        result['diagnostics'] = diagnostics;
+        lines.push(...diagnostics.map((d) => formatDiagnostic(`${slug}/template.html`, d)));
+        if (opts.run) lines.push(errors ? `${errors} error(s) rendering ${slug} with ${name}` : `${slug} renders with ${name} without errors`);
+        if (opts.snapshot && rendered) {
+          const snapshot = snapshotPath(project, slug, name);
+          mkdirSync(dirname(snapshot), { recursive: true });
+          writeFileSync(snapshot, rendered.document);
+          result['snapshot'] = snapshot;
+          lines.push(`snapshot -> ${snapshot}`);
+        } else if (opts.snapshot) {
+          result['snapshot'] = null;
+          lines.push(`no snapshot written: ${slug} does not render with ${name}`);
+        }
+      }
+      for (const w of warnings) printer.err(`warning: ${w}`);
+      emit(printer, { ...result, warnings }, () => lines);
+      if (errors > 0) throw new CliError(`${errors} error(s) found`, exitCodes.validation, { silent: true });
+    });
+
+  // --- local webhooks (spec 20 §2) ------------------------------------------------------------
+  program
+    .command('listen')
+    .description("Forward the workspace's webhook events to a local server, signed with a session secret")
+    .option('--forward-to <url>', 'local URL that receives the deliveries', 'http://localhost:3000/webhooks')
+    .option('--events <types>', 'comma-separated event types, e.g. render.completed,job.failed (default: all)')
+    .option('--live', 'include live-environment events (needs the webhook:manage scope)')
+    .option('--print-secret', 'start a session, print only its signing secret and end it again')
+    .option('--skip-verify', 'accept a self-signed certificate of an https:// forward URL')
+    .action(async (opts: { forwardTo: string; events?: string; live?: boolean; printSecret?: boolean; skipVerify?: boolean }) => {
+      const s = settings();
+      const c = client(s);
+      const printer = p();
+      let target: URL;
+      try {
+        target = new URL(opts.forwardTo);
+      } catch {
+        throw new CliError(`--forward-to must be a URL such as http://localhost:3000/webhooks, not "${opts.forwardTo}"`, exitCodes.usage);
+      }
+      if (target.protocol !== 'http:' && target.protocol !== 'https:') throw new CliError('--forward-to must be an http:// or https:// URL', exitCodes.usage);
+      const events = (opts.events ?? '').split(',').map((e) => e.trim()).filter(Boolean);
+      const start = () => c.webhooks.listen.start({ ...(events.length ? { events } : {}), ...(opts.live ? { live: true } : {}) });
+
+      if (opts.printSecret) {
+        const session = await start();
+        await c.webhooks.listen.end(session.id).catch(() => undefined);
+        printer.out(printer.json ? JSON.stringify({ secret: session.secret, session_id: session.id }) : session.secret);
+        return;
+      }
+
+      const account = await c.account.get().catch(() => null);
+      const workspaceName = (account?.['workspace'] as { name?: string } | undefined)?.name ?? null;
+      let signal = ctx.signal;
+      let detach = () => undefined as void;
+      if (!signal) {
+        const controller = new AbortController();
+        const onSigint = () => controller.abort();
+        process.once('SIGINT', onSigint);
+        detach = () => void process.removeListener('SIGINT', onSigint);
+        signal = controller.signal;
+      }
+      try {
+        await runListen({
+          start,
+          end: (sessionId) => c.webhooks.listen.end(sessionId),
+          connect: ctx.connect ?? defaultConnect,
+          forwardTo: target.toString(),
+          skipVerify: Boolean(opts.skipVerify),
+          json: printer.json,
+          out: printer.out,
+          err: printer.err,
+          signal,
+          wait: ctx.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+          now: ctx.now ?? (() => new Date()),
+          statePath: listenStatePath(userConfigPath(ctx.env), s.apiKey!),
+          workspaceName,
+        });
+      } finally {
+        detach();
+      }
+    });
+
+  const webhooksCmd = program.command('webhooks').description('Webhook events and deliveries');
+  webhooksCmd
+    .command('resend <eventId>')
+    .description('Send a stored event (evt_…) again, to the running formfeed listen session or to --to')
+    .option('--to <id>', 'endpoint or listen session id (default: the session of a running formfeed listen with the same key)')
+    .action(async (eventId: string, opts: { to?: string }) => {
+      const s = settings();
+      const c = client(s);
+      const to = opts.to ?? readListenState(listenStatePath(userConfigPath(ctx.env), s.apiKey!))?.session_id;
+      if (!to)
+        throw new CliError('No formfeed listen is running with this API key; start one, or name the endpoint with --to <endpoint id>', exitCodes.usage);
+      try {
+        const resent = await c.webhooks.resend(eventId, to);
+        emit(p(), resent, () => [`${resent.event} (${resent.event_id}) queued again for ${resent.endpoint_id} as delivery ${resent.delivery_id}`]);
+      } catch (e) {
+        const error = e as FormfeedError;
+        if (error.code === 'listen_session_ended' || error.status === 410)
+          throw new CliError(`The listen session ${to} has ended; start formfeed listen again, or name an endpoint with --to`, exitCodes.usage, error.problem);
+        if (error.status === 404) throw new CliError(`No event ${eventId} or endpoint ${to} in this workspace`, exitCodes.usage, error.problem);
+        throw e;
+      }
+    });
+
+  program
+    .command('trigger <event>')
+    .description('Make a real async render so a genuine event reaches formfeed listen (render.completed)')
+    .requiredOption('--template <slug>', 'template to render')
+    .option('--data <file>', 'JSON data (default: the local default data set, else the sample data of the published version)')
+    .action(async (event: string, opts: { template: string; data?: string }) => {
+      if (event !== 'render.completed')
+        throw new CliError(
+          `formfeed trigger supports render.completed. ${event} cannot be produced on purpose reliably; send a stored event again with formfeed webhooks resend <evt_id>`,
+          exitCodes.usage,
+        );
+      const s = settings();
+      const c = client(s);
+      const printer = p();
+      const live = s.apiKey!.startsWith('ff_live_');
+      if (live) printer.err('warning: this is a live key: the render is metered, and formfeed listen shows its event only with --live');
+      const data = await triggerData(c, s, opts.template, opts.data, ctx.cwd ?? process.cwd());
+      const render = await c.renders.create({ template: opts.template, data, mode: 'async', meta: { source: 'formfeed trigger' } });
+      emit(printer, { event, render }, () => [
+        `Queued ${render.id} (${live ? 'live' : 'test'} render of ${opts.template}); ${event} follows when it finishes (render.failed if the data does not fit).`,
+      ]);
+    });
+
   // --- import ---------------------------------------------------------------------------------
   const importCmd = program.command('import').description('Import templates from other services (apitemplate.io, PDFMonkey, jsreport)');
   const cwd = () => ctx.cwd ?? process.cwd();
@@ -798,6 +1313,71 @@ function openBrowser(url: string): void {
   void import('node:child_process').then(({ exec }) => exec(command));
 }
 
+/** `renders.input` failures in words: 410 names the workspace setting that keeps requests. */
+function renderInputError(id: string, error: FormfeedError): unknown {
+  if (error.code === 'render_input_expired' || error.status === 410) {
+    const retention = error.problem?.['request_data_retention'] as string | undefined;
+    const why =
+      retention === 'off' || !retention
+        ? 'the workspace does not keep render requests'
+        : `the workspace keeps render requests for ${retention === '7d' ? '7 days' : '24 hours'} and that period is over`;
+    return new CliError(
+      `The request of ${id} is no longer stored: ${why}. An owner or admin can change this in Settings → Keep render requests; it applies to renders made afterwards.`,
+      exitCodes.usage,
+      error.problem,
+    );
+  }
+  if (error.status === 404) return new CliError(`No render ${id} in this workspace`, exitCodes.usage, error.problem);
+  if (error.status === 403)
+    return new CliError(`The API key may not read render requests: it needs the render:input scope (editors and above)`, exitCodes.auth, error.problem);
+  return error;
+}
+
+/** A render-time failure as a diagnostic, with the template position when the engine knows it. */
+function runtimeDiagnostic(e: unknown): EngineDiagnostic {
+  let message = e instanceof Error ? e.message : String(e);
+  let at = e instanceof RenderError || e instanceof EngineSyntaxError ? { line: e.line ?? 0, column: e.column ?? 1 } : { line: 0, column: 1 };
+  // Nunjucks runtime errors carry the position only in the message, zero-based: "[Line 1, Column 35]\n  Error: …"
+  const position = /\[Line (\d+), Column (\d+)\]/.exec(message);
+  if (position) {
+    if (!at.line && e instanceof RenderError && e.engine === 'jinja2') at = { line: Number(position[1]) + 1, column: Number(position[2]) + 1 };
+    message = message.replace(position[0], '').trim().replace(/^Error:\s*/, '');
+  }
+  if (!at.line) at = { line: 1, column: 1 };
+  return {
+    severity: 'error',
+    code: e instanceof RenderError ? 'render-error' : e instanceof EngineSyntaxError ? 'syntax-error' : 'render-failed',
+    message,
+    range: { start: at, end: { line: at.line, column: at.column + 1 } },
+  };
+}
+
+/** `trigger` data: a JSON file, else the local default data set, else the sample data of the published (or latest) version. */
+async function triggerData(c: ReturnType<typeof createClient>, s: Settings, slug: string, file: string | undefined, cwd: string): Promise<Record<string, unknown>> {
+  if (file) {
+    const path = resolve(s.project?.root ?? cwd, file);
+    if (!existsSync(path)) throw new CliError(`Data file not found: ${path}`, exitCodes.usage);
+    try {
+      return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    } catch (e) {
+      throw new CliError(`${path} is not valid JSON: ${e instanceof Error ? e.message : e}`, exitCodes.usage);
+    }
+  }
+  if (s.project && existsSync(join(templateDir(s.project, slug), 'template.html')))
+    return (defaultData(readTemplate(s.project, slug)).data ?? {}) as Record<string, unknown>;
+  for (const which of ['published', 'latest'] as const) {
+    try {
+      return ((await c.templates.versions.get(slug, which)).sample_data ?? {}) as Record<string, unknown>;
+    } catch (e) {
+      if ((e as FormfeedError).status !== 404) throw e;
+    }
+  }
+  return {};
+}
+
+/** Mirrors `public.partials.name`; kept here because the published CLI does not carry `@formfeed/api-types`. */
+const sharedPartialName = /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
+
 function parseEngine(value: string): EngineId {
   if (!['jinja2', 'liquid', 'handlebars'].includes(value)) throw new InvalidArgumentError('engine must be jinja2, liquid or handlebars');
   return value as EngineId;
@@ -830,11 +1410,76 @@ async function pullTemplates(c: ReturnType<typeof createClient>, project: Return
   return pulled;
 }
 
+/** `schema_breaking_change` as a readable refusal that names the changes and the way past it. */
+async function schemaGuard<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (e) {
+    const error = e as FormfeedError;
+    if (error.code !== 'schema_breaking_change') throw e;
+    const breaking = ((error.problem?.['breaking'] as SchemaChange[] | undefined) ?? []).map((c) => `  - ${c.message}`);
+    throw new CliError(
+      [`${error.message}`, ...breaking, 'Run again with --allow-breaking to go ahead anyway.'].join('\n'),
+      exitCodes.validation,
+      error.problem,
+    );
+  }
+}
+
+/** Changes worth a line after a publish or a channel move: breaking ones that were allowed, and inferred warnings. */
+function schemaWarnings(check: TemplateVersion['schema_check'] | null | undefined): string[] {
+  if (!check || check.breaking.length === 0) return [];
+  const label = check.source === 'inferred' ? 'warning (inferred from sample data)' : 'breaking change (allowed)';
+  return check.breaking.map((c) => `  ${label}: ${c.message}`);
+}
+
+function describeChannel(slug: string, channel: Channel): string {
+  const canary = channel.canary ? `, canary v${channel.canary.version} at ${channel.canary.percent}%` : '';
+  const previous = channel.previous_version ? ` (previous v${channel.previous_version})` : '';
+  return `${slug}: channel ${channel.name} -> v${channel.version}${canary}${previous}`;
+}
+
+function positiveInt(value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new InvalidArgumentError(`"${value}" is not a positive whole number`);
+  return n;
+}
+
+/**
+ * Schemas for `formfeed types` from the API: the stored schema of the channel's version, else one
+ * inferred over its sample data and data sets. Without explicit slugs every template is included;
+ * a template without a version on the channel is skipped then, and an error when it was named.
+ */
+async function remoteTypeSources(c: ReturnType<typeof createClient>, slugs: string[], channel: string | undefined): Promise<TypeSource[]> {
+  const names = slugs.length ? slugs : (await c.templates.all()).map((t) => t.slug);
+  const which = channel ?? 'published';
+  const sources: TypeSource[] = [];
+  for (const slug of names) {
+    let version: TemplateVersion;
+    try {
+      version = await c.templates.versions.get(slug, which);
+    } catch (e) {
+      if ((e as FormfeedError).status !== 404) throw e;
+      if (slugs.length) throw new CliError(`${slug} has no version on channel ${which}`, exitCodes.usage);
+      // never published: the draft is the best description of the data it expects
+      if (channel) continue;
+      version = await c.templates.versions.get(slug, 'latest');
+    }
+    const sets = [version.sample_data ?? {}, ...Object.values(version.data_sets ?? {})];
+    sources.push(
+      version.data_schema
+        ? { slug, schema: version.data_schema, origin: 'stored', version: version.number, channel: which }
+        : { slug, schema: inferSchemaFromDataSets(sets) as Record<string, unknown>, origin: 'inferred', version: version.number, channel: which },
+    );
+  }
+  return sources;
+}
+
 async function pushTemplate(
   c: ReturnType<typeof createClient>,
   project: ReturnType<typeof requireProject>,
   tpl: LocalTemplate,
-  opts: { publish: boolean; message?: string; baseChecksum?: string },
+  opts: { publish: boolean; message?: string; baseChecksum?: string; allowBreaking?: boolean },
 ): Promise<TemplateVersion> {
   const payload = versionPayload(tpl);
   let exists = true;
@@ -863,6 +1508,7 @@ async function pushTemplate(
       change_note: opts.message ?? 'formfeed templates push',
       ...(opts.baseChecksum ? { base_checksum: opts.baseChecksum } : {}),
       publish: opts.publish,
+      ...(opts.publish && opts.allowBreaking ? { allow_breaking: true } : {}),
     });
   }
   recordSync(project, tpl.slug, version, tpl);

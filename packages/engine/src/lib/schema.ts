@@ -112,6 +112,19 @@ export function inferSchema(sample: unknown): JsonSchema {
   };
 }
 
+/**
+ * One schema over several data sets (spec 19 §2.5): a field is required only when every set has
+ * it, the way array elements are merged. The editor's "Store as contract" uses it, so a field that
+ * only one data set carries becomes optional.
+ */
+export function inferSchemaFromDataSets(samples: unknown[]): JsonSchema {
+  if (samples.length === 0) return inferSchema({});
+  const merged = samples
+    .map(infer)
+    .reduce<JsonSchema | undefined>((acc, s) => merge(acc, s), undefined)!;
+  return { $schema: 'https://json-schema.org/draft/2020-12/schema', ...merged };
+}
+
 /** Flat list of dotted paths with their types, for completion items in the editor. */
 export function schemaPaths(
   schema: JsonSchema,
@@ -138,3 +151,6 @@ export function schemaPaths(
   if (schema.items) out.push(...schemaPaths(schema.items, [...prefix, '[]']));
   return out;
 }
+
+export { diffSchemas } from './schema-diff';
+export type { SchemaChange, SchemaChangeKind, SchemaDiff } from './schema-diff';

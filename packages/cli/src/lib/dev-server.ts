@@ -13,7 +13,8 @@ import { remoteAssetBase } from './files';
 /**
  * `formfeed dev` (spec 15 §4): the editor's preview frame served locally. The server renders with
  * the shared engine, wraps the document like the editor (flow or Paged.js) and pushes a reload over
- * server-sent events whenever a file under the template or partials folder changes. Binds to
+ * server-sent events whenever a file under the template or partials folder changes. Templates see
+ * the brand kit of `.formfeed/brand.json` (`renderLocal` reads it on every render). Binds to
  * localhost only; the true-render button needs an API key and stays off without one.
  */
 export interface DevServerOptions {
@@ -91,7 +92,8 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
     }, 50);
   };
   const watchers: FSWatcher[] = [];
-  for (const dir of [template?.dir ?? `${project.templatesDir}/${slug}`, project.partialsDir, project.filesDir]) {
+  // `.formfeed` holds brand.json: `formfeed brand pull` in another terminal reloads the preview
+  for (const dir of [template?.dir ?? `${project.templatesDir}/${slug}`, project.partialsDir, project.filesDir, join(project.root, '.formfeed')]) {
     if (!existsSync(dir)) continue;
     try {
       watchers.push(watch(dir, { recursive: true }, broadcast));

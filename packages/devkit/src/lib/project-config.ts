@@ -13,6 +13,19 @@ export interface ProjectConfig {
   filesDir: string;
   engine: EngineId;
   ignore: string[];
+  /** Defaults of `formfeed types` (spec 19 §2.1). */
+  types?: {
+    lang?: 'ts' | 'python';
+    /** Relative to the project root; `formfeed.d.ts` or `formfeed_templates.py` when left out. */
+    out?: string;
+    /** The module the TypeScript file augments; `@formfeed/sdk`. */
+    sdkModule?: string;
+  };
+  /** Defaults of `formfeed renders pull` (spec 20 §3.3). */
+  pull?: {
+    /** Data paths redacted on every pull (`customer.*`, `items[].name`); `--redact` paths replace them, `--no-redact` skips them. */
+    redact?: string[];
+  };
 }
 
 export interface Project {

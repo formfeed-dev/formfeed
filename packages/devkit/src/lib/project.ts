@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { EngineId, TemplateKind, TemplateSettings } from '@formfeed/engine';
+import { normalisePartialName, type EngineId, type TemplateKind, type TemplateSettings } from '@formfeed/engine';
 import type { TemplateVersion } from '@formfeed/sdk-ts';
 import { DevkitError } from './errors';
 import { collectPartials } from './partials';
@@ -38,6 +38,11 @@ export interface LocalTemplate {
   partials: Record<string, string>;
   /** Included names without a file; `validate` reports them and `push` refuses them. */
   missingPartials: string[];
+  /**
+   * Included names that are shared partials of the organisation (recorded in the state by
+   * `formfeed partials pull|push`). They resolve live on the server, so they stay out of `partials`.
+   */
+  sharedPartials: string[];
 }
 
 export interface TemplateState {
@@ -50,8 +55,20 @@ export interface TemplateState {
   syncedAt: string;
 }
 
+/** A shared partial of the organisation as last pulled or pushed (spec 18 §8). */
+export interface SharedPartialState {
+  /** The remote version; `partials push` sends it as `base_version`. */
+  version: number;
+  engine: EngineId;
+  /** Hash of the local file at that moment; a different hash means local edits. */
+  contentHash: string;
+  syncedAt: string;
+}
+
 export interface ProjectState {
   templates: Record<string, TemplateState>;
+  /** Shared partials by name; they live in `partialsDir` as `<name>.html`. */
+  sharedPartials?: Record<string, SharedPartialState>;
 }
 
 const readText = (path: string): string | null => (existsSync(path) ? readFileSync(path, 'utf8') : null);
@@ -101,7 +118,7 @@ export function readTemplate(project: Project, slug: string): LocalTemplate {
       dataSets[basename(file, '.json')] = readJson<unknown>(join(dataDir, file), `data/${file}`);
     }
   }
-  const { partials, missing } = collectPartials(project, meta.engine, [html, settings.header?.html, settings.footer?.html]);
+  const { partials, missing, shared } = collectPartials(project, meta.engine, [html, settings.header?.html, settings.footer?.html]);
   return {
     slug,
     dir,
@@ -115,6 +132,7 @@ export function readTemplate(project: Project, slug: string): LocalTemplate {
     i18n: readJson<Record<string, Record<string, string>>>(join(dir, 'i18n.json'), 'i18n.json'),
     partials,
     missingPartials: missing,
+    sharedPartials: shared,
   };
 }
 
@@ -250,13 +268,47 @@ export function titleFromSlug(slug: string): string {
   return slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Resolves `{% include %}` / partials from the project's partials folder (`name` or `name.html`). */
+/**
+ * Resolves `{% include %}` / partials from the project's partials folder (`name` or `name.html`).
+ * A name that matches a shared partial of the state only after normalisation (`Letterhead.j2` for
+ * `letterhead`) falls back to that partial's file, the way the server matches shared partials.
+ */
 export function partialResolver(project: Project): (name: string) => string | undefined {
+  let shared: Set<string> | null = null;
   return (name: string) => {
     for (const candidate of [name, `${name}.html`]) {
       const path = join(project.partialsDir, candidate);
       if (existsSync(path) && statSync(path).isFile()) return readFileSync(path, 'utf8');
     }
-    return undefined;
+    shared ??= new Set(Object.keys(readState(project).sharedPartials ?? {}));
+    const normalised = normalisePartialName(name);
+    if (!shared.has(normalised)) return undefined;
+    return readText(sharedPartialPath(project, normalised)) ?? undefined;
   };
+}
+
+/** Where a shared partial lives locally: `<partialsDir>/<name>.html`. */
+export function sharedPartialPath(project: Project, name: string): string {
+  return join(project.partialsDir, `${name}.html`);
+}
+
+/** Normalised names of the shared partials recorded for one engine; other engines' partials never resolve. */
+export function sharedPartialNames(project: Project, engine: EngineId): Set<string> {
+  return new Set(
+    Object.entries(readState(project).sharedPartials ?? {})
+      .filter(([, partial]) => partial.engine === engine)
+      .map(([name]) => normalisePartialName(name)),
+  );
+}
+
+export const partialContentHash = (source: string): string => createHash('sha256').update(source).digest('hex');
+
+/** Records a pulled or pushed shared partial with the remote version and the hash of `source`. */
+export function recordSharedPartial(project: Project, name: string, remote: { version: number; engine: EngineId }, source: string): void {
+  const state = readState(project);
+  state.sharedPartials = {
+    ...(state.sharedPartials ?? {}),
+    [name]: { version: remote.version, engine: remote.engine, contentHash: partialContentHash(source), syncedAt: new Date().toISOString() },
+  };
+  writeState(project, state);
 }

@@ -100,6 +100,8 @@ export const liquidBuiltinFilters = new Set([
   'time_zone',
 ]);
 const builtinRoots = new Set([
+  // the organisation's brand kit (spec 18), a global beside the data
+  'brand',
   'forloop',
   'tablerowloop',
   'true',
@@ -182,6 +184,8 @@ function createLiquid(ctx: RenderContext): Liquid {
     extname: '',
     root: [''],
     fs: partialFs(ctx.partials),
+    // scope data shadows globals, so `data.brand` still wins
+    globals: ctx.brand ? { brand: ctx.brand } : {},
     renderLimit: ctx.limits.ms,
     memoryLimit: ctx.limits.outputBytes * 4,
     parseLimit: 2_000_000,

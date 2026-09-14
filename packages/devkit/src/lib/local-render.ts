@@ -8,10 +8,12 @@ import {
   pagedDocument,
   renderVersion,
   type AssembleVendor,
+  type BrandContext,
   type Diagnostic,
   type RenderContext,
   type RenderedDocument,
 } from '@formfeed/engine';
+import { readBrand } from './brand';
 import type { Project } from './project-config';
 import { partialResolver, type LocalTemplate } from './project';
 
@@ -55,7 +57,7 @@ export function diagnose(tpl: LocalTemplate, sampleData: unknown): Diagnostic[] 
  * locally, the workspace library's CDN base when the document goes to the API. Without it the
  * references stay relative, which keeps snapshots independent of any host.
  */
-export function renderContext(project: Project, tpl: LocalTemplate, assetBaseUrl?: string): RenderContext {
+export function renderContext(project: Project, tpl: LocalTemplate, assetBaseUrl?: string, brand?: BrandContext): RenderContext {
   const settings = mergeSettings(tpl.settings);
   return {
     locale: settings.locale ?? 'en',
@@ -66,6 +68,8 @@ export function renderContext(project: Project, tpl: LocalTemplate, assetBaseUrl
     limits: defaultLimits,
     i18n: tpl.i18n ?? undefined,
     assetBaseUrl,
+    // the organisation's kit from `formfeed brand pull`, else the empty kit the server uses too
+    brand: brand ?? readBrand(project),
   };
 }
 
@@ -75,11 +79,13 @@ export interface LocalRenderOptions {
   vendor?: AssembleVendor;
   /** Where `asset()` and relative image paths resolve (see `renderContext`). */
   assetBaseUrl?: string;
+  /** The template's `brand`; `.formfeed/brand.json` (`readBrand`) when left out. */
+  brand?: BrandContext;
 }
 
 /** Assembles the complete document with the shared engine; no browser involved. */
 export async function renderLocal(project: Project, tpl: LocalTemplate, data: unknown, options: LocalRenderOptions): Promise<RenderedDocument> {
-  const ctx = renderContext(project, tpl, options.assetBaseUrl);
+  const ctx = renderContext(project, tpl, options.assetBaseUrl, options.brand);
   if (options.locale) ctx.locale = options.locale;
   return renderVersion(
     { engine: tpl.meta.engine, html: tpl.html, css: tpl.css, head: tpl.head, settings: mergeSettings(tpl.settings), kind: tpl.meta.kind },

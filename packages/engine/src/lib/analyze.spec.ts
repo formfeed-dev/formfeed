@@ -29,6 +29,13 @@ describe('jinja2 analysis', () => {
     expect(a.diagnostics.map((d) => d.message)).toEqual(['"m.nope" is not present in the sample data']);
   });
 
+  it('does not report the literals True, False and None as reads of the data', () => {
+    const a = engines.jinja2.analyze(`{{ s | truncate(55, True, '&hellip;') }}{% if x is None %}{{ False }}{% endif %}`, {
+      sampleData: { s: 'x', x: 1 },
+    });
+    expect(a.variables.map((v) => v.path.join('.'))).toEqual(['s', 'x']);
+  });
+
   it('collects variables, loop sources, filters, includes and blocks', () => {
     const a = engines.jinja2.analyze(
       `{% include "footer" %}{% for line in invoice.lines %}{{ line.price | money }} {{ line.missing }}{% endfor %}{{ invoice.customer.phone }}{{ company.name | upper }}`,

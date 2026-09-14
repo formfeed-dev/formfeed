@@ -1,3 +1,4 @@
+import type { BrandContext } from './brand';
 /**
  * Shared contracts of `@formfeed/engine` (spec 05). Used by the Angular editor (browser) and the
  * Fly.io render-worker (Node); nothing here may touch Node-only APIs.
@@ -90,6 +91,11 @@ export interface RenderContext {
   i18n?: Record<string, Record<string, string>>;
   /** Base URL for `asset()` (workspace asset root on the CDN). */
   assetBaseUrl?: string;
+  /**
+   * The organisation's brand kit (spec 18): the template global `brand` (request data of the same
+   * name wins) and the `--brand-*` variables the assembler injects.
+   */
+  brand?: BrandContext;
 }
 
 export interface CompileOptions {

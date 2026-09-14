@@ -35,6 +35,8 @@ const builtinHelpers = new Set([
   'helperMissing',
 ]);
 const builtinRoots = new Set([
+  // the organisation's brand kit (spec 18), merged under the data
+  'brand',
   'this',
   '@index',
   '@key',
@@ -43,6 +45,16 @@ const builtinRoots = new Set([
   '@root',
   'lookup',
 ]);
+
+/**
+ * Handlebars has no globals, so the brand kit joins the root object underneath the data: a `brand`
+ * field of the data wins, as it does with Nunjucks and Liquid globals. Other roots stay as they are.
+ */
+function withBrand(data: unknown, ctx: RenderContext): unknown {
+  const root = data ?? {};
+  if (!ctx.brand || typeof root !== 'object' || Array.isArray(root)) return root;
+  return { brand: ctx.brand, ...(root as Record<string, unknown>) };
+}
 
 function createInstance(ctx: RenderContext): HB {
   const hb = Handlebars.create();
@@ -421,7 +433,7 @@ class HandlebarsCompiled implements CompiledTemplate {
     };
     collect(this.source, 0);
     try {
-      const out = template((data ?? {}) as object, {
+      const out = template(withBrand(data, ctx) as object, {
         partials,
         allowProtoPropertiesByDefault: false,
         allowProtoMethodsByDefault: false,

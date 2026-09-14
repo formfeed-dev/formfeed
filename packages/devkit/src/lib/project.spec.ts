@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadProject, writeProjectConfig } from './project-config';
 import { diagnose, previewDocument, renderLocal } from './local-render';
-import { contentHash, listTemplateSlugs, readTemplate, versionPayload, writeTemplate } from './project';
+import { contentHash, listTemplateSlugs, partialContentHash, readState, readTemplate, recordSharedPartial, versionPayload, writeTemplate } from './project';
+import { readBrand, writeBrand } from './brand';
+import { emptyBrand } from '@formfeed/engine';
 
 describe('template folders (spec 15 §2)', () => {
   let dir: string;
@@ -101,6 +103,59 @@ describe('template folders (spec 15 §2)', () => {
     expect(readFileSync(join(dir, 'partials', 'footer.html'), 'utf8')).toBe('<footer>pulled</footer>');
     expect(readFileSync(join(dir, 'partials', 'blocks', 'address.html'), 'utf8')).toBe('<p>Pulled</p>');
     expect(existsSync(join(dir, 'escape'))).toBe(false);
+  });
+
+  it('leaves shared partials of the state out of the version and resolves them locally', async () => {
+    const p = project();
+    mkdirSync(join(dir, 'partials'), { recursive: true });
+    writeFileSync(join(dir, 'partials', 'letterhead.html'), '<header>{{ brand.name }}{% include "address" %}</header>');
+    writeFileSync(join(dir, 'partials', 'address.html'), '<p>Street 1</p>');
+    const html = '<main>{% include "Letterhead.j2" %}{% include "footer" %}</main>';
+    writeTemplate(p, 'letter', { name: 'Letter', kind: 'pdf', engine: 'jinja2' }, { html, css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
+    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>Acme</footer>');
+
+    // before the partial is known as shared it travels with the version like any other
+    const plain = readTemplate(p, 'letter');
+    expect(plain.missingPartials).toEqual(['Letterhead.j2']);
+    const hashWithout = contentHash(plain);
+
+    recordSharedPartial(p, 'letterhead', { version: 3, engine: 'jinja2' }, readFileSync(join(dir, 'partials', 'letterhead.html'), 'utf8'));
+    // a shared partial of another engine never matches
+    recordSharedPartial(p, 'footer', { version: 1, engine: 'liquid' }, '<footer>Acme</footer>');
+    const tpl = readTemplate(p, 'letter');
+    expect(tpl.sharedPartials).toEqual(['letterhead']);
+    expect(tpl.missingPartials).toEqual([]);
+    // what the shared partial includes that is not shared itself still goes with the version
+    expect(versionPayload(tpl).partials).toEqual({ address: '<p>Street 1</p>', footer: '<footer>Acme</footer>' });
+    expect(contentHash(tpl)).not.toBe(hashWithout);
+    expect(readState(p).sharedPartials?.['letterhead']).toMatchObject({ version: 3, engine: 'jinja2', contentHash: partialContentHash('<header>{{ brand.name }}{% include "address" %}</header>') });
+
+    // local renders resolve the normalised name from the partials folder and see the pulled brand
+    writeBrand(p, { version: 2, name: 'Acme GmbH', colors: { primary: '#0f766e', bad: 3 }, fonts: { heading: 'Inter' }, logo: {}, page_defaults: {} });
+    const rendered = await renderLocal(p, tpl, {}, { mode: 'print' });
+    expect(rendered.document).toContain('<header>Acme GmbH<p>Street 1</p></header>');
+    expect(rendered.document).toContain('--brand-color-primary: #0f766e;');
+    expect(rendered.document).toContain('--brand-font-heading: "Inter";');
+  });
+
+  it('reads the pulled brand kit, or the empty kit without the file', async () => {
+    const p = project();
+    expect(readBrand(p)).toEqual(emptyBrand());
+    writeTemplate(p, 'card', { name: 'Card', kind: 'pdf', engine: 'liquid' }, { html: '<p>{{ brand.legal_footer }}|{{ brand.logo.mark }}</p>', css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
+    const empty = await renderLocal(p, readTemplate(p, 'card'), {}, { mode: 'preview' });
+    expect(empty.document).toContain('<p>|</p>');
+    expect(empty.document).not.toContain('data-formfeed="brand"');
+
+    writeBrand(p, { version: 4, name: null, colors: {}, fonts: { heading: null, body: null }, font_size: '10pt', logo: { primary: null, inverse: null, mark: 'https://cdn.test/m.svg' }, legal_footer: 'HRB 1', page_defaults: {}, updated_at: null });
+    expect(readBrand(p)).toMatchObject({ version: 4, font_size: '10pt', legal_footer: 'HRB 1', logo: { mark: 'https://cdn.test/m.svg' } });
+    const branded = await renderLocal(p, readTemplate(p, 'card'), {}, { mode: 'preview' });
+    expect(branded.document).toContain('<p>HRB 1|https://cdn.test/m.svg</p>');
+    // an explicit brand wins over the file, and request data wins over both
+    const explicit = await renderLocal(p, readTemplate(p, 'card'), { brand: { legal_footer: 'data' } }, { mode: 'preview', brand: emptyBrand() });
+    expect(explicit.document).toContain('<p>data|</p>');
+
+    writeFileSync(join(dir, '.formfeed', 'brand.json'), '{ nope');
+    expect(() => readBrand(p)).toThrow(/brand\.json is not valid JSON/);
   });
 
   it('reports an include without a file', () => {

@@ -41,11 +41,35 @@ export interface RenderRequest {
   meta?: Record<string, unknown>;
   region?: Region;
   dedupe?: boolean;
+  /**
+   * Decides a channel's canary split: renders with the same value (a customer or order id) land on the
+   * same version. Not the Idempotency-Key, which would replay the first response for every render.
+   */
+  canary_key?: string | null;
   /** PDF post-processing: merge, watermark, password, applied in that order (0.5 units each). */
   post?: PostProcessing | null;
   /** Check `data` against the template's stored schema first; a mismatch throws `data_validation_error`. */
   validate_data?: boolean;
 }
+
+/**
+ * Slug → data type of the workspace's templates. Empty here; the file `formfeed types` generates
+ * augments it (`declare module '@formfeed/sdk' { interface FormfeedTemplates { invoice: InvoiceData } }`),
+ * which makes `renders.create({ template: 'invoice', data })` check `data` at compile time.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type, @typescript-eslint/no-empty-interface
+export interface FormfeedTemplates {}
+
+/** The data type of template `T`: generated for known slugs, a plain record otherwise. */
+export type TemplateData<T> = T extends keyof FormfeedTemplates ? FormfeedTemplates[T] : Record<string, unknown>;
+
+/**
+ * A render request whose `data` follows the template's generated type. A slug the generated file
+ * does not know, a template id or a string variable keeps the untyped `Record<string, unknown>`.
+ */
+export type TypedRenderRequest<T extends string = string> = Omit<RenderRequest, 'template' | 'data'> & { template?: T } & (
+    T extends keyof FormfeedTemplates ? { data: FormfeedTemplates[T] } : { data?: Record<string, unknown> }
+  );
 
 export type PdfPermission = 'print' | 'copy' | 'modify' | 'annotate';
 
@@ -105,7 +129,8 @@ export interface Render {
   units: number;
   region: string;
   environment: 'live' | 'test';
-  template: { id: string; slug: string; version: number } | null;
+  /** `channel`: the release channel the version came from; `canary` when the channel's canary share picked it. */
+  template: { id: string; slug: string; version: number; channel?: string | null; canary?: boolean } | null;
   engine_version: string | null;
   template_checksum: string | null;
   output_sha256: string | null;
@@ -117,9 +142,12 @@ export interface Render {
   completed_at: string | null;
 }
 
-export interface BatchRequest {
-  template?: string;
-  items: RenderRequest[];
+export interface BatchRequest<T extends string = string> {
+  /** Default template of the items; with a generated type for it, every item's `data` is checked. */
+  template?: T;
+  /** Default `canary_key` of the items; without one the whole batch lands on one version. */
+  canary_key?: string;
+  items: Array<Omit<RenderRequest, 'data'> & { data?: TemplateData<T> }>;
   zip?: boolean;
   webhook_url?: string | null;
   webhook_secret?: string | null;
@@ -170,10 +198,66 @@ export interface FileListOptions {
   cursor?: string | null;
 }
 
+/**
+ * The organisation's brand kit (`GET /brand`): what templates see as `brand`, plus the page defaults
+ * new templates start from. Unset values are `null`; `colors` is always an object.
+ */
+export interface Brand {
+  version: number;
+  name: string | null;
+  /** Token → hex colour, e.g. `primary`; also `--brand-color-<token>` in the document. */
+  colors: Record<string, string>;
+  fonts: { heading: string | null; body: string | null };
+  font_size: string | null;
+  /** CDN URLs of the logos. */
+  logo: { primary: string | null; inverse: string | null; mark: string | null };
+  legal_footer: string | null;
+  /** `{}` when unset. */
+  page_defaults: {
+    paper?: { format?: string; landscape?: boolean };
+    margin?: { top?: string; right?: string; bottom?: string; left?: string };
+  };
+  updated_at: string | null;
+}
+
+/** A shared partial of the organisation (`/partials`), included by name from templates of its engine. */
+export interface SharedPartial {
+  /** Lowercase letters, digits, `-` and `_`; the API stores a name in lowercase. */
+  name: string;
+  engine: Engine;
+  description: string | null;
+  version: number;
+  /** Only when read one by one (`partials.get`) and in the result of `partials.put`. */
+  source?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SharedPartialPut {
+  engine: Engine;
+  source: string;
+  description?: string | null;
+  /**
+   * The version the change is based on; the API answers 409 `conflict` when the partial has another,
+   * with the stored partial as `problem.current` (`null` when it was deleted).
+   */
+  base_version?: number;
+}
+
+export interface SharedPartialPutResult {
+  partial: SharedPartial;
+  /** `true` when the name did not exist before (201), `false` for an update (200). */
+  created: boolean;
+}
+
+export type WebhookEnvironment = 'live' | 'test';
+
 export interface WebhookEndpoint {
   id: string;
   url: string;
   events: string[];
+  /** Render environments whose events the endpoint receives; both by default. Quota events are sent regardless. */
+  environments?: WebhookEnvironment[];
   enabled: boolean;
   description: string | null;
   consecutive_failures: number;
@@ -181,6 +265,70 @@ export interface WebhookEndpoint {
   secret?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface WebhookEndpointCreate {
+  url: string;
+  events?: string[];
+  environments?: WebhookEnvironment[];
+  description?: string | null;
+}
+
+export interface WebhookEndpointUpdate {
+  url?: string;
+  events?: string[];
+  environments?: WebhookEnvironment[];
+  enabled?: boolean;
+  description?: string | null;
+}
+
+export interface ListenSessionOptions {
+  /** Event types the session receives; all by default. */
+  events?: string[];
+  /** Include live-environment events (needs `webhook:manage`); test events only by default. */
+  live?: boolean;
+}
+
+/**
+ * A listen session (`POST /webhooks/listen`): receives the workspace's events like an endpoint and relays
+ * them over `websocket_url`, which is valid for 60 seconds and needs no key. The SDK opens no socket.
+ */
+export interface ListenSession {
+  id: string;
+  /** Signs the session's deliveries. */
+  secret: string;
+  events: string[];
+  environments: WebhookEnvironment[];
+  expires_at: string;
+  websocket_url: string;
+}
+
+export interface WebhookResend {
+  delivery_id: string;
+  event_id: string;
+  event: string;
+  endpoint_id: string;
+}
+
+/**
+ * The stored request of a render (`GET /renders/{id}/input`). Template renders carry `template` and
+ * `data`, ad-hoc renders `html` or `url`. Passwords of `post` are never included.
+ */
+export interface RenderInput {
+  render_id: string;
+  template?: { id: string; slug: string; version: number; channel?: string | null };
+  html?: string;
+  engine?: Engine;
+  url?: string;
+  data?: Record<string, unknown>;
+  locale?: string | null;
+  output?: OutputFormat;
+  settings?: Record<string, unknown>;
+  filename?: string;
+  post?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
+  environment: 'live' | 'test';
+  created_at: string;
 }
 
 export type TemplateKind = 'pdf' | 'image';
@@ -240,6 +388,60 @@ export interface TemplateVersion extends Partial<TemplateFiles> {
   change_note: string | null;
   created_at: string;
   published_at: string | null;
+  /** Publishing only: how the data schema changed against the version callers used before. */
+  schema_check?: SchemaCheck;
+}
+
+/** One difference between two data schemas, from the point of view of a caller sending data. */
+export interface SchemaChange {
+  /** Dotted field path (`customer.email`, `items[]`); empty for the data itself. */
+  path: string;
+  pointer: string;
+  kind: string;
+  breaking: boolean;
+  message: string;
+}
+
+/**
+ * The schema comparison publishing and channel moves run. `stored`: both versions store a schema and
+ * breaking changes are refused unless `allowBreaking` is set. `inferred`: compared from sample data,
+ * a warning only. `none`: nothing to compare.
+ */
+export interface SchemaCheck {
+  source: 'stored' | 'inferred' | 'none';
+  breaking: SchemaChange[];
+  safe: SchemaChange[];
+}
+
+/** A release channel of a template (`published` or a named one such as `staging`). */
+export interface Channel {
+  name: string;
+  version: number | null;
+  canary: { version: number; percent: number } | null;
+  /** The version before the last move; `rollback` returns to it. */
+  previous_version: number | null;
+  updated_at: string;
+  /** Renders of the last 24 hours through this channel, per version (list only). */
+  usage_24h?: Array<{ version: number; renders: number; failed: number }>;
+  /** Writes only. */
+  schema_check?: SchemaCheck;
+}
+
+export interface ChannelList {
+  data: Channel[];
+  /** The plan's allowance: named channels per template (`null` unlimited) and whether canaries are allowed. */
+  limits: { channels: number | null; canary: boolean };
+}
+
+export interface ChannelMove {
+  version: number;
+  /** A second version that receives `percent` (1 to 50) of the channel's renders; `null` clears it. */
+  canary?: { version: number; percent: number } | null;
+}
+
+export interface SchemaGuardOptions extends RequestOptions {
+  /** Go ahead although the data schema breaks callers of the current version. */
+  allowBreaking?: boolean;
 }
 
 export interface TemplateCreate extends TemplateFiles {
@@ -257,6 +459,8 @@ export interface TemplateVersionCreate extends TemplateFiles {
   /** Checksum of the version the draft was based on; the API answers 409 when the latest differs. */
   base_checksum?: string;
   publish?: boolean;
+  /** With `publish`: go ahead although the data schema breaks callers of the published version. */
+  allow_breaking?: boolean;
 }
 
 export interface Usage {
@@ -366,7 +570,7 @@ export class Formfeed {
 
   readonly renders = {
     /** Renders a template, HTML or URL. Sync by default; `mode: 'async'` returns a queued render. */
-    create: (request: RenderRequest, options: RequestOptions = {}): Promise<Render> =>
+    create: <T extends string = string>(request: TypedRenderRequest<T>, options: RequestOptions = {}): Promise<Render> =>
       this.request<Render>('POST', '/renders', request, {
         ...options,
         idempotencyKey: options.idempotencyKey ?? randomKey(),
@@ -418,7 +622,13 @@ export class Formfeed {
     /** Removes the stored files of a render before they expire. Needs the `file:delete` scope. */
     deleteOutputs: (id: string, options: RequestOptions = {}): Promise<void> =>
       this.request<void>('DELETE', `/renders/${encodeURIComponent(id)}/outputs`, undefined, options),
-    batch: (request: BatchRequest, options: RequestOptions = {}): Promise<Job> =>
+    /**
+     * The stored request of a render, to render it again. Needs `render:input`; throws
+     * `render_input_expired` (410) when the workspace keeps no requests or the period ended.
+     */
+    input: (id: string, options: RequestOptions = {}): Promise<RenderInput> =>
+      this.request<RenderInput>('GET', `/renders/${encodeURIComponent(id)}/input`, undefined, options),
+    batch: <T extends string = string>(request: BatchRequest<T>, options: RequestOptions = {}): Promise<Job> =>
       this.request<Job>('POST', '/renders/batch', request, {
         ...options,
         idempotencyKey: options.idempotencyKey ?? randomKey(),
@@ -484,6 +694,32 @@ export class Formfeed {
       this.request<void>('DELETE', `/files/${encodeURIComponent(idOf(file))}`, undefined, options),
   };
 
+  /** The organisation's brand kit, read-only through the API (it is edited in the app). Needs `template:read`. */
+  readonly brand = {
+    get: (options: RequestOptions = {}): Promise<Brand> => this.request<Brand>('GET', '/brand', undefined, options),
+  };
+
+  /**
+   * Shared partials of the organisation. Renders use the current source, so a change reaches every
+   * template that includes the partial without a new version. Needs `template:read` or `template:write`.
+   */
+  readonly partials = {
+    /** Every shared partial, without its source. */
+    list: async (options: RequestOptions = {}): Promise<SharedPartial[]> =>
+      (await this.request<{ data: SharedPartial[] }>('GET', '/partials', undefined, options)).data,
+    /** One partial with its source. */
+    get: (name: string, options: RequestOptions = {}): Promise<SharedPartial> =>
+      this.request<SharedPartial>('GET', `/partials/${encodeURIComponent(name)}`, undefined, options),
+    /** Creates or replaces a partial; pass `base_version` to fail with 409 when it changed since you read it. */
+    put: async (name: string, input: SharedPartialPut, options: RequestOptions = {}): Promise<SharedPartialPutResult> => {
+      const { status, body } = await this.send<SharedPartial>('PUT', `/partials/${encodeURIComponent(name)}`, input, options);
+      return { partial: body, created: status === 201 };
+    },
+    /** Removes a partial; templates that still include it fail to render afterwards. */
+    delete: (name: string, options: RequestOptions = {}): Promise<void> =>
+      this.request<void>('DELETE', `/partials/${encodeURIComponent(name)}`, undefined, options),
+  };
+
   readonly jobs = {
     get: (id: string, options: RequestOptions = {}): Promise<Job> =>
       this.request<Job>('GET', `/jobs/${encodeURIComponent(id)}`, undefined, options),
@@ -503,20 +739,30 @@ export class Formfeed {
   readonly webhooks = {
     list: async (options: RequestOptions = {}): Promise<WebhookEndpoint[]> =>
       (await this.request<{ data: WebhookEndpoint[] }>('GET', '/webhooks', undefined, options)).data,
-    create: (
-      input: { url: string; events?: string[]; description?: string | null },
-      options: RequestOptions = {},
-    ): Promise<WebhookEndpoint> => this.request<WebhookEndpoint>('POST', '/webhooks', input, options),
-    update: (
-      id: string,
-      patch: { url?: string; events?: string[]; enabled?: boolean; description?: string | null },
-      options: RequestOptions = {},
-    ): Promise<WebhookEndpoint> =>
+    create: (input: WebhookEndpointCreate, options: RequestOptions = {}): Promise<WebhookEndpoint> =>
+      this.request<WebhookEndpoint>('POST', '/webhooks', input, options),
+    update: (id: string, patch: WebhookEndpointUpdate, options: RequestOptions = {}): Promise<WebhookEndpoint> =>
       this.request<WebhookEndpoint>('PUT', `/webhooks/${encodeURIComponent(id)}`, patch, options),
     delete: (id: string, options: RequestOptions = {}): Promise<void> =>
       this.request<void>('DELETE', `/webhooks/${encodeURIComponent(id)}`, undefined, options),
     test: (id: string, options: RequestOptions = {}): Promise<{ queued: boolean }> =>
       this.request<{ queued: boolean }>('POST', `/webhooks/${encodeURIComponent(id)}/test`, undefined, options),
+    /**
+     * Sends a stored event (`evt_…`) again as a new delivery to a registered endpoint (`webhook:manage`)
+     * or a running listen session (`webhook:listen`).
+     */
+    resend: (eventId: string, endpointId: string, options: RequestOptions = {}): Promise<WebhookResend> =>
+      this.request<WebhookResend>('POST', `/webhooks/events/${encodeURIComponent(eventId)}/resend`, { endpoint_id: endpointId }, options),
+    /**
+     * Listen sessions, what `formfeed listen` uses. Needs `webhook:listen`. Starting a session ends the
+     * previous one of the same key; the WebSocket itself is up to the caller.
+     */
+    listen: {
+      start: (input: ListenSessionOptions = {}, options: RequestOptions = {}): Promise<ListenSession> =>
+        this.request<ListenSession>('POST', '/webhooks/listen', input, options),
+      end: (id: string, options: RequestOptions = {}): Promise<void> =>
+        this.request<void>('DELETE', `/webhooks/listen/${encodeURIComponent(id)}`, undefined, options),
+    },
   };
 
   readonly templates = {
@@ -554,13 +800,56 @@ export class Formfeed {
     versions: {
       list: async (idOrSlug: string, options: RequestOptions = {}): Promise<TemplateVersion[]> =>
         (await this.request<{ data: TemplateVersion[] }>('GET', `/templates/${encodeURIComponent(idOrSlug)}/versions`, undefined, options)).data,
-      /** `which`: 'published', 'latest' or a version number. Carries the files. */
-      get: (idOrSlug: string, which: 'published' | 'latest' | number = 'published', options: RequestOptions = {}): Promise<TemplateVersion> =>
-        this.request<TemplateVersion>('GET', `/templates/${encodeURIComponent(idOrSlug)}/versions/${which}`, undefined, options),
+      /** `which`: 'published', 'latest', a version number or a channel name (its main version). Carries the files. */
+      get: (idOrSlug: string, which: string | number = 'published', options: RequestOptions = {}): Promise<TemplateVersion> =>
+        this.request<TemplateVersion>('GET', `/templates/${encodeURIComponent(idOrSlug)}/versions/${encodeURIComponent(String(which))}`, undefined, options),
       create: (idOrSlug: string, input: TemplateVersionCreate, options: RequestOptions = {}): Promise<TemplateVersion> =>
         this.request<TemplateVersion>('POST', `/templates/${encodeURIComponent(idOrSlug)}/versions`, input, options),
-      publish: (idOrSlug: string, number: number, options: RequestOptions = {}): Promise<TemplateVersion> =>
-        this.request<TemplateVersion>('POST', `/templates/${encodeURIComponent(idOrSlug)}/versions/${number}/publish`, undefined, options),
+      /**
+       * Publishes a version. When both versions store a data schema and the new one breaks callers of the
+       * published one, the API refuses with `schema_breaking_change` unless `allowBreaking` is set.
+       */
+      publish: (idOrSlug: string, number: number, options: SchemaGuardOptions = {}): Promise<TemplateVersion> => {
+        const { allowBreaking, ...rest } = options;
+        return this.request<TemplateVersion>(
+          'POST',
+          `/templates/${encodeURIComponent(idOrSlug)}/versions/${number}/publish`,
+          allowBreaking ? { allow_breaking: true } : undefined,
+          rest,
+        );
+      },
+    },
+    /**
+     * Release channels (`published` and named ones such as `staging`): a render with `version: 'staging'`
+     * uses the version the channel points at. Moves reach renders within a minute.
+     */
+    channels: {
+      list: (idOrSlug: string, options: RequestOptions = {}): Promise<ChannelList> =>
+        this.request<ChannelList>('GET', `/templates/${encodeURIComponent(idOrSlug)}/channels`, undefined, options),
+      /** Creates or moves a channel; on `published` this publishes. */
+      set: (idOrSlug: string, name: string, move: ChannelMove, options: SchemaGuardOptions = {}): Promise<Channel> => {
+        const { allowBreaking, ...rest } = options;
+        return this.request<Channel>(
+          'PUT',
+          `/templates/${encodeURIComponent(idOrSlug)}/channels/${encodeURIComponent(name)}`,
+          { ...move, ...(allowBreaking ? { allow_breaking: true } : {}) },
+          rest,
+        );
+      },
+      /** The canary becomes the main version. */
+      promote: (idOrSlug: string, name: string, options: SchemaGuardOptions = {}): Promise<Channel> => this.channelAction(idOrSlug, name, 'promote', options),
+      /** Back to the version before the last move. */
+      rollback: (idOrSlug: string, name: string, options: SchemaGuardOptions = {}): Promise<Channel> => this.channelAction(idOrSlug, name, 'rollback', options),
+      /** Refused with `channel_in_use` while renders of the last hour used the channel, unless `force`. */
+      delete: (idOrSlug: string, name: string, options: RequestOptions & { force?: boolean } = {}): Promise<void> => {
+        const { force, ...rest } = options;
+        return this.request<void>(
+          'DELETE',
+          `/templates/${encodeURIComponent(idOrSlug)}/channels/${encodeURIComponent(name)}${force ? '?force=true' : ''}`,
+          undefined,
+          rest,
+        );
+      },
     },
     schema: (idOrSlug: string, options: RequestOptions = {}): Promise<Record<string, unknown>> =>
       this.request<Record<string, unknown>>('GET', `/templates/${encodeURIComponent(idOrSlug)}/schema`, undefined, options),
@@ -585,6 +874,16 @@ export class Formfeed {
       this.request<Usage>('GET', `/usage?period=${encodeURIComponent(period)}`, undefined, options),
   };
 
+  private channelAction(idOrSlug: string, name: string, action: 'promote' | 'rollback', options: SchemaGuardOptions): Promise<Channel> {
+    const { allowBreaking, ...rest } = options;
+    return this.request<Channel>(
+      'POST',
+      `/templates/${encodeURIComponent(idOrSlug)}/channels/${encodeURIComponent(name)}/${action}`,
+      allowBreaking ? { allow_breaking: true } : undefined,
+      rest,
+    );
+  }
+
   /** Raw request with auth, retries and problem mapping; use it for endpoints without a helper. */
   async request<T>(
     method: string,
@@ -592,6 +891,16 @@ export class Formfeed {
     body?: unknown,
     options: RequestOptions = {},
   ): Promise<T> {
+    return (await this.send<T>(method, path, body, options)).body;
+  }
+
+  /** `request` with the HTTP status, for endpoints whose answer depends on it (201 created, 200 updated). */
+  private async send<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    options: RequestOptions = {},
+  ): Promise<{ status: number; body: T }> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.apiKey}`,
@@ -630,7 +939,7 @@ export class Formfeed {
         await sleep(this.backoff(attempt, res.headers.get('retry-after')), options.signal);
         continue;
       }
-      if (res.status === 204) return undefined as T;
+      if (res.status === 204) return { status: 204, body: undefined as T };
       const text = await res.text();
       const json = text ? (JSON.parse(text) as unknown) : null;
       if (!res.ok) {
@@ -643,7 +952,7 @@ export class Formfeed {
           res.headers.get('x-request-id'),
         );
       }
-      return json as T;
+      return { status: res.status, body: json as T };
     }
   }
 

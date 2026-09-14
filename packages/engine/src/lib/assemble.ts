@@ -1,3 +1,5 @@
+import { brandCss, brandFontFamilies } from './brand';
+import type { BrandContext } from './brand';
 import { getEngine } from './engines';
 import { escapeHtml } from './helpers';
 import type { EngineId, RenderContext } from './types';
@@ -241,6 +243,8 @@ export interface AssembleInput extends AssembleExtras {
   kind?: TemplateKind;
   /** Base URL for relative asset references (`<base href>`); omitted when undefined. */
   assetBaseUrl?: string;
+  /** Brand kit whose `--brand-*` variables go before the reset and the template CSS (spec 18 §2.2). */
+  brand?: BrandContext;
   /** Preview marks the document so the preview frame can style it; print is what Chromium gets. */
   mode?: 'preview' | 'print';
   title?: string;
@@ -259,9 +263,11 @@ export function assembleDocument(input: AssembleInput): string {
     : '';
   const fonts = fontFaceCss(
     input.fonts,
-    `${input.css ?? ''}\n${input.head ?? ''}\n${input.html}`,
+    `${input.css ?? ''}\n${input.head ?? ''}\n${input.html}\n${brandFontFamilies(input.brand)}`,
   );
   const fontStyle = fonts ? `<style data-formfeed="fonts">${fonts}</style>\n` : '';
+  const brand = brandCss(input.brand);
+  const brandStyle = brand ? `<style data-formfeed="brand">${brand}</style>\n` : '';
   const tailwind = settings.tailwind
     ? input.extraCss
       ? `<style data-formfeed="tailwind">${input.extraCss}</style>\n`
@@ -278,7 +284,7 @@ export function assembleDocument(input: AssembleInput): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${base}${title}${input.head ?? ''}
-${fontStyle}<style data-formfeed="reset">${printReset(settings, kind)}</style>
+${fontStyle}${brandStyle}<style data-formfeed="reset">${printReset(settings, kind)}</style>
 ${tailwind}<style data-formfeed="template">${input.css ?? ''}</style>
 ${charts.head}</head>
 <body class="formfeed-body formfeed-${kind}${input.mode === 'preview' ? ' formfeed-preview' : ''}">
@@ -347,8 +353,9 @@ export async function renderVersion(
   const inlineCss = [
     fontFaceCss(
       extras.fonts,
-      `${version.css ?? ''}\n${version.head ?? ''}\n${html}\n${headerHtml ?? ''}\n${footerHtml ?? ''}`,
+      `${version.css ?? ''}\n${version.head ?? ''}\n${html}\n${headerHtml ?? ''}\n${footerHtml ?? ''}\n${brandFontFamilies(ctx.brand)}`,
     ),
+    brandCss(ctx.brand),
     extras.extraCss ?? '',
   ]
     .filter(Boolean)
@@ -361,6 +368,7 @@ export async function renderVersion(
       settings,
       kind: version.kind,
       assetBaseUrl: ctx.assetBaseUrl,
+      brand: ctx.brand,
       mode,
       title: title?.trim() || undefined,
       ...extras,

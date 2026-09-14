@@ -20,6 +20,10 @@ class RenderTemplateRef(_Model):
     id: str
     slug: str
     version: int
+    #: The release channel the version came from (``published`` by default); ``None`` for a version number or ``latest``.
+    channel: str | None = None
+    #: True when the channel's canary share picked this version.
+    canary: bool = False
 
 
 class Render(_Model):
@@ -68,16 +72,68 @@ class Job(_Model):
         return self.status not in ("queued", "processing")
 
 
+WebhookEnvironment = Literal["live", "test"]
+
+
 class WebhookEndpoint(_Model):
     id: str
     url: str
     events: list[str] = []
+    #: Render environments whose events the endpoint receives; both by default. Quota events are sent regardless.
+    environments: list[WebhookEnvironment] = ["live", "test"]
     enabled: bool = True
     description: str | None = None
     consecutive_failures: int = 0
     secret: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+
+
+class ListenSession(_Model):
+    """A listen session (``POST /webhooks/listen``): receives the workspace's events like an endpoint and
+    relays them over ``websocket_url`` (valid for 60 seconds, no key needed). The SDK opens no socket."""
+
+    id: str
+    #: Signs the session's deliveries.
+    secret: str
+    events: list[str] = []
+    environments: list[WebhookEnvironment] = []
+    expires_at: str | None = None
+    websocket_url: str
+
+
+class WebhookResend(_Model):
+    delivery_id: str
+    event_id: str
+    event: str
+    endpoint_id: str
+
+
+class RenderInputTemplate(_Model):
+    id: str
+    slug: str
+    version: int
+    channel: str | None = None
+
+
+class RenderInput(_Model):
+    """The stored request of a render (``GET /renders/{id}/input``). Template renders carry ``template`` and
+    ``data``, ad-hoc renders ``html`` or ``url``. Passwords of ``post`` are never included."""
+
+    render_id: str
+    template: RenderInputTemplate | None = None
+    html: str | None = None
+    engine: Engine | None = None
+    url: str | None = None
+    data: dict[str, Any] | None = None
+    locale: str | None = None
+    output: OutputFormat | None = None
+    settings: dict[str, Any] | None = None
+    filename: str | None = None
+    post: dict[str, Any] | None = None
+    meta: dict[str, Any] | None = None
+    environment: Literal["live", "test"] | None = None
+    created_at: str | None = None
 
 
 class Template(_Model):
@@ -111,6 +167,63 @@ class TemplateVersion(_Model):
     i18n: dict[str, Any] | None = None
     #: Partials the template includes (``name`` → source), as ``formfeed templates push`` sends them.
     partials: dict[str, str] | None = None
+    #: Publishing only: how the data schema changed against the version callers used before.
+    schema_check: SchemaCheck | None = None
+
+
+class SchemaChange(_Model):
+    #: Dotted field path (``customer.email``, ``items[]``); empty for the data itself.
+    path: str
+    pointer: str
+    kind: str
+    breaking: bool
+    message: str
+
+
+class SchemaCheck(_Model):
+    """``stored``: both versions store a schema, breaking changes refuse without ``allow_breaking``.
+    ``inferred``: compared from sample data, a warning only. ``none``: nothing to compare."""
+
+    source: Literal["stored", "inferred", "none"]
+    breaking: list[SchemaChange] = []
+    safe: list[SchemaChange] = []
+
+
+class ChannelCanary(_Model):
+    version: int
+    percent: int
+
+
+class ChannelUsage(_Model):
+    version: int
+    renders: int = 0
+    failed: int = 0
+
+
+class Channel(_Model):
+    """A release channel of a template: ``published`` or a named one such as ``staging``."""
+
+    name: str
+    version: int | None = None
+    canary: ChannelCanary | None = None
+    #: The version before the last move; ``rollback`` returns to it.
+    previous_version: int | None = None
+    updated_at: str | None = None
+    #: Renders of the last 24 hours through this channel, per version (list only).
+    usage_24h: list[ChannelUsage] = []
+    #: Writes only.
+    schema_check: SchemaCheck | None = None
+
+
+class ChannelLimits(_Model):
+    #: Named channels per template besides published; ``None`` is unlimited.
+    channels: int | None = None
+    canary: bool = False
+
+
+class ChannelList(_Model):
+    data: list[Channel]
+    limits: ChannelLimits
 
 
 class UsageDay(_Model):
@@ -160,6 +273,53 @@ class LibraryFile(_Model):
     url: str
     created_at: str | None = None
     updated_at: str | None = None
+
+
+class BrandFonts(_Model):
+    heading: str | None = None
+    body: str | None = None
+
+
+class BrandLogo(_Model):
+    """CDN URLs of the logos; a new logo gets a new URL."""
+
+    primary: str | None = None
+    inverse: str | None = None
+    mark: str | None = None
+
+
+class Brand(_Model):
+    """The organisation's brand kit (``GET /brand``): what templates see as ``brand``, plus the page
+    defaults new templates start from. Unset values are ``None``; ``colors`` is always a dict."""
+
+    version: int
+    name: str | None = None
+    colors: dict[str, str] = {}
+    fonts: BrandFonts = BrandFonts()
+    font_size: str | None = None
+    logo: BrandLogo = BrandLogo()
+    legal_footer: str | None = None
+    page_defaults: dict[str, Any] = {}
+    updated_at: str | None = None
+
+
+class SharedPartial(_Model):
+    """A shared partial of the organisation (``/partials``), included by name from templates of its engine."""
+
+    name: str
+    engine: Engine
+    description: str | None = None
+    version: int
+    #: Only when read one by one (``partials.get``) and in the result of ``partials.put``.
+    source: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class SharedPartialPutResult(_Model):
+    partial: SharedPartial
+    #: ``True`` when the name did not exist before (201), ``False`` for an update (200).
+    created: bool
 
 
 class Diagnostic(_Model):

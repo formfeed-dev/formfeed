@@ -72,6 +72,8 @@ export const nunjucksBuiltinFilters = new Set([
   'urlize',
   'wordcount',
 ]);
+/** Jinja2's capitalised literals; Nunjucks parses them as names, the compat layer resolves them. */
+const jinjaLiterals = new Set(['True', 'False', 'None']);
 const builtinRoots = new Set([
   'loop',
   'caller',
@@ -83,6 +85,8 @@ const builtinRoots = new Set([
   'varargs',
   'kwargs',
   'namespace',
+  // the organisation's brand kit (spec 18), a global beside the data
+  'brand',
   // Jinja2's spelling of the literals, which the compat layer resolves at runtime
   'True',
   'False',
@@ -392,6 +396,8 @@ function createEnvironment(
     env.addGlobal(name, wrapped);
   }
   env.addGlobal('namespace', namespace);
+  // a global, so `data.brand` still wins: Nunjucks looks up the context before the globals
+  if (ctx.brand) env.addGlobal('brand', ctx.brand);
   installJinjaFilters(env);
   return env;
 }
@@ -481,6 +487,8 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
     case 'Symbol':
     case 'LookupVal': {
       const p = pathOf(node);
+      // `True`, `False` and `None` parse as names but are literals: never a read of the data
+      if (node.typename === 'Symbol' && jinjaLiterals.has(String(node.value))) return;
       if (p) {
         const root = p.path[0] ?? '';
         const bound = inScope(w, root);

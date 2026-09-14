@@ -31,8 +31,18 @@ export {
   liquidBuiltinFilters,
   nunjucksBuiltinFilters,
 } from './lib/engines';
-export { inferSchema, schemaPaths } from './lib/schema';
-export { mergeSampleData, snippets, snippetsFor } from './lib/snippets';
+export { diffSchemas, inferSchema, inferSchemaFromDataSets, schemaPaths } from './lib/schema';
+export { brandCss, emptyBrand, layeredPartials, normalisePartialName } from './lib/brand';
+export type { BrandContext, SharedPartial } from './lib/brand';
+export {
+  mergeSampleData,
+  mergeSnippetCss,
+  mergeSnippetI18n,
+  partialInclude,
+  snippets,
+  snippetsFor,
+  snippetText,
+} from './lib/snippets';
 export { importApitemplate, slugFromName } from './lib/import/apitemplate';
 export type { ApitemplateExport } from './lib/import/apitemplate';
 export type { ImportNote, ImportResult, ImportSource } from './lib/import/common';
@@ -41,8 +51,8 @@ export type { PdfmonkeyImportOptions, PdfmonkeySettings, PdfmonkeyTemplate } fro
 export { importJsreport, jsreportTemplates, readJsreportExport } from './lib/import/jsreport';
 export type { JsreportBundle, JsreportImportOptions, JsreportTemplate } from './lib/import/jsreport';
 export { convertScss, isScss } from './lib/import/scss';
-export type { Snippet } from './lib/snippets';
-export type { JsonSchema } from './lib/schema';
+export type { Snippet, SnippetGroup } from './lib/snippets';
+export type { JsonSchema, SchemaChange, SchemaChangeKind, SchemaDiff } from './lib/schema';
 export {
   assembleDocument,
   chartInitScript,
@@ -56,6 +66,12 @@ export {
 export type { ChartSpec, ImageOptions } from './lib/helpers';
 export { flowDocument, pagedDocument, pageNumberSpans, paperOf } from './lib/preview';
 export type { PagedOptions, RenderedDraft } from './lib/preview';
+export {
+  annotateSourcePositions,
+  parseSourceAttribute,
+  sourceAttribute,
+} from './lib/source-positions';
+export type { SourceFile, SourceLocation } from './lib/source-positions';
 export type {
   AssembleExtras,
   AssembleInput,

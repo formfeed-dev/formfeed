@@ -5,10 +5,14 @@ export {
   contentHash,
   defaultData,
   listTemplateSlugs,
+  partialContentHash,
   partialResolver,
   readState,
   readTemplate,
+  recordSharedPartial,
   recordSync,
+  sharedPartialNames,
+  sharedPartialPath,
   templateDir,
   titleFromSlug,
   versionPayload,
@@ -16,10 +20,14 @@ export {
   writeState,
   writeTemplate,
 } from './lib/project';
-export type { LocalTemplate, ProjectState, TemplateMeta, TemplateState } from './lib/project';
+export type { LocalTemplate, ProjectState, SharedPartialState, TemplateMeta, TemplateState } from './lib/project';
+export { brandFromJson, brandPath, readBrand, writeBrand } from './lib/brand';
 export { collectPartials } from './lib/partials';
 export type { CollectedPartials } from './lib/partials';
 export { diagnose, previewDocument, renderContext, renderLocal } from './lib/local-render';
 export { contentTypeFor, listLocalFiles, localFilePath, sha256File, writeLocalFile } from './lib/files';
 export type { LocalFile, LocalFileListing } from './lib/files';
 export type { LocalRenderOptions } from './lib/local-render';
+export { parseRedactPath, redactData, redactString } from './lib/redact';
+export { defaultTypesFile, generateTypes, localTypeSource } from './lib/types';
+export type { SchemaOrigin, TypeScriptOptions, TypeSource, TypesLanguage } from './lib/types';
