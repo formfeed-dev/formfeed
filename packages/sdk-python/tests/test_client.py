@@ -88,6 +88,28 @@ def test_usage_reads_a_period():
     assert rec.calls[0].url.params.get("period") == "2026-08"
 
 
+def test_workspaces_delete_and_last_workspace():
+    def responder(req, n):
+        if req.url.path.endswith("/ws-last"):
+            return _json({"code": "last_workspace", "detail": "last one", "status": 409}, 409)
+        return httpx.Response(204)
+
+    client, rec = sync_client(responder, max_retries=0)
+    assert client.workspaces.delete("f0000000-0000-4000-8000-000000000002") is None
+    assert rec.calls[0].method == "DELETE"
+    assert rec.calls[0].url.path == "/v1/workspaces/f0000000-0000-4000-8000-000000000002"
+    with pytest.raises(FormfeedError) as e:
+        client.workspaces.delete("ws-last")
+    assert e.value.code == "last_workspace" and e.value.status == 409
+
+    async def run():
+        async with AsyncFormfeed("ff_test_k", transport=httpx.MockTransport(rec.handler)) as client_async:
+            await client_async.workspaces.delete("f0000000-0000-4000-8000-000000000003")
+
+    asyncio.run(run())
+    assert rec.calls[-1].url.path == "/v1/workspaces/f0000000-0000-4000-8000-000000000003"
+
+
 def test_renders_list_follows_the_cursor_and_deletes_outputs():
     def responder(req, n):
         if req.method == "DELETE":

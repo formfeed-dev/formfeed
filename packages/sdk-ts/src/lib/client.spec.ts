@@ -264,6 +264,28 @@ describe('usage', () => {
   });
 });
 
+describe('workspaces', () => {
+  it('deletes a workspace and surfaces last_workspace', async () => {
+    const { calls, fetchImpl } = stub((call) =>
+      call.url.endsWith('/workspaces/ws-last')
+        ? json(
+            { type: 'https://docs.formfeed.dev/errors/last-workspace', title: 'Last workspace', status: 409, code: 'last_workspace', detail: 'x' },
+            409,
+          )
+        : new Response(null, { status: 204 }),
+    );
+    const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl, maxRetries: 0 });
+    await client.workspaces.delete('f0000000-0000-4000-8000-000000000002');
+    expect(calls[0]?.method).toBe('DELETE');
+    expect(calls[0]?.url).toMatch(/\/workspaces\/f0000000-0000-4000-8000-000000000002$/);
+
+    const refused = await client.workspaces.delete('ws-last').catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(FormfeedError);
+    expect((refused as FormfeedError).code).toBe('last_workspace');
+    expect(calls).toHaveLength(2);
+  });
+});
+
 describe('render listing', () => {
   it('lists with filters, follows the cursor and deletes outputs', async () => {
     const { calls, fetchImpl } = stub((call) => {

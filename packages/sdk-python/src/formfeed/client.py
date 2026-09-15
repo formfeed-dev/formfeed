@@ -127,6 +127,7 @@ class Formfeed(_Base[Any]):
         self.webhooks = _Webhooks(self)
         self.templates = _Templates(self)
         self.account = _Account(self)
+        self.workspaces = _Workspaces(self)
         self.pdf = _Pdf(self)
         self.files = _Files(self)
         self.brand = _Brand(self)
@@ -195,6 +196,7 @@ class AsyncFormfeed(_Base[Any]):
         self.webhooks = _AsyncWebhooks(self)
         self.templates = _AsyncTemplates(self)
         self.account = _AsyncAccount(self)
+        self.workspaces = _AsyncWorkspaces(self)
         self.pdf = _AsyncPdf(self)
         self.files = _AsyncFiles(self)
         self.brand = _AsyncBrand(self)
@@ -542,6 +544,18 @@ class _Account:
         return Usage.model_validate(self._c.request("GET", f"/usage?period={period}"))
 
 
+class _Workspaces:
+    """Workspaces of the key's organisation. Needs ``workspace:delete``, which no key has by default."""
+
+    def __init__(self, client: Formfeed) -> None:
+        self._c = client
+
+    def delete(self, workspace_id: str) -> None:
+        """Deletes a workspace: it leaves the app and the API at once, its keys are revoked and its content
+        is removed after 30 days. The organisation's last workspace raises ``last_workspace``."""
+        self._c.request("DELETE", f"/workspaces/{workspace_id}")
+
+
 class _Pdf:
     """PDF tools on outputs of earlier renders. merge, protect and watermark return a new render
     (0.5 units each on live keys) and send an idempotency key; info is free."""
@@ -878,6 +892,14 @@ class _AsyncAccount:
     async def usage(self, period: str = "current") -> Usage:
         """Units of the current period, or of ``YYYY-MM``, with a daily series and per template."""
         return Usage.model_validate(await self._c.request("GET", f"/usage?period={period}"))
+
+
+class _AsyncWorkspaces:
+    def __init__(self, client: AsyncFormfeed) -> None:
+        self._c = client
+
+    async def delete(self, workspace_id: str) -> None:
+        await self._c.request("DELETE", f"/workspaces/{workspace_id}")
 
 
 class _AsyncPdf:

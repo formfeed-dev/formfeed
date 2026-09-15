@@ -877,6 +877,16 @@ export class Formfeed {
       this.request<Usage>('GET', `/usage?period=${encodeURIComponent(period)}`, undefined, options),
   };
 
+  /** Workspaces of the key's organisation. Needs `workspace:delete`, which no key has by default. */
+  readonly workspaces = {
+    /**
+     * Deletes a workspace: it leaves the app and the API at once, its keys are revoked and its content
+     * is removed after 30 days. The organisation's last workspace is refused with `last_workspace`.
+     */
+    delete: (id: string, options: RequestOptions = {}): Promise<void> =>
+      this.request<void>('DELETE', `/workspaces/${encodeURIComponent(id)}`, undefined, options),
+  };
+
   private channelAction(idOrSlug: string, name: string, action: 'promote' | 'rollback', options: SchemaGuardOptions): Promise<Channel> {
     const { allowBreaking, ...rest } = options;
     return this.request<Channel>(

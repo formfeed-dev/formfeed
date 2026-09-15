@@ -195,6 +195,19 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       ]);
     });
 
+  const workspacesCmd = program.command('workspaces').description("Workspaces of the key's organisation");
+  workspacesCmd
+    .command('delete <id>')
+    .description('Delete a workspace (needs the workspace:delete scope); its content is removed after 30 days')
+    .option('--yes', 'confirm the deletion; required, because the API has no undo')
+    .action(async (id: string, opts: { yes?: boolean }) => {
+      if (!opts.yes)
+        throw new CliError(`Deleting workspace ${id} revokes its keys and removes its content after 30 days; pass --yes to confirm`, exitCodes.usage);
+      const s = settings();
+      await client(s).workspaces.delete(id);
+      emit(p(), { id, deleted: true }, () => [`${id}: workspace deleted`]);
+    });
+
   // --- config ---------------------------------------------------------------------------------
   const config = program.command('config').description('Read or write the user config');
   config

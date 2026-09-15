@@ -178,6 +178,9 @@ function fakeApi() {
     if (call.path.startsWith('/v1/renders?') && call.method === 'GET')
       return json({ data: [{ id: 'rnd_1', status: 'succeeded', output: 'pdf', page_count: 1, units: 1, created_at: '2026-09-09T10:00:00Z', template: { id: 'tpl_1', slug: 'invoice', version: 2 } }], next_cursor: null });
     if (call.path === '/v1/renders/rnd_1/outputs' && call.method === 'DELETE') return new Response(null, { status: 204 });
+    if (call.path === '/v1/workspaces/ws_preview' && call.method === 'DELETE') return new Response(null, { status: 204 });
+    if (call.path === '/v1/workspaces/ws_last' && call.method === 'DELETE')
+      return json({ code: 'last_workspace', title: 'Last workspace', status: 409, detail: 'last one' }, 409);
     // stored render requests (spec 20 §3): abc123 succeeded on v1, bad001 failed, gone00 is past retention
     const inputMatch = /^\/v1\/renders\/(\w+)\/input$/.exec(call.path);
     if (inputMatch) {
@@ -560,6 +563,15 @@ describe('formfeed CLI', () => {
     out = [];
     expect(await run(['renders', 'delete-outputs', 'rnd_1'], ctx)).toBe(0);
     expect(api.calls.at(-1)).toMatchObject({ method: 'DELETE', path: '/v1/renders/rnd_1/outputs' });
+  });
+
+  it('workspaces delete needs --yes and reports a refused last workspace', async () => {
+    expect(await run(['workspaces', 'delete', 'ws_preview'], ctx)).toBe(2);
+    expect(api.calls.some((c) => c.path.startsWith('/v1/workspaces'))).toBe(false);
+    expect(await run(['workspaces', 'delete', 'ws_preview', '--yes'], ctx), err.join('\n')).toBe(0);
+    expect(api.calls.at(-1)).toMatchObject({ method: 'DELETE', path: '/v1/workspaces/ws_preview' });
+    expect(await run(['workspaces', 'delete', 'ws_last', '--yes'], ctx)).not.toBe(0);
+    expect(err.join('\n')).toContain('last one');
   });
 
   it('test writes, compares and fails snapshots per data set', async () => {
