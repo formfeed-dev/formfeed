@@ -402,7 +402,8 @@ class HandlebarsCompiled implements CompiledTemplate {
         hb,
         template: hb.compile(this.source, {
           strict: false,
-          noEscape: false,
+          // office text is escaped when its markup is restored (office/template-text.ts)
+          noEscape: ctx.mode === 'office',
           preventIndent: true,
         }),
       };

@@ -96,6 +96,11 @@ export interface RenderContext {
    * name wins) and the `--brand-*` variables the assembler injects.
    */
   brand?: BrandContext;
+  /**
+   * `office` renders the text of an office part (spec 22 §4.3): the engines do not escape, because the
+   * text is escaped as a whole when the markup is restored (`office/template-text.ts`). HTML by default.
+   */
+  mode?: 'html' | 'office';
 }
 
 export interface CompileOptions {

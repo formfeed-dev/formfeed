@@ -379,7 +379,8 @@ function createEnvironment(
   const env = new nunjucks.Environment(
     new PartialLoader(ctx.partials) as never,
     {
-      autoescape: true,
+      // office text is escaped when its markup is restored, so escaping here would double it
+      autoescape: ctx.mode !== 'office',
       throwOnUndefined: false,
       trimBlocks: false,
       lstripBlocks: false,

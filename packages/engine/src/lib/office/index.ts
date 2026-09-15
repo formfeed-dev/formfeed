@@ -24,6 +24,16 @@ export {
   type SanitisedDocument,
 } from './sanitise';
 export {
+  createNonce,
+  fromTemplateOutput,
+  layoutText,
+  toTemplateSource,
+  type FilledPart,
+  type TemplateSource,
+  type TextFlavour,
+} from './template-text';
+export { assertWellFormed, decodeText, escapeText, stripForbidden, tokenize, type XmlToken } from './xml';
+export {
   crc32,
   decodeXml,
   isSafeEntryName,
