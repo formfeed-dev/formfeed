@@ -102,6 +102,16 @@ const pageNavScript = `<script>
 })();
 </script>`;
 
+/**
+ * Puts the preview's styles and scripts at the start of the head, after the leading meta tags and
+ * before the template's own head. Text or a body element in the template's head makes the parser
+ * close the head there, so anything appended before `</head>` would land in the body: Paged.js then
+ * laid the running header out as ordinary content, on the first page only.
+ */
+function intoHead(document: string, markup: string): string {
+  return document.replace(/<head[^>]*>(?:\s*<meta\b[^>]*>)*/i, (head) => `${head}\n${markup}`);
+}
+
 export function flowDocument(draft: RenderedDraft): string {
   const { settings, kind, headerHtml, footerHtml } = draft;
   const margin = settings.margin ?? {};
@@ -120,8 +130,7 @@ body.formfeed-preview { box-sizing: border-box; width: ${paper.width}; min-heigh
   const footer = footerHtml
     ? `<div class="formfeed-chrome" style="margin-top:8px">${pageNumberSpans(footerHtml, '1', '1')}</div>`
     : '';
-  return draft.document
-    .replace('</head>', `${chrome}${inspectScript}</head>`)
+  return intoHead(draft.document, `${chrome}${inspectScript}`)
     .replace(/(<body[^>]*>)/, `$1${header}`)
     .replace('</body>', `${footer}</body>`);
 }
@@ -163,7 +172,8 @@ html { background: #e5e7eb; }
   const footer = footerHtml
     ? `<div class="ff-running-footer">${pageNumberSpans(footerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
     : '';
-  return draft.document
-    .replace('</head>', `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${config}${script}${inspectScript}${pageNavScript}</head>`)
-    .replace(/(<body[^>]*>)/, `$1${header}${footer}`);
+  return intoHead(
+    draft.document,
+    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${config}${script}${inspectScript}${pageNavScript}`,
+  ).replace(/(<body[^>]*>)/, `$1${header}${footer}`);
 }

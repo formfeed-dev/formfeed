@@ -6,7 +6,7 @@ import {
   renderVersion,
 } from './assemble';
 import { defaultHelpers } from './helpers';
-import { pagedDocument } from './preview';
+import { flowDocument, pagedDocument } from './preview';
 import { inferSchema, schemaPaths } from './schema';
 import type { RenderContext } from './types';
 
@@ -159,6 +159,17 @@ describe('paged preview document', () => {
     const guard = doc.indexOf('DocumentFragment.prototype.querySelectorAll');
     expect(guard).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(doc.indexOf('paged.polyfill.min.js'));
+  });
+
+  it('puts its styles and scripts before the template head, which may end the head early with text', () => {
+    const document = assembleDocument({ html: '<p>x</p>', head: 'stray text' });
+    const draft = { document, headerHtml: '<div>h</div>', settings: {}, kind: 'pdf' as const };
+    const paged = pagedDocument(draft, { pagedScriptUrl: 'https://app.example/paged.js' });
+    expect(paged.indexOf('data-formfeed="paged"')).toBeGreaterThan(paged.indexOf('name="viewport"'));
+    expect(paged.indexOf('data-formfeed="paged"')).toBeLessThan(paged.indexOf('stray text'));
+    expect(paged.indexOf('https://app.example/paged.js')).toBeLessThan(paged.indexOf('stray text'));
+    const flow = flowDocument(draft);
+    expect(flow.indexOf('data-formfeed="preview"')).toBeLessThan(flow.indexOf('stray text'));
   });
 });
 
