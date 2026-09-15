@@ -31,6 +31,9 @@
       "@formfeed/engine/output": [
         "./packages/engine/src/lib/output.ts"
       ],
+      "@formfeed/engine/office": [
+        "./packages/engine/src/lib/office/index.ts"
+      ],
       "@formfeed/api-types": [
         "./packages/api-types/src/index.ts"
       ],
