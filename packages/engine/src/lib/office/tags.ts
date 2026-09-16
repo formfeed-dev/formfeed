@@ -18,7 +18,10 @@ export type OfficeDiagnosticCode =
   | 'office-tag-spans-elements'
   | 'office-tag-autocorrected'
   | 'office-tag-in-field'
-  | 'office-block-unbalanced';
+  | 'office-block-unbalanced'
+  | 'office-reference-in-loop'
+  | 'office-font-substituted'
+  | 'unsupported-in-office';
 
 export interface OfficeDiagnostic {
   severity: 'error' | 'warning' | 'info';

@@ -90,3 +90,10 @@ export {
   jinjaTags,
   liquidTags,
 } from './lib/analysis/tags';
+export {
+  OFFICE_FILLED_MAX_BYTES,
+  OfficeTemplateError,
+  renderOffice,
+  type OfficeRenderOptions,
+  type OfficeRenderResult,
+} from './lib/office/render';

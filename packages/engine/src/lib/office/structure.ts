@@ -75,6 +75,40 @@ export function blockRole(text: string): { role: Role; keyword: string } | null 
   return null;
 }
 
+/** Loops copy what is between their tags; these references cannot be copied (spec 22 §4.3 step 7). */
+const REFERENCES = new Set(['w:footnoteReference', 'w:endnoteReference', 'w:commentRangeStart', 'w:commentReference']);
+const LOOPS = new Set(['for', 'each', 'tablerow']);
+
+/**
+ * Text boxes carry a VML copy of their text in `mc:Fallback`, which would be filled on its own and
+ * loop twice. A fallback holding a tag is removed; Word 2010 and later and LibreOffice read the choice.
+ */
+export function dropTaggedFallbacks(xml: string, part?: string): string {
+  if (!xml.includes('mc:Fallback')) return xml;
+  const tokens = tokenize(xml, part);
+  let out = '';
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    if (t.kind === 'open' && t.name === 'mc:Fallback' && !t.selfClosing) {
+      let depth = 1;
+      let j = i + 1;
+      let text = '';
+      for (; j < tokens.length && depth > 0; j++) {
+        const u = tokens[j]!;
+        if (u.kind === 'open' && u.name === 'mc:Fallback' && !u.selfClosing) depth++;
+        else if (u.kind === 'close' && u.name === 'mc:Fallback') depth--;
+        else if (u.kind === 'text') text += decodeText(u.raw);
+      }
+      if (/\{\{|\{%|\{#/.test(text)) {
+        i = j - 1;
+        continue;
+      }
+    }
+    out += t.raw;
+  }
+  return out;
+}
+
 export function applyStructure(xml: string, part: string): StructuredPart {
   const tokens = tokenize(xml, part);
   const root = buildSpans(tokens);
@@ -107,12 +141,26 @@ export function applyStructure(xml: string, part: string): StructuredPart {
 
   // The element a tag stands in for decides its parent; opening and closing tags must share it.
   const unitOf = (span: Span) => rowOf.get(span) ?? span;
-  const stack: Array<{ keyword: string; parent: Span | null; paragraph: number; tag: string }> = [];
+  const stack: Array<{ keyword: string; parent: Span | null; paragraph: number; tag: string; after: number }> = [];
   for (const [span, s] of [...structural].sort((a, b) => a[0].start - b[0].start)) {
     const parent = unitOf(span).parent;
-    if (s.role === 'open') stack.push({ keyword: s.keyword, parent, paragraph: s.info.number, tag: s.tag });
+    if (s.role === 'open')
+      stack.push({ keyword: s.keyword, parent, paragraph: s.info.number, tag: s.tag, after: unitOf(span).end });
     else if (s.role === 'close' || s.role === 'middle') {
       const open = s.role === 'close' ? stack.pop() : stack.at(-1);
+      if (open && s.role === 'close' && LOOPS.has(open.keyword)) {
+        const body = tokens.slice(open.after, unitOf(span).start);
+        const reference = body.find((t) => t.kind === 'open' && REFERENCES.has(t.name));
+        if (reference && reference.kind === 'open')
+          diagnostics.push({
+            severity: 'error',
+            code: 'office-reference-in-loop',
+            message: `The loop from paragraph ${open.paragraph} repeats a ${reference.name.includes('comment') ? 'comment' : 'footnote or endnote'}, which cannot be copied. Move it out of the loop.`,
+            part,
+            paragraph: open.paragraph,
+            text: short(open.tag),
+          });
+      }
       if (open && open.parent !== parent)
         diagnostics.push({
           severity: 'error',
