@@ -61,6 +61,7 @@ export {
   isApitemplateHtmlTemplate,
   isApitemplateRegion,
   slugFromName,
+  splitApitemplateCss,
 } from './lib/import/apitemplate';
 export type { ApitemplateApiTemplate, ApitemplateExport, ApitemplateListItem, ApitemplateRegion } from './lib/import/apitemplate';
 export type { ImportNote, ImportResult, ImportSource } from './lib/import/common';

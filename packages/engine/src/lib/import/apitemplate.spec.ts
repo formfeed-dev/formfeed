@@ -4,6 +4,7 @@ import {
   isApitemplateHtmlTemplate,
   isApitemplateRegion,
   slugFromName,
+  splitApitemplateCss,
 } from './apitemplate';
 
 describe('apitemplate.io importer', () => {
@@ -85,6 +86,34 @@ describe('apitemplate.io importer', () => {
     expect(bad.warnings.map((w) => w.code)).toContain('sample-json');
   });
 
+  it('moves link and script tags of the CSS field to the head', () => {
+    const css = [
+      '<script src="https://cdn.example/autofonts.js"> </script>',
+      '<!--link rel="stylesheet" href="https://cdn.example/old.css"-->',
+      "<link href='https://fonts.googleapis.com/css?family=Chivo' rel='stylesheet'>",
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />',
+      '',
+      '<style>',
+      '  body { font-family: "Chivo", sans-serif; }',
+      '</style>',
+      '.loose { color: red }',
+      '<style media="print">p { margin: 0 }</style>',
+    ].join('\n');
+    const result = importApitemplate({ name: 'Fonts', html: '<p>x</p>', css });
+    expect(result.head).toBe(
+      [
+        '<script src="https://cdn.example/autofonts.js"> </script>',
+        '<!--link rel="stylesheet" href="https://cdn.example/old.css"-->',
+        "<link href='https://fonts.googleapis.com/css?family=Chivo' rel='stylesheet'>",
+        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />',
+      ].join('\n'),
+    );
+    expect(result.css).toBe('.loose { color: red }\n\n  body { font-family: "Chivo", sans-serif; }\n\np { margin: 0 }');
+    expect(result.changes.join(' ')).toContain('Head tab');
+    // plain CSS stays untouched
+    expect(splitApitemplateCss('a > b { color: red }')).toEqual({ css: 'a > b { color: red }', head: '' });
+  });
+
   it('does not report every variable as missing when there is no sample data', () => {
     const result = importApitemplate({ name: 'No sample', html: '<p>{{ customer.name }}</p>' });
     expect(result.warnings).toEqual([]);
@@ -109,6 +138,50 @@ describe('apitemplate.io API import', () => {
     expect(result.settings.margin?.top).toBe('20mm');
     expect(result.settings.footer?.html).toContain('pageNumber');
     expect(result.sampleData).toEqual({});
+  });
+
+  it("rebuilds the header and footer text slots of apitemplate.io's stored settings", () => {
+    // the example of their get-template response
+    const result = importApitemplateFromApi(item, {
+      body: '<p>x</p>',
+      settings: JSON.stringify({
+        paper_size: 'A4',
+        orientation: '1',
+        print_background: '1',
+        margin_top: '40',
+        header_right: '{{pageNumber}}/{{totalPages}}',
+        footer_center: '{{pageNumber}}/{{totalPages}}',
+        header_center: 'Sample <Invoice>',
+        header_font_size: '11px',
+        header_left: '{{date}}',
+        footer_left: '{{date}}',
+        custom_header: '',
+        footer_font_size: '11',
+        custom_footer: '<style>#header, #footer { padding: 0 !important; }</style>',
+      }),
+    });
+    expect(result.warnings.filter((w) => w.code === 'setting-ignored')).toEqual([]);
+    expect(result.settings.paper).toEqual({ format: 'A4', landscape: false });
+    expect(result.settings.header?.html).toBe(
+      '<div style="display:flex;gap:4mm;font-size:11px"><span style="flex:1;text-align:left"><span class="date"></span></span>' +
+        '<span style="flex:1;text-align:center">Sample &lt;Invoice&gt;</span>' +
+        '<span style="flex:1;text-align:right"><span class="pageNumber"></span>/<span class="totalPages"></span></span></div>',
+    );
+    // a custom footer of styles only keeps its styles above the slots
+    expect(result.settings.footer?.html).toMatch(/^<style>#header, #footer \{ padding: 0 !important; \}<\/style><div style="display:flex;gap:4mm;font-size:11px">/);
+    expect(result.settings.footer?.html).toContain('<span style="flex:1;text-align:right"></span>');
+    expect(result.changes.join(' ')).toContain('rebuilt as HTML');
+
+    // custom markup wins over the slots
+    const custom = importApitemplateFromApi(item, {
+      body: '<p>x</p>',
+      settings: { custom_header: '<table><tr><td>{{ pageNumber }}</td><td>{{ customer.name }}</td></tr></table>', header_left: 'ignored' },
+    });
+    expect(custom.settings.header?.html).toBe('<table><tr><td><span class="pageNumber"></span></td><td>{{ customer.name }}</td></tr></table>');
+    expect(custom.warnings.filter((w) => w.code === 'setting-ignored')).toEqual([]);
+    // header and footer stay off when the template turns them off
+    const off = importApitemplateFromApi(item, { body: '<p>x</p>', settings: { displayHeaderFooter: false, header_left: 'x' } });
+    expect(off.settings.header).toBeUndefined();
   });
 
   it('reports a missing body and unreadable settings instead of failing', () => {

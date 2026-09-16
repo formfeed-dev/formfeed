@@ -78,6 +78,31 @@ function setInLoop(source: string): ImportNote[] {
   return notes;
 }
 
+const STYLE_BLOCK = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
+const HEAD_MARKUP = /<script\b[\s\S]*?<\/script\s*>|<!--[\s\S]*?-->|<(?:link|meta|base)\b[^>]*>/gi;
+
+/**
+ * apitemplate.io puts its CSS field into the document head as is, so it often carries `<link>`,
+ * `<script>` and `<style>` tags. Formfeed wraps CSS in a `<style>` element, where such tags break
+ * the stylesheet and never load: style blocks become CSS, the rest of the markup goes to the head.
+ */
+export function splitApitemplateCss(source: string): { css: string; head: string } {
+  if (!/<\/?(style|link|script|meta|base)\b|<!--/i.test(source)) return { css: source, head: '' };
+  const styles: string[] = [];
+  const head: string[] = [];
+  let rest = source.replace(STYLE_BLOCK, (_, body: string) => {
+    styles.push(body.replace(/^\n+|\s+$/g, ''));
+    return '\n';
+  });
+  rest = rest.replace(HEAD_MARKUP, (tag) => {
+    head.push(tag.trim());
+    return '\n';
+  });
+  // plain rules next to the tags are CSS too
+  const loose = rest.replace(/\n{3,}/g, '\n\n').trim();
+  return { css: [loose, ...styles].filter(Boolean).join('\n\n'), head: head.join('\n') };
+}
+
 export function importApitemplate(input: ApitemplateExport): ImportResult {
   const warnings: ImportNote[] = [];
   const changes: string[] = [];
@@ -103,7 +128,10 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
   if (sample.error) warnings.push({ code: 'sample-json', message: `Sample data is not valid JSON (${sample.error}); the draft starts without sample data.`, docs: '/migrate/apitemplate-io#sample-data' });
 
   const html = input.html ?? '';
-  let css = input.css ?? '';
+  const split = splitApitemplateCss(input.css ?? '');
+  let css = split.css;
+  const head = split.head;
+  if (head) changes.push('<link> and <script> tags of the CSS field moved to the Head tab, <style> contents kept as CSS');
   // apitemplate.io's visual editor wraps each `{% for %}`/`{% endfor %}` in an element of this class
   // (table rows of empty cells, too) and hides it with its own stylesheet; without the rule every
   // loop iteration adds an empty row or block to the document
@@ -136,7 +164,7 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
     engine: 'jinja2',
     html,
     css,
-    head: '',
+    head,
     settings,
     sampleData: sample.data,
     errors: checked.errors,

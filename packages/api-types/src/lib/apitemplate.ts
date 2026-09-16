@@ -44,12 +44,58 @@ export function toLength(value: unknown): string | undefined {
 const truthy = (value: unknown): boolean =>
   value === true || value === 1 || value === '1' || value === 'true' || value === 'yes';
 
-/** Chromium header templates carry `pageNumber`/`totalPages` spans; apitemplate.io templates may use placeholders. */
+/**
+ * apitemplate.io's header placeholders as Chromium's header classes. Formfeed renders header and
+ * footer through the template engine first, where `{{pageNumber}}` would be an empty variable.
+ */
+const chromePlaceholders: Array<[RegExp, string]> = [
+  [/\{\{\s*(?:page_number|pageNumber)\s*\}\}/gi, '<span class="pageNumber"></span>'],
+  [/\{\{\s*(?:total_pages|totalPages)\s*\}\}/gi, '<span class="totalPages"></span>'],
+  [/\{\{\s*date\s*\}\}/g, '<span class="date"></span>'],
+  [/\{\{\s*title\s*\}\}/g, '<span class="title"></span>'],
+  [/\{\{\s*url\s*\}\}/g, '<span class="url"></span>'],
+];
+
+/** Chromium header templates carry `pageNumber`/`totalPages` spans; apitemplate.io templates use placeholders. */
 export function convertHeaderFooter(html: unknown): string | undefined {
   if (typeof html !== 'string' || !html.trim()) return undefined;
-  return html
-    .replace(/\{\{\s*page_number\s*\}\}/gi, '<span class="pageNumber"></span>')
-    .replace(/\{\{\s*total_pages\s*\}\}/gi, '<span class="totalPages"></span>');
+  return chromePlaceholders.reduce((out, [pattern, span]) => out.replace(pattern, span), html);
+}
+
+const escapeText = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** Markup left once `<style>` blocks are removed: a custom header of styles only shows nothing. */
+const visibleMarkup = (html: string) => html.replace(/<style[\s\S]*?<\/style>/gi, '').trim();
+
+/**
+ * One header or footer from apitemplate.io's template settings: `custom_header` markup when it
+ * shows something, otherwise the three text slots (`header_left|center|right`) in a row, in
+ * `header_font_size`. Styles of a custom header that shows nothing are kept for the slots.
+ */
+function apitemplateChrome(
+  take: (...keys: string[]) => unknown,
+  kind: 'header' | 'footer',
+): { html?: string; fromSlots: boolean } {
+  const custom = take(`custom_${kind}`);
+  const customHtml = typeof custom === 'string' ? custom : '';
+  // read before deciding, so slots a custom header replaces do not count as dropped settings
+  const slots = (['left', 'center', 'right'] as const).map((side) => {
+    const value = take(`${kind}_${side}`);
+    return typeof value === 'string' ? value.trim() : '';
+  });
+  const size = take(`${kind}_font_size`);
+  if (visibleMarkup(customHtml)) return { html: convertHeaderFooter(customHtml), fromSlots: false };
+  if (!slots.some(Boolean)) return { fromSlots: false };
+  const sizeText = size === undefined ? '' : String(size).trim();
+  const fontSize = /^\d+(\.\d+)?$/.test(sizeText) ? `${sizeText}px` : /^\d+(\.\d+)?(px|pt|mm)$/.test(sizeText) ? sizeText : '9px';
+  const cells = slots
+    .map((text, i) => `<span style="flex:1;text-align:${['left', 'center', 'right'][i]}">${escapeText(text)}</span>`)
+    .join('');
+  const styles = customHtml.match(/<style[\s\S]*?<\/style>/gi)?.join('') ?? '';
+  return {
+    html: convertHeaderFooter(`${styles}<div style="display:flex;gap:4mm;font-size:${fontSize}">${cells}</div>`),
+    fromSlots: true,
+  };
 }
 
 export function mapApitemplateSettings(input: ApitemplateSettings | null | undefined): MappedSettings {
@@ -92,8 +138,15 @@ export function mapApitemplateSettings(input: ApitemplateSettings | null | undef
   }
   if (Object.keys(margin).length) settings['margin'] = margin;
 
-  const header = convertHeaderFooter(take('header_template', 'headerTemplate', 'header_html', 'header'));
-  const footer = convertHeaderFooter(take('footer_template', 'footerTemplate', 'footer_html', 'footer'));
+  // create-pdf-from-html takes header_template; stored templates carry custom_header or the text slots
+  let header = convertHeaderFooter(take('header_template', 'headerTemplate', 'header_html', 'header'));
+  let footer = convertHeaderFooter(take('footer_template', 'footerTemplate', 'footer_html', 'footer'));
+  const storedHeader = apitemplateChrome(take, 'header');
+  const storedFooter = apitemplateChrome(take, 'footer');
+  header ??= storedHeader.html;
+  footer ??= storedFooter.html;
+  if (storedHeader.fromSlots || storedFooter.fromSlots)
+    notes.push('header and footer text (left, center, right) rebuilt as HTML; {{pageNumber}}, {{totalPages}} and {{date}} are kept');
   const displayHeaderFooter = take('displayHeaderFooter', 'display_header_footer', 'print_header_footer');
   if (header && (displayHeaderFooter === undefined || truthy(displayHeaderFooter))) settings['header'] = { html: header };
   if (footer && (displayHeaderFooter === undefined || truthy(displayHeaderFooter))) settings['footer'] = { html: footer };
