@@ -153,7 +153,17 @@ export function pageSize(settings: TemplateSettings): string {
   return `${paper.format ?? 'A4'}${paper.landscape ? ' landscape' : ''}`;
 }
 
-/** Default print reset of spec 05 §5. */
+/**
+ * The header and footer boxes of the previews (`preview.ts`). Chromium renders header and footer
+ * templates in a page of their own that gets none of the reset, so the reset leaves them alone: a
+ * header table's `padding` was ignored under `border-collapse: collapse` and its logo moved left.
+ */
+const outsideChrome = ':not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)';
+
+/**
+ * Default print reset of spec 05 §5. Its element rules sit in `:where()`, so any rule of the template
+ * wins over them, as it did when the template's styles simply came later.
+ */
 export function printReset(
   settings: TemplateSettings,
   kind: TemplateKind = 'pdf',
@@ -165,10 +175,10 @@ export function printReset(
       : '';
   return `${page}html, body { margin: 0; padding: 0; }
 body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-img, svg { max-width: 100%; }
+:where(img, svg):where(${outsideChrome}) { max-width: 100%; }
 .page-break, .new-page { break-after: page; }
 .avoid-break { break-inside: avoid; }
-table { break-inside: auto; border-collapse: collapse; }
+:where(table):where(${outsideChrome}) { break-inside: auto; border-collapse: collapse; }
 tr { break-inside: avoid; }
 thead { display: table-header-group; }
 tfoot { display: table-footer-group; }

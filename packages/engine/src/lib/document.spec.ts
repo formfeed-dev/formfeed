@@ -94,6 +94,14 @@ describe('settings and assembly', () => {
     expect(printReset({}, 'image')).not.toContain('@page');
   });
 
+  it('leaves the preview header and footer boxes out of the reset, as Chromium header templates are', () => {
+    // a collapsed header table ignored its padding in the preview; the PDF header never gets the reset
+    const css = printReset({});
+    expect(css).toContain(':where(table):where(:not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)) { break-inside: auto; border-collapse: collapse; }');
+    expect(css).toContain(':where(img, svg):where(:not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)) { max-width: 100%; }');
+    expect(css).not.toMatch(/^table \{/m);
+  });
+
   it('assembles a complete document', () => {
     const doc = assembleDocument({
       html: '<main>x</main>',
@@ -159,6 +167,10 @@ describe('paged preview document', () => {
     const guard = doc.indexOf('DocumentFragment.prototype.querySelectorAll');
     expect(guard).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(doc.indexOf('paged.polyfill.min.js'));
+    // Paged.js's border-box rule for everything on a page is narrowed to its own boxes as it arrives
+    const boxSizing = doc.indexOf(`'.pagedjs_pagebox [class*="pagedjs_"]'`);
+    expect(boxSizing).toBeGreaterThan(-1);
+    expect(boxSizing).toBeLessThan(doc.indexOf('paged.polyfill.min.js'));
   });
 
   it('puts its styles and scripts before the template head, which may end the head early with text', () => {

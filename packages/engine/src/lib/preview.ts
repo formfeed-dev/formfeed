@@ -208,6 +208,12 @@ html { background: #e5e7eb; }
   // selector"). One such selector threw and left the whole paged preview blank; here it matches
   // nothing and says so in the console.
   const selectorGuard = `<script>(function(){var q=DocumentFragment.prototype.querySelectorAll;DocumentFragment.prototype.querySelectorAll=function(s){try{return q.call(this,s);}catch(e){console.warn('formfeed paged preview: skipped a selector Paged.js could not use:',s);return q.call(this,':not(*)');}};})();</script>`;
+  // Paged.js's base stylesheet sets `.pagedjs_pagebox * { box-sizing: border-box }`, which reaches the
+  // template's own elements: an element with a width and a padding came out smaller than in the PDF,
+  // where they keep the browser's content-box (and a template's `* { … }` rule could not win against
+  // it). The stylesheet is rewritten as it is inserted, before any layout, so the rule keeps to
+  // Paged.js's own boxes.
+  const boxSizingGuard = `<script>(function(){var rule='.pagedjs_pagebox *';var o=new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeName==='STYLE'&&n.textContent&&n.textContent.indexOf(rule)>=0){n.textContent=n.textContent.split(rule).join('.pagedjs_pagebox [class*="pagedjs_"]');o.disconnect();}});});});o.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;
   const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} } };</script>`;
   const script = `<script src="${options.pagedScriptUrl}"></script>`;
   const header = headerHtml
@@ -218,6 +224,6 @@ html { background: #e5e7eb; }
     : '';
   return intoHead(
     draft.document,
-    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${config}${script}${inspectScript}${pageNavScript}${zoomGestureScript}`,
+    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${config}${script}${inspectScript}${pageNavScript}${zoomGestureScript}`,
   ).replace(/(<body[^>]*>)/, `$1${header}${footer}`);
 }
