@@ -183,6 +183,20 @@ describe('paged preview document', () => {
     const flow = flowDocument(draft);
     expect(flow.indexOf('data-formfeed="preview"')).toBeLessThan(flow.indexOf('stray text'));
   });
+
+  it('puts the flow preview header and footer into the page margins, from the page edges', () => {
+    const document = assembleDocument({ html: '<p>x</p>' });
+    const flow = flowDocument({
+      document,
+      headerHtml: '<div>h</div>',
+      footerHtml: '<div>f</div>',
+      settings: { margin: { top: '130px', bottom: '95px' }, header: { padding: '0' } },
+      kind: 'pdf',
+    });
+    expect(flow).toContain('body.formfeed-preview { position: relative;');
+    expect(flow).toContain('<div class="formfeed-chrome" style="position:absolute;top:0;left:0;width:100%;box-sizing:border-box;padding:0;"><div>h</div></div>');
+    expect(flow).toContain('style="position:absolute;bottom:0;left:0;width:100%;box-sizing:border-box;padding:0 10mm;"><div>f</div>');
+  });
 });
 
 describe('assembly extras (fonts, charts, tailwind)', () => {

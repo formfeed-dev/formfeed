@@ -151,23 +151,34 @@ function chromeBoxStyle(settings: RenderedDraft['settings'], which: 'header' | '
   return `box-sizing:border-box;margin-left:calc(-1 * ${left});margin-right:calc(-1 * ${right});width:calc(100% + ${left} + ${right});padding:${padding};${height ? `height:${height};` : ''}`;
 }
 
+/**
+ * Header and footer of the flow preview's page: in its top and bottom margin, from the page's edge,
+ * as Chromium prints them and the paged preview shows them. The page is one tall sheet, so the
+ * footer stands at the end of the content.
+ */
+function flowChromeStyle(settings: RenderedDraft['settings'], which: 'header' | 'footer'): string {
+  const padding = settings[which]?.padding ?? DEFAULT_CHROME_PADDING;
+  const height = settings[which]?.height;
+  return `position:absolute;${which === 'header' ? 'top' : 'bottom'}:0;left:0;width:100%;box-sizing:border-box;padding:${padding};${height ? `height:${height};` : ''}`;
+}
+
 export function flowDocument(draft: RenderedDraft): string {
   const { settings, kind, headerHtml, footerHtml } = draft;
   const margin = settings.margin ?? {};
   const paper = paperOf(settings);
-  const chrome =
-    kind === 'pdf'
-      ? `<style data-formfeed="preview">
+  const pdf = kind === 'pdf';
+  const chrome = pdf
+    ? `<style data-formfeed="preview">
 html { background: #e5e7eb; }
-body.formfeed-preview { box-sizing: border-box; width: ${paper.width}; min-height: ${paper.height}; margin: 24px auto; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08); padding: ${margin.top ?? '0'} ${margin.right ?? '0'} ${margin.bottom ?? '0'} ${margin.left ?? '0'}; }
+body.formfeed-preview { position: relative; box-sizing: border-box; width: ${paper.width}; min-height: ${paper.height}; margin: 24px auto; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08); padding: ${margin.top ?? '0'} ${margin.right ?? '0'} ${margin.bottom ?? '0'} ${margin.left ?? '0'}; }
 .formfeed-chrome { color: #6b7280; font: 10px/1.3 system-ui, sans-serif; }
 </style>`
-      : `<style data-formfeed="preview">html { background: #e5e7eb; } body.formfeed-preview { margin: 24px auto; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }</style>`;
+    : `<style data-formfeed="preview">html { background: #e5e7eb; } body.formfeed-preview { margin: 24px auto; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }</style>`;
   const header = headerHtml
-    ? `<div class="formfeed-chrome" style="${chromeBoxStyle(settings, 'header')}margin-bottom:8px">${headerHtml}</div>`
+    ? `<div class="formfeed-chrome" style="${pdf ? flowChromeStyle(settings, 'header') : `${chromeBoxStyle(settings, 'header')}margin-bottom:8px`}">${headerHtml}</div>`
     : '';
   const footer = footerHtml
-    ? `<div class="formfeed-chrome" style="${chromeBoxStyle(settings, 'footer')}margin-top:8px">${pageNumberSpans(footerHtml, '1', '1')}</div>`
+    ? `<div class="formfeed-chrome" style="${pdf ? flowChromeStyle(settings, 'footer') : `${chromeBoxStyle(settings, 'footer')}margin-top:8px`}">${pageNumberSpans(footerHtml, '1', '1')}</div>`
     : '';
   return intoHead(draft.document, `${chrome}${inspectScript}${zoomGestureScript}`)
     .replace(/(<body[^>]*>)/, `$1${header}`)
