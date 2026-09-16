@@ -206,7 +206,10 @@ export interface ApitemplateListItem {
   group_name?: string | null;
 }
 
-/** `GET /v2/get-template` (experimental on their side): the HTML body, CSS and print settings. */
+/**
+ * `GET /v2/get-template` (experimental on their side): the HTML body, CSS, print settings and the
+ * editor's sample JSON (`sample_json`, not in their API reference but in the answer).
+ */
 export interface ApitemplateApiTemplate {
   status?: string | null;
   template_id?: string | null;
@@ -214,6 +217,8 @@ export interface ApitemplateApiTemplate {
   css?: string | null;
   /** A JSON string in their API; an object is accepted too. */
   settings?: string | Record<string, unknown> | null;
+  /** The JSON of their editor's JSON tab, as a string; an object is accepted too. */
+  sample_json?: string | Record<string, unknown> | null;
 }
 
 /**
@@ -225,9 +230,9 @@ export function isApitemplateHtmlTemplate(item: Pick<ApitemplateListItem, 'forma
 }
 
 /**
- * Converts a template read through apitemplate.io's API. Their API has no sample data, so the
- * draft starts without; a template without a body (an image template, or an editor the API does
- * not serve) becomes a result with an error and no HTML, which callers skip.
+ * Converts a template read through apitemplate.io's API, sample JSON included. A template without
+ * a body (an image template, or an editor the API does not serve) becomes a result with an error
+ * and no HTML, which callers skip.
  */
 export function importApitemplateFromApi(item: ApitemplateListItem, template: ApitemplateApiTemplate): ImportResult {
   let settings: Record<string, unknown> | null = null;
@@ -243,7 +248,14 @@ export function importApitemplateFromApi(item: ApitemplateListItem, template: Ap
 
   const name = (item.name ?? '').trim() || item.template_id;
   const html = typeof template.body === 'string' ? template.body : '';
-  const result = importApitemplate({ name, html, css: template.css ?? '', settings, format: item.format });
+  const result = importApitemplate({
+    name,
+    html,
+    css: template.css ?? '',
+    settings,
+    sample_data: template.sample_json ?? undefined,
+    format: item.format,
+  });
   if (settingsError)
     result.warnings.unshift({
       code: 'settings-json',

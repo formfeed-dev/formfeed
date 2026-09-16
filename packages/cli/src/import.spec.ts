@@ -38,7 +38,7 @@ function apitemplateApi() {
   const calls: Array<{ url: string; key: string | null }> = [];
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const templates: Record<string, Record<string, unknown>> = {
-    'aaa111': { status: 'success', template_id: 'aaa111', body: '<h1>{{ project.name }}</h1>', css: 'h1 { color: red }', settings: JSON.stringify({ paper_size: 'A4', margin_top: '20' }) },
+    'aaa111': { status: 'success', template_id: 'aaa111', body: '<h1>{{ project.name }}</h1>', css: 'h1 { color: red }', settings: JSON.stringify({ paper_size: 'A4', margin_top: '20' }), sample_json: '{"project": {"name": "Solar"}}' },
     'bbb222': { status: 'success', template_id: 'bbb222', body: '<p>{{ total }}</p>', css: '', settings: '' },
     'ccc333': { status: 'success', template_id: 'ccc333', body: '', css: '', settings: '' },
   };
@@ -128,8 +128,9 @@ describe('formfeed import', () => {
     ]);
     const tplDir = join(dir, 'templates', 'overview-mds');
     expect(readFileSync(join(tplDir, 'template.html'), 'utf8')).toBe('<h1>{{ project.name }}</h1>');
-    expect(JSON.parse(readFileSync(join(tplDir, 'settings.json'), 'utf8'))).toMatchObject({ paper: { format: 'A4' }, margin: { top: '20mm' } });
+    expect(JSON.parse(readFileSync(join(tplDir, 'settings.json'), 'utf8'))).toMatchObject({ paper: { format: 'A4' }, margin: { top: '20px' } });
     expect(JSON.parse(readFileSync(join(tplDir, 'template.json'), 'utf8'))).toMatchObject({ name: 'overview-MDS', engine: 'jinja2', tags: ['imported', 'apitemplate'] });
+    expect(JSON.parse(readFileSync(join(tplDir, 'data', 'default.json'), 'utf8'))).toEqual({ project: { name: 'Solar' } });
     expect(await run(['validate', 'overview-mds'], ctx), out.join('\n')).toBe(0);
   });
 

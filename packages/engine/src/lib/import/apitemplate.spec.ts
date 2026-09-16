@@ -28,7 +28,8 @@ describe('apitemplate.io importer', () => {
     expect(result.kind).toBe('pdf');
     expect(result.engine).toBe('jinja2');
     expect(result.settings.paper).toEqual({ format: 'A4', landscape: true });
-    expect(result.settings.margin).toEqual({ top: '10mm', bottom: '15mm' });
+    // bare numbers are pixels, as Chromium reads them; explicit units stay
+    expect(result.settings.margin).toEqual({ top: '10px', bottom: '15mm' });
     expect(result.settings.header?.html).toContain('<span class="pageNumber"></span>');
     expect(result.settings.printBackground).toBe(true);
     expect(result.sampleData).toEqual({ invoice: { number: '1', lines: [{ price: 1 }] } });
@@ -132,12 +133,20 @@ describe('apitemplate.io API import', () => {
       body: '<h1>{{ project.name }}</h1>',
       css: 'h1 { color: red }',
       settings: JSON.stringify({ paper_size: 'A4', orientation: '1', margin_top: '20', footer_template: '<span>{{ page_number }}</span>' }),
+      sample_json: '{"project": {"name": "Beispiel"}}',
     });
     expect(result).toMatchObject({ name: 'circuit-diagram', slug: 'circuit-diagram', kind: 'pdf', engine: 'jinja2', html: '<h1>{{ project.name }}</h1>', css: 'h1 { color: red }', errors: [] });
     expect(result.settings.paper?.format).toBe('A4');
-    expect(result.settings.margin?.top).toBe('20mm');
+    expect(result.settings.margin?.top).toBe('20px');
     expect(result.settings.footer?.html).toContain('pageNumber');
-    expect(result.sampleData).toEqual({});
+    // their editor's JSON becomes the default data set, and the template is checked against it
+    expect(result.sampleData).toEqual({ project: { name: 'Beispiel' } });
+    expect(result.warnings).toEqual([]);
+    const missing = importApitemplateFromApi(item, { body: '<p>{{ offer.name }}</p>', sample_json: '{"offer": {}}' });
+    expect(missing.warnings.map((w) => w.code)).toEqual(['unknown-variable']);
+    const none = importApitemplateFromApi(item, { body: '<p>{{ offer.name }}</p>', sample_json: '' });
+    expect(none.sampleData).toEqual({});
+    expect(none.changes.join(' ')).toContain('no sample data');
   });
 
   it("rebuilds the header and footer text slots of apitemplate.io's stored settings", () => {

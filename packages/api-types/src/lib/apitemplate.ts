@@ -41,6 +41,16 @@ export function toLength(value: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * apitemplate.io margins: their docs call bare numbers millimetres, but they reach Chromium as they
+ * are, and Chromium reads a number without a unit as CSS pixels (`"130"` is about 34mm).
+ */
+export function toMarginLength(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return `${value}px`;
+  if (typeof value === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(value)) return `${value.trim()}px`;
+  return toLength(value);
+}
+
 const truthy = (value: unknown): boolean =>
   value === true || value === 1 || value === '1' || value === 'true' || value === 'yes';
 
@@ -133,7 +143,7 @@ export function mapApitemplateSettings(input: ApitemplateSettings | null | undef
 
   const margin: Record<string, string> = {};
   for (const side of ['top', 'right', 'bottom', 'left'] as const) {
-    const value = toLength(take(`margin_${side}`, `margin${side[0]!.toUpperCase()}${side.slice(1)}`));
+    const value = toMarginLength(take(`margin_${side}`, `margin${side[0]!.toUpperCase()}${side.slice(1)}`));
     if (value) margin[side] = value;
   }
   if (Object.keys(margin).length) settings['margin'] = margin;
