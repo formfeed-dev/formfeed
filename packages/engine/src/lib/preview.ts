@@ -1,4 +1,4 @@
-import type { TemplateKind, TemplateSettings } from './assemble';
+import { DEFAULT_CHROME_PADDING, type TemplateKind, type TemplateSettings } from './assemble';
 
 /**
  * Preview documents shared by the web editor and `formfeed dev` (spec 06 §3, spec 15 §4): the
@@ -112,6 +112,20 @@ function intoHead(document: string, markup: string): string {
   return document.replace(/<head[^>]*>(?:\s*<meta\b[^>]*>)*/i, (head) => `${head}\n${markup}`);
 }
 
+/**
+ * Header and footer as Chromium prints them: across the whole page width, outside the page margins,
+ * with the template's padding (default `0 10mm`) inside. The preview's box sits within the margins,
+ * so it reaches out by them.
+ */
+function chromeBoxStyle(settings: RenderedDraft['settings'], which: 'header' | 'footer'): string {
+  const margin = settings.margin ?? {};
+  const left = margin.left ?? '0px';
+  const right = margin.right ?? '0px';
+  const padding = settings[which]?.padding ?? DEFAULT_CHROME_PADDING;
+  const height = settings[which]?.height;
+  return `box-sizing:border-box;margin-left:calc(-1 * ${left});margin-right:calc(-1 * ${right});width:calc(100% + ${left} + ${right});padding:${padding};${height ? `height:${height};` : ''}`;
+}
+
 export function flowDocument(draft: RenderedDraft): string {
   const { settings, kind, headerHtml, footerHtml } = draft;
   const margin = settings.margin ?? {};
@@ -125,10 +139,10 @@ body.formfeed-preview { box-sizing: border-box; width: ${paper.width}; min-heigh
 </style>`
       : `<style data-formfeed="preview">html { background: #e5e7eb; } body.formfeed-preview { margin: 24px auto; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }</style>`;
   const header = headerHtml
-    ? `<div class="formfeed-chrome" style="margin-bottom:8px">${headerHtml}</div>`
+    ? `<div class="formfeed-chrome" style="${chromeBoxStyle(settings, 'header')}margin-bottom:8px">${headerHtml}</div>`
     : '';
   const footer = footerHtml
-    ? `<div class="formfeed-chrome" style="margin-top:8px">${pageNumberSpans(footerHtml, '1', '1')}</div>`
+    ? `<div class="formfeed-chrome" style="${chromeBoxStyle(settings, 'footer')}margin-top:8px">${pageNumberSpans(footerHtml, '1', '1')}</div>`
     : '';
   return intoHead(draft.document, `${chrome}${inspectScript}`)
     .replace(/(<body[^>]*>)/, `$1${header}`)
@@ -145,12 +159,14 @@ export interface PagedOptions {
  * blank) and the page count is posted to the parent as `{ type: 'formfeed:pages', pages }`.
  */
 export function pagedDocument(draft: RenderedDraft, options: PagedOptions): string {
-  const { headerHtml, footerHtml } = draft;
+  const { headerHtml, footerHtml, settings } = draft;
   const runningCss = `
 @page { ${headerHtml ? '@top-center { content: element(ffHeader); }' : ''} ${footerHtml ? '@bottom-center { content: element(ffFooter); }' : ''} }
 .ff-running-header { position: running(ffHeader); }
 .ff-running-footer { position: running(ffFooter); }
-.ff-running-header, .ff-running-footer { color: #6b7280; font: 10px/1.3 system-ui, sans-serif; width: 100%; }
+.ff-running-header, .ff-running-footer { color: #6b7280; font: 10px/1.3 system-ui, sans-serif; }
+.ff-running-header { ${chromeBoxStyle(settings, 'header')} }
+.ff-running-footer { ${chromeBoxStyle(settings, 'footer')} }
 .ff-page-no::after { content: counter(page); }
 .ff-page-total::after { content: counter(pages); }
 html { background: #e5e7eb; }

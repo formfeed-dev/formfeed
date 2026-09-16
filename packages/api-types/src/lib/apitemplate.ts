@@ -108,6 +108,22 @@ function apitemplateChrome(
   };
 }
 
+/**
+ * Whether the header/footer markup clears Chromium's padding for its box (`#header, #footer {
+ * padding: 0 }`, the usual apitemplate.io reset); such designs run edge to edge.
+ */
+export function clearsChromePadding(html: string | undefined, kind: 'header' | 'footer'): boolean {
+  if (!html) return false;
+  for (const style of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi))
+    for (const rule of (style[1] ?? '').matchAll(/([^{}]+)\{([^}]*)\}/g))
+      if (
+        new RegExp(`#${kind}\\b`).test(rule[1] ?? '') &&
+        /(^|;)\s*padding\s*:\s*0(px|mm)?\s*(!important\s*)?(;|$)/i.test((rule[2] ?? '').trim())
+      )
+        return true;
+  return false;
+}
+
 export function mapApitemplateSettings(input: ApitemplateSettings | null | undefined): MappedSettings {
   const settings: Record<string, unknown> = {};
   const notes: string[] = [];
@@ -158,8 +174,13 @@ export function mapApitemplateSettings(input: ApitemplateSettings | null | undef
   if (storedHeader.fromSlots || storedFooter.fromSlots)
     notes.push('header and footer text (left, center, right) rebuilt as HTML; {{pageNumber}}, {{totalPages}} and {{date}} are kept');
   const displayHeaderFooter = take('displayHeaderFooter', 'display_header_footer', 'print_header_footer');
-  if (header && (displayHeaderFooter === undefined || truthy(displayHeaderFooter))) settings['header'] = { html: header };
-  if (footer && (displayHeaderFooter === undefined || truthy(displayHeaderFooter))) settings['footer'] = { html: footer };
+  const show = displayHeaderFooter === undefined || truthy(displayHeaderFooter);
+  // a reset in either box's styles applies to both, as it does in Chromium's shared template page
+  const edgeToEdge = (kind: 'header' | 'footer') => clearsChromePadding(header, kind) || clearsChromePadding(footer, kind);
+  if (header && show) settings['header'] = { html: header, ...(edgeToEdge('header') ? { padding: '0' } : {}) };
+  if (footer && show) settings['footer'] = { html: footer, ...(edgeToEdge('footer') ? { padding: '0' } : {}) };
+  if ((header && edgeToEdge('header')) || (footer && edgeToEdge('footer')))
+    notes.push('header or footer clears its padding, so it runs edge to edge (padding 0)');
 
   const printBackground = take('print_background', 'printBackground');
   if (printBackground !== undefined) settings['printBackground'] = truthy(printBackground);

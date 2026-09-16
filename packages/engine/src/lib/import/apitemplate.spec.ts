@@ -193,6 +193,27 @@ describe('apitemplate.io API import', () => {
     expect(off.settings.header).toBeUndefined();
   });
 
+  it('lets headers that clear their padding run edge to edge', () => {
+    // as stored by apitemplate.io: the header resets only #header, the footer both boxes
+    const result = importApitemplateFromApi(item, {
+      body: '<p>x</p>',
+      settings: {
+        custom_header: '<style>#header {\n    padding: 0 !important;\n}</style>\n<div style="width: 100%">logo</div>',
+        custom_footer: '<style>\n  #header, #footer {\n    padding: 0 !important;\n    font-family: Arial;\n  }\n</style><div>footer</div>',
+      },
+    });
+    expect(result.settings.header).toMatchObject({ padding: '0' });
+    expect(result.settings.footer).toMatchObject({ padding: '0' });
+    expect(result.changes.join(' ')).toContain('edge to edge');
+    // padding with a size, or none mentioned, keeps Formfeed's default
+    const padded = importApitemplateFromApi(item, {
+      body: '<p>x</p>',
+      settings: { custom_header: '<style>#header { padding: 0 20px; }</style><div>h</div>', custom_footer: '<div>f</div>' },
+    });
+    expect(padded.settings.header?.padding).toBeUndefined();
+    expect(padded.settings.footer?.padding).toBeUndefined();
+  });
+
   it('reports a missing body and unreadable settings instead of failing', () => {
     const empty = importApitemplateFromApi({ template_id: 'abc', name: '' }, { body: null, settings: '{broken' });
     expect(empty.name).toBe('abc');

@@ -5,6 +5,15 @@ import { escapeHtml } from './helpers';
 import type { EngineId, RenderContext } from './types';
 
 /** Template settings (spec 01 §3); every field optional, `defaultSettings()` fills the rest. */
+export interface HeaderFooterSettings {
+  html?: string;
+  height?: string;
+  padding?: string;
+}
+
+/** The side padding Formfeed gives header and footer unless the template sets its own. */
+export const DEFAULT_CHROME_PADDING = '0 10mm';
+
 export interface TemplateSettings {
   paper?: {
     format?: string;
@@ -14,8 +23,12 @@ export interface TemplateSettings {
     landscape?: boolean;
   };
   margin?: { top?: string; right?: string; bottom?: string; left?: string };
-  header?: { html?: string; height?: string } | null;
-  footer?: { html?: string; height?: string } | null;
+  /**
+   * Header and footer span the full page width, as Chromium prints them; `padding` is the space
+   * inside that box (CSS shorthand, default `0 10mm`, `0` for designs that run edge to edge).
+   */
+  header?: HeaderFooterSettings | null;
+  footer?: HeaderFooterSettings | null;
   printBackground?: boolean;
   scale?: number;
   preferCssPageSize?: boolean;

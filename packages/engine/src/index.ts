@@ -73,6 +73,7 @@ export { convertScss, isScss } from './lib/import/scss';
 export type { Snippet, SnippetGroup } from './lib/snippets';
 export type { JsonSchema, SchemaChange, SchemaChangeKind, SchemaDiff } from './lib/schema';
 export {
+  DEFAULT_CHROME_PADDING,
   assembleDocument,
   chartInitScript,
   defaultSettings,
@@ -96,6 +97,7 @@ export type {
   AssembleInput,
   AssembleVendor,
   FontFace,
+  HeaderFooterSettings,
   RenderedDocument,
   TemplateKind,
   TemplateSettings,
