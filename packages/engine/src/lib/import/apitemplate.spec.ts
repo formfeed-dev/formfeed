@@ -1,3 +1,4 @@
+import { scaleLikeApitemplate } from '@formfeed/api-types';
 import {
   importApitemplate,
   importApitemplateFromApi,
@@ -172,12 +173,15 @@ describe('apitemplate.io API import', () => {
     expect(result.warnings.filter((w) => w.code === 'setting-ignored')).toEqual([]);
     expect(result.settings.paper).toEqual({ format: 'A4', landscape: false });
     expect(result.settings.header?.html).toBe(
-      '<div style="display:flex;gap:4mm;font-size:11px"><span style="flex:1;text-align:left"><span class="date"></span></span>' +
-        '<span style="flex:1;text-align:center">Sample &lt;Invoice&gt;</span>' +
-        '<span style="flex:1;text-align:right"><span class="pageNumber"></span>/<span class="totalPages"></span></span></div>',
+      scaleLikeApitemplate(
+        '<div style="display:flex;gap:4mm;font-size:11px"><span style="flex:1;text-align:left"><span class="date"></span></span>' +
+          '<span style="flex:1;text-align:center">Sample &lt;Invoice&gt;</span>' +
+          '<span style="flex:1;text-align:right"><span class="pageNumber"></span>/<span class="totalPages"></span></span></div>',
+        'header',
+      ),
     );
     // a custom footer of styles only keeps its styles above the slots
-    expect(result.settings.footer?.html).toMatch(/^<style>#header, #footer \{ padding: 0 !important; \}<\/style><div style="display:flex;gap:4mm;font-size:11px">/);
+    expect(result.settings.footer?.html).toContain('<style>#header, #footer { padding: 0 !important; }</style><div style="display:flex;gap:4mm;font-size:11px">');
     expect(result.settings.footer?.html).toContain('<span style="flex:1;text-align:right"></span>');
     expect(result.changes.join(' ')).toContain('rebuilt as HTML');
 
@@ -186,7 +190,9 @@ describe('apitemplate.io API import', () => {
       body: '<p>x</p>',
       settings: { custom_header: '<table><tr><td>{{ pageNumber }}</td><td>{{ customer.name }}</td></tr></table>', header_left: 'ignored' },
     });
-    expect(custom.settings.header?.html).toBe('<table><tr><td><span class="pageNumber"></span></td><td>{{ customer.name }}</td></tr></table>');
+    expect(custom.settings.header?.html).toBe(
+      scaleLikeApitemplate('<table><tr><td><span class="pageNumber"></span></td><td>{{ customer.name }}</td></tr></table>', 'header'),
+    );
     expect(custom.warnings.filter((w) => w.code === 'setting-ignored')).toEqual([]);
     // header and footer stay off when the template turns them off
     const off = importApitemplateFromApi(item, { body: '<p>x</p>', settings: { displayHeaderFooter: false, header_left: 'x' } });
@@ -205,6 +211,12 @@ describe('apitemplate.io API import', () => {
     expect(result.settings.header).toMatchObject({ padding: '0' });
     expect(result.settings.footer).toMatchObject({ padding: '0' });
     expect(result.changes.join(' ')).toContain('edge to edge');
+    // apitemplate.io draws header and footer a third larger: the markup is wrapped to match, the
+    // footer growing from its bottom edge, and wrapping twice changes nothing
+    expect(result.settings.header?.html).toMatch(/^<div data-formfeed-apitemplate-scale style="width:75%;transform:scale\(1\.333333\);transform-origin:top left"><style>#header/);
+    expect(result.settings.footer?.html).toContain('transform-origin:bottom left');
+    expect(scaleLikeApitemplate(result.settings.footer!.html!, 'footer')).toBe(result.settings.footer!.html);
+    expect(result.changes.join(' ')).toContain('scaled by 4/3');
     // padding with a size, or none mentioned, keeps Formfeed's default
     const padded = importApitemplateFromApi(item, {
       body: '<p>x</p>',

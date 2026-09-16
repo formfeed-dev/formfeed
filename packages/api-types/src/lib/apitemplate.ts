@@ -124,6 +124,23 @@ export function clearsChromePadding(html: string | undefined, kind: 'header' | '
   return false;
 }
 
+/** Marks markup that is already wrapped, so mapping a mapped template again changes nothing. */
+const SCALE_MARKER = 'data-formfeed-apitemplate-scale';
+
+/**
+ * apitemplate.io draws header and footer templates as earlier Chromium versions did: laid out in 75 %
+ * of the page width and scaled up by 4/3. A length in px comes out a third larger than in the Chromium
+ * Formfeed renders with, while widths in percent stay the same (a logo at `width: 55%` in an 80px band
+ * overflowed the band here and fitted there). The imported markup is wrapped in a box that does the
+ * same, so it keeps apitemplate.io's proportions in the PDF and in both previews. The footer grows
+ * from its bottom edge, where Chromium places it.
+ */
+export function scaleLikeApitemplate(html: string, kind: 'header' | 'footer'): string {
+  if (html.includes(SCALE_MARKER)) return html;
+  const origin = kind === 'footer' ? 'bottom left' : 'top left';
+  return `<div ${SCALE_MARKER} style="width:75%;transform:scale(1.333333);transform-origin:${origin}">${html}</div>`;
+}
+
 export function mapApitemplateSettings(input: ApitemplateSettings | null | undefined): MappedSettings {
   const settings: Record<string, unknown> = {};
   const notes: string[] = [];
@@ -177,10 +194,12 @@ export function mapApitemplateSettings(input: ApitemplateSettings | null | undef
   const show = displayHeaderFooter === undefined || truthy(displayHeaderFooter);
   // a reset in either box's styles applies to both, as it does in Chromium's shared template page
   const edgeToEdge = (kind: 'header' | 'footer') => clearsChromePadding(header, kind) || clearsChromePadding(footer, kind);
-  if (header && show) settings['header'] = { html: header, ...(edgeToEdge('header') ? { padding: '0' } : {}) };
-  if (footer && show) settings['footer'] = { html: footer, ...(edgeToEdge('footer') ? { padding: '0' } : {}) };
+  if (header && show) settings['header'] = { html: scaleLikeApitemplate(header, 'header'), ...(edgeToEdge('header') ? { padding: '0' } : {}) };
+  if (footer && show) settings['footer'] = { html: scaleLikeApitemplate(footer, 'footer'), ...(edgeToEdge('footer') ? { padding: '0' } : {}) };
   if ((header && edgeToEdge('header')) || (footer && edgeToEdge('footer')))
     notes.push('header or footer clears its padding, so it runs edge to edge (padding 0)');
+  if ((header || footer) && show)
+    notes.push('header and footer wrapped in a box scaled by 4/3, the size apitemplate.io draws them in');
 
   const printBackground = take('print_background', 'printBackground');
   if (printBackground !== undefined) settings['printBackground'] = truthy(printBackground);
