@@ -46,6 +46,15 @@ function pptx(slide: string): Uint8Array {
   });
 }
 
+/** The first bytes of a PNG, enough for its size. */
+function png(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(33);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  new DataView(bytes.buffer).setUint32(16, width);
+  new DataView(bytes.buffer).setUint32(20, height);
+  return bytes;
+}
+
 const document = async (bytes: Uint8Array) => readText(readZip(bytes).get('word/document.xml')!);
 const data = { customer: { name: 'Olvarest GmbH' }, items: [{ name: 'Beratung' }, { name: 'Test & Abnahme' }] };
 
@@ -170,8 +179,11 @@ describe('starterDocument', () => {
       const starter = starterDocument(engine);
       const analysis = analyzeOffice(starter.bytes, { engine, sampleData: starter.sampleData });
       expect(analysis.diagnostics.filter((d) => d.severity !== 'info'), engine).toEqual([]);
-      const result = await renderOffice(starter.bytes, { engine, data: starter.sampleData, context });
+      const images = { fetch: async () => ({ bytes: new Uint8Array(), contentType: '' }), toPng: async () => png(192, 192) };
+      const result = await renderOffice(starter.bytes, { engine, data: starter.sampleData, context, images });
       const xml = await document(result.bytes);
+      expect(xml, engine).toContain('<wp:extent cx="914400" cy="914400"/>');
+      expect(result.warnings, engine).toEqual([]);
       expect(xml, engine).toContain('Offer A-2026-001');
       expect(xml, engine).toContain('>Implementation<');
       expect(xml, engine).toContain('Valid for 30 days.');

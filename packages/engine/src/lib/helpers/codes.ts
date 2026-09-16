@@ -90,8 +90,13 @@ export const codeHelpers: HelperDefinition[] = [
       example: '<img src="{{ qrcode(order.url, { size: 120 }) }}">',
       category: 'code',
     },
-    fn: (_ctx, value, options?) =>
-      svgDataUri(qrSvg(String(value ?? ''), (options ?? {}) as QrOptions)),
+    fn: (ctx, value, options?) => {
+      const o = (options ?? {}) as QrOptions;
+      const svg = qrSvg(String(value ?? ''), o);
+      // office templates get a picture of the code's size, not a data URI as text (spec 22 §4.4)
+      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size ?? 160, height: o.size ?? 160, alt: 'QR code' });
+      return svgDataUri(svg);
+    },
   },
   {
     name: 'barcode',
@@ -103,7 +108,7 @@ export const codeHelpers: HelperDefinition[] = [
       example: '<img src="{{ barcode(item.sku, { type: \'code128\' }) }}">',
       category: 'code',
     },
-    fn: (_ctx, value, options?) => {
+    fn: (ctx, value, options?) => {
       const o = (options ?? {}) as BarcodeOptions;
       const bcid =
         barcodeTypes[String(o.type ?? 'code128').toLowerCase()] ?? 'code128';
@@ -116,6 +121,7 @@ export const codeHelpers: HelperDefinition[] = [
         includetext: o.text !== false,
         textxalign: 'center',
       });
+      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, alt: `Barcode ${String(value ?? '')}` });
       return svgDataUri(svg);
     },
   },
@@ -135,7 +141,7 @@ export const codeHelpers: HelperDefinition[] = [
     // hash (`{{epcQr name=… iban=… size=200}}`), and Liquid, which cannot build an object literal,
     // keyword arguments (`{{ company.iban | epcQr: name: company.name, amount: invoice.total }}`,
     // where a string input is the IBAN). They are merged and split by field name.
-    fn: (_ctx, input, options?) => {
+    fn: (ctx, input, options?) => {
       const fields: Record<string, unknown> = {
         ...(input && typeof input === 'object'
           ? (input as Record<string, unknown>)
@@ -148,12 +154,10 @@ export const codeHelpers: HelperDefinition[] = [
       const qr: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(fields))
         (EPC_FIELDS.has(key) ? payment : qr)[key] = value;
-      return svgDataUri(
-        qrSvg(epcPayload(payment as Parameters<typeof epcPayload>[0]), {
-          ecc: 'M',
-          ...(qr as QrOptions),
-        }),
-      );
+      const o = { ecc: 'M', ...(qr as QrOptions) } as QrOptions;
+      const svg = qrSvg(epcPayload(payment as Parameters<typeof epcPayload>[0]), o);
+      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size ?? 160, height: o.size ?? 160, alt: 'GiroCode' });
+      return svgDataUri(svg);
     },
   },
 ];

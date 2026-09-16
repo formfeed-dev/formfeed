@@ -25,6 +25,7 @@ function tags(engine: EngineId) {
       ifOpen: '{{#if offer.note}}',
       note: '{{offer.note}}',
       ifClose: '{{/if}}',
+      code: '{{qrcode offer.url size=96}}',
     };
   // Jinja2 and Liquid read helpers as filters the same way
   const pipe = (value: string, helper: string) => `{{ ${value} | ${helper} }}`;
@@ -40,6 +41,7 @@ function tags(engine: EngineId) {
     ifOpen: '{% if offer.note %}',
     note: '{{ offer.note }}',
     ifClose: '{% endif %}',
+    code: engine === 'liquid' ? '{{ offer.url | qrcode: size: 96 }}' : '{{ qrcode(offer.url, { size: 96 }) }}',
   };
 }
 
@@ -68,6 +70,7 @@ export function starterDocument(engine: EngineId): { bytes: Uint8Array; sampleDa
     paragraph(t.ifOpen),
     paragraph(t.note),
     paragraph(t.ifClose),
+    paragraph(`Open the offer online: ${t.code}`),
     paragraph('Fennlor Studio GmbH · Musterstraße 1 · 12345 Musterstadt'),
     '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1134" w:left="1417" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>',
   ].join('');
@@ -97,6 +100,7 @@ export function starterDocument(engine: EngineId): { bytes: Uint8Array; sampleDa
       customer: { name: 'Olvarest GmbH' },
       offer: {
         number: 'A-2026-001',
+        url: 'https://example.test/offers/A-2026-001',
         date: '2026-09-16',
         lines: [
           { description: 'Consulting', total: 300 },

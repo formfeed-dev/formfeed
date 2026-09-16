@@ -28,6 +28,7 @@ export {
 export { STRUCTURAL_ELEMENT, applyStructure, blockRole, dropTaggedFallbacks, type StructuredPart } from './structure';
 export { makeIdsUnique } from './ids';
 export { starterDocument } from './starter';
+export { officeDrawingLimits, type OfficeImageHost } from './drawings';
 export { METRIC_COMPATIBLE, documentFonts, fontDiagnostics, type DocumentFont } from './fonts';
 export {
   findTags,

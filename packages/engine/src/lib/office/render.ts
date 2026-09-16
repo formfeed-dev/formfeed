@@ -1,7 +1,21 @@
 import { getEngine } from '../engines';
 import { EngineSyntaxError, RenderError } from '../errors';
+import { defaultHelpers, officeUnsupportedHelpers } from '../helpers';
 import type { EngineId, RenderContext, VariableRef } from '../types';
 import { detectOfficeFormat } from './detect';
+import {
+  DrawingCollector,
+  DrawingResolver,
+  highestDrawingId,
+  inlinePicture,
+  placeDrawings,
+  relationshipIds,
+  relsPathOf,
+  textWidthEmu,
+  withImageTypes,
+  withRelationships,
+  type OfficeImageHost,
+} from './drawings';
 import { OfficeError } from './errors';
 import { documentFonts, fontDiagnostics, type DocumentFont } from './fonts';
 import { makeIdsUnique } from './ids';
@@ -9,7 +23,7 @@ import { applyStructure, dropTaggedFallbacks } from './structure';
 import { listTags, normaliseTags, paragraphAtSource, type OfficeDiagnostic, type OfficeTag } from './tags';
 import { createNonce, fromTemplateOutput, placeholderPattern, toTemplateSource, type TemplateSource, type TextFlavour } from './template-text';
 import { assertWellFormed, tokenize } from './xml';
-import { readText, writeZip, type ZipWriteEntry } from './zip';
+import { readText, writeZip, type ZipArchive, type ZipWriteEntry } from './zip';
 
 /**
  * Fills an office template (spec 22 §4.3): the office counterpart of `renderVersion`, the same code in
@@ -23,6 +37,12 @@ export interface OfficeRenderOptions {
   context: RenderContext;
   /** For tests: the source of the placeholder nonce. */
   random?: () => number;
+  /**
+   * Loads and draws pictures for `image`, `qrcode`, `barcode` and `epcQr` (spec 22 §4.4): the
+   * render-worker's asset cache and Chromium, or the browser's fetch and canvas. Without one, only
+   * PNG and JPEG data URLs are placed and everything else becomes a warning.
+   */
+  images?: OfficeImageHost;
 }
 
 export interface OfficeRenderResult {
@@ -117,6 +137,7 @@ export function analyzeOffice(
 ): OfficeAnalysis {
   const { format, archive } = openTemplate(file);
   const engine = getEngine(options.engine);
+  const registry = defaultHelpers();
   const tags: OfficeTag[] = [];
   const diagnostics: OfficeAnalysisDiagnostic[] = [];
   const variables = new Map<string, Pick<VariableRef, 'path' | 'kind'>>();
@@ -142,6 +163,18 @@ export function analyzeOffice(
         text: part.template.source.slice(offset, Math.max(offset, end)).replace(placeholderPattern(part.template.nonce), '').slice(0, 60),
       });
     }
+    for (const f of analysis.filters) {
+      const name = registry.get(f.name)?.name ?? f.name;
+      if (!officeUnsupportedHelpers.has(name)) continue;
+      diagnostics.push({
+        severity: 'error',
+        code: 'unsupported-in-office',
+        message: `${name}() is not supported in office templates; it returns HTML.`,
+        part: entry.name,
+        paragraph: paragraphAtSource(part.template, (lineStarts[f.range.start.line - 1] ?? 0) + f.range.start.column - 1),
+        text: f.name,
+      });
+    }
     for (const v of analysis.variables) {
       const key = `${v.kind}:${v.path.join('.')}`;
       if (!variables.has(key)) variables.set(key, { path: v.path, kind: v.kind });
@@ -156,13 +189,21 @@ export async function renderOffice(file: Uint8Array, options: OfficeRenderOption
   const { format, archive } = openTemplate(file);
 
   const engine = getEngine(options.engine);
-  const context: RenderContext = { ...options.context, mode: 'office' };
+  const drawings = new DrawingCollector(createNonce(options.random));
+  const context: RenderContext = { ...options.context, mode: 'office', drawing: drawings.register };
+  // a filled document used as a template again already holds `formfeed` pictures
+  const prefix = archive.entries.some((e) => e.name.startsWith('word/media/formfeed'))
+    ? `word/media/formfeed-${drawings.nonce}-`
+    : 'word/media/formfeed';
+  const resolver = new DrawingResolver(drawings.requests, options.images, prefix);
   const diagnostics: OfficeDiagnostic[] = [];
   const warnings: string[] = [];
   const rewritten = new Map<string, Uint8Array>();
   const encoder = new TextEncoder();
   let filledBytes = 0;
   let removedCharacters = 0;
+  /** Image relationships to add, per part. */
+  const relationships = new Map<string, Array<{ id: string; target: string }>>();
 
   for (const entry of archive.entries) {
     if (!PARTS[format].test(entry.name)) continue;
@@ -179,13 +220,34 @@ export async function renderOffice(file: Uint8Array, options: OfficeRenderOption
     try {
       output = await engine.render(engine.compile(normal.template.source, { name: entry.name }), options.data, context);
     } catch (e) {
+      if (drawings.exceeded) throw drawings.exceeded;
       // the engine's line and column point into the extracted text, not the document: name the part
+      if (e instanceof RenderError && e.message.includes('is not supported in office templates'))
+        throw new OfficeTemplateError(`${entry.name}: ${e.message}`, [
+          { severity: 'error', code: 'unsupported-in-office', message: e.message, part: entry.name, paragraph: 1, text: '' },
+        ], entry.name, e);
       if (e instanceof EngineSyntaxError || e instanceof RenderError)
         throw new OfficeTemplateError(`${entry.name}: ${e.message}`, [], entry.name, e);
       throw e;
     }
     const filled = fromTemplateOutput(output, normal.template, entry.name);
-    const unique = makeIdsUnique(filled.xml);
+    const used = drawings.usedIn(filled.xml);
+    let placed = filled.xml;
+    if (used.length) {
+      if (format === 'pptx')
+        throw new OfficeTemplateError(`${entry.name}: images, codes and page breaks are not supported in PowerPoint templates yet`, [
+          {
+            severity: 'error',
+            code: 'unsupported-in-office',
+            message: 'Images, codes and page breaks are not supported in PowerPoint templates yet.',
+            part: entry.name,
+            paragraph: 1,
+            text: '',
+          },
+        ], entry.name);
+      placed = await placePictures(filled.xml, entry.name, used, drawings, resolver, archive, relationships);
+    }
+    const unique = makeIdsUnique(placed);
     try {
       assertWellFormed(tokenize(unique, entry.name), entry.name);
     } catch (e) {
@@ -203,9 +265,66 @@ export async function renderOffice(file: Uint8Array, options: OfficeRenderOption
   }
 
   if (removedCharacters) warnings.push(`Removed ${removedCharacters} character(s) from the data that documents cannot contain`);
+  warnings.push(...resolver.warnings);
+  if (resolver.media.length) {
+    for (const [part, added] of relationships) {
+      const path = relsPathOf(part);
+      const existing = archive.get(path);
+      rewritten.set(path, encoder.encode(withRelationships(existing ? readText(existing) : null, added)));
+    }
+    const types = archive.get('[Content_Types].xml')!;
+    rewritten.set('[Content_Types].xml', encoder.encode(withImageTypes(readText(types), new Set(resolver.media.map((m) => m.extension)))));
+  }
+  const names = new Set(archive.entries.map((e) => e.name));
   const entries: ZipWriteEntry[] = archive.entries.map((e) => {
     const data = rewritten.get(e.name);
     return data ? { name: e.name, data } : e;
   });
+  // new parts: relationships of parts that had none, and the pictures (stored, they are compressed already)
+  for (const [name, data] of rewritten) if (!names.has(name)) entries.push({ name, data });
+  for (const media of resolver.media) entries.push({ name: media.name, data: media.bytes, store: true });
   return { bytes: rewritten.size ? writeZip(entries) : file, format, warnings, diagnostics };
+}
+
+/**
+ * Resolves the drawings a Word part uses and puts them in place: a relationship per picture (shared
+ * by every use of that picture in the part) and ids after the part's highest.
+ */
+async function placePictures(
+  xml: string,
+  part: string,
+  used: readonly number[],
+  drawings: DrawingCollector,
+  resolver: DrawingResolver,
+  archive: ZipArchive,
+  relationships: Map<string, Array<{ id: string; target: string }>>,
+): Promise<string> {
+  const width = textWidthEmu(xml);
+  const resolved = new Map(await Promise.all([...new Set(used)].map(async (i) => [i, await resolver.resolve(i, width)] as const)));
+  const existing = archive.get(relsPathOf(part));
+  const taken = relationshipIds(existing ? readText(existing) : null);
+  const added = relationships.get(part) ?? [];
+  relationships.set(part, added);
+  const byMedia = new Map(added.map((r) => [r.target, r.id]));
+  let nextId = highestDrawingId(xml);
+  const relFor = (media: string): string => {
+    // targets are relative to the part's folder: `word/media/x.png` from `word/document.xml`
+    const target = media.slice(part.lastIndexOf('/') + 1);
+    let id = byMedia.get(target);
+    if (!id) {
+      let n = added.length + 1;
+      while (taken.has(`rIdFormfeed${n}`)) n++;
+      id = `rIdFormfeed${n}`;
+      taken.add(id);
+      added.push({ id, target });
+      byMedia.set(target, id);
+    }
+    return id;
+  };
+  return placeDrawings(xml, drawings.pattern(), (index) => {
+    const drawing = resolved.get(index);
+    if (!drawing || drawing.kind === 'nothing') return '';
+    if (drawing.kind === 'page-break') return '<w:br w:type="page"/>';
+    return inlinePicture(drawing, relFor(drawing.media), ++nextId);
+  });
 }

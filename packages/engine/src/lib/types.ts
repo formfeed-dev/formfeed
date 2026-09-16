@@ -101,6 +101,8 @@ export interface RenderContext {
    * text is escaped as a whole when the markup is restored (`office/template-text.ts`). HTML by default.
    */
   mode?: 'html' | 'office';
+  /** Office mode, set by `renderOffice`: see `HelperContext.drawing`. */
+  drawing?: (request: OfficeDrawingRequest) => string;
 }
 
 export interface CompileOptions {
@@ -159,7 +161,20 @@ export interface HelperContext {
   currency: string;
   i18n?: Record<string, Record<string, string>>;
   assetBaseUrl?: string;
+  /** `office` while an office template is filled (spec 22 §4.4); helpers that emit markup behave differently. */
+  mode?: 'html' | 'office';
+  /**
+   * Office mode: registers a drawing (a code, an image or a page break) and returns the placeholder
+   * the post pass turns into it. Set by `renderOffice`.
+   */
+  drawing?: (request: OfficeDrawingRequest) => string;
 }
+
+/** What a helper asks the office post pass to place where its placeholder stands. */
+export type OfficeDrawingRequest =
+  | { kind: 'svg'; svg: string; width?: number | string; height?: number | string; alt?: string }
+  | { kind: 'url'; url: string; width?: number | string; height?: number | string; alt?: string }
+  | { kind: 'page-break' };
 
 export interface HelperRegistry {
   /** Registered helpers keyed by canonical name. */

@@ -1,5 +1,6 @@
 import type { HelperDefinition } from '../types';
 import { escapeHtml, toNumber } from './format';
+import { officeUnsupported } from './office';
 
 /**
  * Document helpers that emit markup the assembler completes (spec 05 §2): `chart` places a canvas
@@ -134,6 +135,12 @@ export function imageMarkup(url: string, options: ImageOptions = {}): string {
   return `<img src="${escapeHtml(url)}" alt="${escapeHtml(options.alt ?? '')}"${cls}${style}>`;
 }
 
+/** A relative `image()` path resolves against the workspace's file library, as `asset()` does. */
+function resolveAsset(base: string | undefined, url: string): string {
+  if (!base || /^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
+  return `${base.replace(/\/$/, '')}/${url.replace(/^\//, '')}`;
+}
+
 export const documentHelpers: HelperDefinition[] = [
   {
     name: 'chart',
@@ -147,8 +154,10 @@ export const documentHelpers: HelperDefinition[] = [
         "{{ chart({ type: 'line', labels: ['Q1', 'Q2', 'Q3'], values: sales.quarters, width: 480 }) }}",
       category: 'document',
     },
-    fn: (_ctx, spec, extra?) =>
-      chartMarkup({ ...asObject(spec), ...asObject(extra) } as ChartSpec),
+    fn: (ctx, spec, extra?) => {
+      if (ctx.mode === 'office') throw new Error(officeUnsupported('chart'));
+      return chartMarkup({ ...asObject(spec), ...asObject(extra) } as ChartSpec);
+    },
   },
   {
     name: 'image',
@@ -160,7 +169,11 @@ export const documentHelpers: HelperDefinition[] = [
       example: "{{ image(product.photo, { width: 120, height: 80, fit: 'cover' }) }}",
       category: 'document',
     },
-    fn: (_ctx, url, options?) =>
-      imageMarkup(String(url ?? ''), asObject(options) as ImageOptions),
+    fn: (ctx, url, options?) => {
+      const o = asObject(options) as ImageOptions;
+      if (ctx.drawing)
+        return ctx.drawing({ kind: 'url', url: resolveAsset(ctx.assetBaseUrl, String(url ?? '')), width: o.width, height: o.height, alt: o.alt });
+      return imageMarkup(String(url ?? ''), o);
+    },
   },
 ];

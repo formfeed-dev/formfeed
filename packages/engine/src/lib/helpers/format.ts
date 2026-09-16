@@ -10,6 +10,7 @@ import { toCardinal as frWords } from 'n2words/fr';
 import { toCardinal as itWords } from 'n2words/it';
 import { toCardinal as nlWords } from 'n2words/nl';
 import type { HelperContext, HelperDefinition } from '../types';
+import { officeUnsupported } from './office';
 
 const dateLocales: Record<string, DateFnsLocale> = {
   de,
@@ -331,7 +332,8 @@ export const formatHelpers: HelperDefinition[] = [
       example: '{{ address | nl2br }}',
       category: 'text',
     },
-    fn: (_ctx, value) => escapeHtml(str(value)).replace(/\r?\n/g, '<br>\n'),
+    // office templates turn line breaks into breaks themselves, and escape the text once
+    fn: (ctx, value) => (ctx.mode === 'office' ? str(value) : escapeHtml(str(value)).replace(/\r?\n/g, '<br>\n')),
   },
   {
     name: 'markdown',
@@ -343,12 +345,14 @@ export const formatHelpers: HelperDefinition[] = [
       example: '{{ notes | markdown }}',
       category: 'text',
     },
-    fn: (_ctx, value) =>
-      marked.parse(str(value), {
+    fn: (ctx, value) => {
+      if (ctx.mode === 'office') throw new Error(officeUnsupported('markdown'));
+      return marked.parse(str(value), {
         async: false,
         gfm: true,
         breaks: false,
-      }) as string,
+      }) as string;
+    },
   },
   {
     name: 'safe',
@@ -435,6 +439,7 @@ export const formatHelpers: HelperDefinition[] = [
       example: '{{ pageBreak() }}',
       category: 'document',
     },
-    fn: () => '<div class="page-break" style="break-after:page"></div>',
+    fn: (ctx) =>
+      ctx.drawing ? ctx.drawing({ kind: 'page-break' }) : '<div class="page-break" style="break-after:page"></div>',
   },
 ];

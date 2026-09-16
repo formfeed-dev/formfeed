@@ -10,6 +10,7 @@ export { DefaultHelperRegistry } from './registry';
 export { escapeHtml, toDate, toNumber } from './format';
 export { epcPayload, qrSvg } from './codes';
 export { chartMarkup, chartPayload, imageMarkup } from './document';
+export { officeUnsupported, officeUnsupportedHelpers } from './office';
 export type { ChartSpec, ImageOptions } from './document';
 
 /** Helpers shipped with the product (spec 05 §2), identical in all three engines. */
