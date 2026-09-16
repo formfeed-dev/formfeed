@@ -1,4 +1,5 @@
 import { getEngine } from '../engines';
+import { EngineSyntaxError, RenderError } from '../errors';
 import type { EngineId, RenderContext } from '../types';
 import { detectOfficeFormat } from './detect';
 import { OfficeError } from './errors';
@@ -31,15 +32,24 @@ export interface OfficeRenderResult {
   diagnostics: OfficeDiagnostic[];
 }
 
-/** A template that cannot be filled as written; the diagnostics say where. */
+/**
+ * A template that cannot be filled as written; the diagnostics say where. An engine's syntax or
+ * runtime error travels as `cause`, so callers can tell the two apart.
+ */
 export class OfficeTemplateError extends Error {
   constructor(
     message: string,
     readonly diagnostics: OfficeDiagnostic[],
     readonly part?: string,
+    override readonly cause?: EngineSyntaxError | RenderError,
   ) {
     super(message);
     this.name = 'OfficeTemplateError';
+  }
+
+  /** `template_syntax_error` or `template_runtime_error`, as the API reports it. */
+  get code(): 'template_syntax_error' | 'template_runtime_error' {
+    return this.cause instanceof RenderError ? 'template_runtime_error' : 'template_syntax_error';
   }
 }
 
@@ -91,8 +101,15 @@ export async function renderOffice(file: Uint8Array, options: OfficeRenderOption
     const errors = partDiagnostics.filter((d) => d.severity === 'error');
     if (errors.length) throw new OfficeTemplateError(`${entry.name}: ${errors[0]!.message}`, errors, entry.name);
 
-    const compiled = engine.compile(normal.template.source, { name: entry.name });
-    const output = await engine.render(compiled, options.data, context);
+    let output: string;
+    try {
+      output = await engine.render(engine.compile(normal.template.source, { name: entry.name }), options.data, context);
+    } catch (e) {
+      // the engine's line and column point into the extracted text, not the document: name the part
+      if (e instanceof EngineSyntaxError || e instanceof RenderError)
+        throw new OfficeTemplateError(`${entry.name}: ${e.message}`, [], entry.name, e);
+      throw e;
+    }
     const filled = fromTemplateOutput(output, normal.template, entry.name);
     const unique = makeIdsUnique(filled.xml);
     try {

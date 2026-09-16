@@ -46,6 +46,8 @@ export interface TemplateSettings {
     transparent?: boolean;
     clipSelector?: string | null;
   };
+  /** Office templates (spec 22 §4.1): the output when a request names none. */
+  office?: { output?: 'docx' | 'pptx' | 'pdf' };
   locale?: string;
   timezone?: string;
   currency?: string;

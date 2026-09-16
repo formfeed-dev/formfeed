@@ -90,6 +90,13 @@ describe('renderOffice', () => {
     });
   });
 
+  it('names the part of an engine error and tells syntax from runtime errors', async () => {
+    const syntax = renderOffice(docx(p('{{ customer.name | }}')), { engine: 'jinja2', data, context });
+    await expect(syntax).rejects.toMatchObject({ name: 'OfficeTemplateError', part: 'word/document.xml', code: 'template_syntax_error' });
+    const runtime = renderOffice(docx(p('{{ nothing() }}')), { engine: 'jinja2', data, context });
+    await expect(runtime).rejects.toMatchObject({ part: 'word/document.xml', code: 'template_runtime_error' });
+  });
+
   it('refuses what is not a Word or PowerPoint file', async () => {
     const odt = zipSync({ mimetype: [strToU8('application/vnd.oasis.opendocument.text'), { level: 0 }] });
     await expect(renderOffice(odt, { engine: 'jinja2', data, context })).rejects.toMatchObject({ code: 'file_type_unsupported' });
