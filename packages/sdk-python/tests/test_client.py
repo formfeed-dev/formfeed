@@ -504,3 +504,86 @@ def test_async_render_input_resend_and_listen_mirror_the_sync_client():
     assert got.render_id == "rnd_1" and resent.endpoint_id == "s1" and session.id == "s1"
     assert json.loads(rec.calls[2].content) == {"live": True}
     assert [c.method for c in rec.calls] == ["GET", "POST", "POST", "DELETE"]
+
+
+TEMPLATE = {"id": "tpl_1", "slug": "offer", "name": "Offer", "kind": "docx", "engine": "jinja2", "tags": [], "latest_version": 1}
+DOCX = b"PK\x03\x04docx"
+
+
+def _form_fields(req: httpx.Request) -> bytes:
+    assert req.headers["content-type"].startswith("multipart/form-data; boundary=")
+    return req.content
+
+
+def test_office_templates_are_created_and_versioned_as_multipart():
+    version = {"id": "v2", "number": 2, "status": "draft", "checksum": "c", "source_file": {"sha256": "ab", "bytes": 8, "format": "docx"}}
+    client, rec = sync_client(lambda req, n: _json(TEMPLATE if req.url.path == "/v1/templates" else version, 201))
+    created = client.templates.create(
+        name="Offer", slug="offer", kind="docx", engine="jinja2", tags=["sales"], sample_data={"a": 1}, publish=True, file=DOCX, file_name="offer.docx"
+    )
+    assert created.kind == "docx"
+    body = _form_fields(rec.calls[0])
+    assert b'name="kind"\r\n\r\ndocx' in body
+    assert b'name="tags"\r\n\r\n["sales"]' in body
+    assert b'name="sample_data"\r\n\r\n{"a":1}' in body
+    assert b'name="publish"\r\n\r\ntrue' in body
+    assert b'filename="offer.docx"' in body and DOCX in body
+
+    saved = client.templates.create_version("offer", file=DOCX, change_note="New layout")
+    assert saved.source_file is not None and saved.source_file.format == "docx"
+    assert b'filename="document"' in _form_fields(rec.calls[1])
+
+    client.templates.create_version("offer", sample_data={"a": 2})
+    assert rec.calls[2].headers["content-type"] == "application/json"
+    assert json.loads(rec.calls[2].content) == {"sample_data": {"a": 2}}
+
+
+def test_office_template_file_downloads_as_bytes():
+    def respond(req, n):
+        if "/versions/9/" in req.url.path:
+            return _json({"type": "about:blank", "title": "Not found", "status": 404, "code": "not_found"}, 404)
+        return httpx.Response(200, content=DOCX, headers={"content-type": "application/octet-stream"})
+
+    client, rec = sync_client(respond, max_retries=0)
+    assert client.templates.version_file("offer", "latest") == DOCX
+    assert str(rec.calls[0].url) == "https://api-eu.formfeed.dev/v1/templates/offer/versions/latest/file"
+    assert rec.calls[0].headers["accept"] == "*/*"
+    with pytest.raises(FormfeedError) as err:
+        client.templates.version_file("offer", 9)
+    assert err.value.code == "not_found"
+
+
+def test_pdf_convert_uploads_a_file_or_names_a_render():
+    client, rec = sync_client(lambda req, n: _json({**RENDER, "id": "rnd_pdf"}))
+    converted = client.pdf.convert(file=b"\x01\x02", file_name="sheet.xlsx", landscape=True, single_page_sheets=False, expires_in=3600, meta={"order": 7})
+    assert converted.id == "rnd_pdf"
+    req = rec.calls[0]
+    assert str(req.url) == "https://api-eu.formfeed.dev/v1/pdf/convert"
+    assert req.headers["idempotency-key"]
+    body = _form_fields(req)
+    assert b'name="landscape"\r\n\r\ntrue' in body and b'name="single_page_sheets"\r\n\r\nfalse' in body
+    assert b'name="expires_in"\r\n\r\n3600' in body and b'name="meta"\r\n\r\n{"order":7}' in body
+    assert b'filename="sheet.xlsx"' in body
+
+    client.pdf.convert("rnd_docx", page_ranges="1-2")
+    assert json.loads(rec.calls[1].content) == {"page_ranges": "1-2", "source": "rnd_docx"}
+    with pytest.raises(FormfeedError):
+        client.pdf.convert()
+    with pytest.raises(FormfeedError):
+        client.pdf.convert("rnd_docx", file=DOCX)
+
+
+def test_async_office_calls_mirror_the_sync_client():
+    rec = Recorder(lambda req, n: httpx.Response(200, content=DOCX) if req.url.path.endswith("/file") else _json({**RENDER, **TEMPLATE}))
+
+    async def run():
+        async with AsyncFormfeed("ff_test_k", transport=httpx.MockTransport(rec.handler)) as client:
+            await client.templates.create(name="Offer", slug="offer", kind="pptx", engine="liquid", file=DOCX)
+            data = await client.templates.version_file("offer")
+            await client.pdf.convert(file=DOCX)
+            return data
+
+    assert asyncio.run(run()) == DOCX
+    assert rec.calls[0].headers["content-type"].startswith("multipart/form-data")
+    assert str(rec.calls[1].url).endswith("/templates/offer/versions/published/file")
+    assert rec.calls[2].headers["idempotency-key"]

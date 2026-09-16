@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import random
 import time
 import uuid
@@ -96,8 +98,8 @@ class _Base(Generic[T]):
         self.timeout = timeout
         self._transport = transport
 
-    def _headers(self, body: Any, idempotency_key: str | None) -> dict[str, str]:
-        headers = {"authorization": f"Bearer {self.api_key}", "accept": "application/json", "user-agent": USER_AGENT}
+    def _headers(self, body: Any, idempotency_key: str | None, raw: bool = False) -> dict[str, str]:
+        headers = {"authorization": f"Bearer {self.api_key}", "accept": "*/*" if raw else "application/json", "user-agent": USER_AGENT}
         if body is not None:
             headers["content-type"] = "application/json"
         if idempotency_key:
@@ -152,11 +154,22 @@ class Formfeed(_Base[Any]):
         return self._send(method, path, body, idempotency_key=idempotency_key, files=files, form=form)[1]
 
     def _send(
-        self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None, files: Any = None, form: dict[str, str] | None = None
+        self,
+        method: str,
+        path: str,
+        body: Any = None,
+        *,
+        idempotency_key: str | None = None,
+        files: Any = None,
+        form: dict[str, str] | None = None,
+        raw: bool = False,
     ) -> tuple[int, Any]:
-        """``request`` with the HTTP status, for endpoints whose answer depends on it (201 created, 200 updated)."""
+        """``request`` with the HTTP status, for endpoints whose answer depends on it (201 created, 200 updated).
+
+        ``raw`` returns a successful body as bytes (file downloads); problems are JSON either way.
+        """
         url = f"{self.base_url}{path}"
-        headers = self._headers(body, idempotency_key)
+        headers = self._headers(body, idempotency_key, raw)
         attempt = 0
         while True:
             try:
@@ -176,7 +189,7 @@ class Formfeed(_Base[Any]):
                 continue
             if res.is_error:
                 raise _problem_error(res)
-            return res.status_code, self._decode(res)
+            return res.status_code, res.content if raw else self._decode(res)
 
     def download_url(self, url: str) -> bytes:
         res = self._http.get(url)
@@ -217,10 +230,18 @@ class AsyncFormfeed(_Base[Any]):
         return (await self._send(method, path, body, idempotency_key=idempotency_key, files=files, form=form))[1]
 
     async def _send(
-        self, method: str, path: str, body: Any = None, *, idempotency_key: str | None = None, files: Any = None, form: dict[str, str] | None = None
+        self,
+        method: str,
+        path: str,
+        body: Any = None,
+        *,
+        idempotency_key: str | None = None,
+        files: Any = None,
+        form: dict[str, str] | None = None,
+        raw: bool = False,
     ) -> tuple[int, Any]:
         url = f"{self.base_url}{path}"
-        headers = self._headers(body, idempotency_key)
+        headers = self._headers(body, idempotency_key, raw)
         attempt = 0
         while True:
             try:
@@ -240,7 +261,7 @@ class AsyncFormfeed(_Base[Any]):
                 continue
             if res.is_error:
                 raise _problem_error(res)
-            return res.status_code, self._decode(res)
+            return res.status_code, res.content if raw else self._decode(res)
 
     async def download_url(self, url: str) -> bytes:
         res = await self._http.get(url)
@@ -280,6 +301,34 @@ def _upload_parts(data: bytes | Any, name: str, content_type: str | None) -> tup
     """The multipart parts of an upload: the bytes (or a binary file object) under ``file``, the name beside them."""
     part = (name.rsplit("/", 1)[-1], data, content_type) if content_type else (name.rsplit("/", 1)[-1], data)
     return {"file": part}, {"name": name}
+
+
+def _form_value(value: Any) -> str:
+    """A form field the way the API reads it: text as is, booleans lowercase, objects and lists as JSON text."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, separators=(",", ":"))
+    return str(value)
+
+
+def _office_parts(file: bytes | Any, file_name: str | None, fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    """A Word, PowerPoint or other office file under ``file`` (bytes or a binary file object), the other fields
+    beside it; the API reads the type from the content, the name only labels the part."""
+    own = getattr(file, "name", None)
+    name = file_name or (os.path.basename(own) if isinstance(own, str) else None) or "document"
+    form = {key: _form_value(value) for key, value in fields.items() if value is not None}
+    return {"file": (name, file)}, form
+
+
+def _split_file(fields: dict[str, Any]) -> tuple[Any, str | None, dict[str, Any]]:
+    """Takes ``file`` and ``file_name`` out of keyword arguments."""
+    rest = dict(fields)
+    file = rest.pop("file", None)
+    file_name = rest.pop("file_name", None)
+    return file, file_name, rest
 
 
 def _files_query(prefix: str | None, limit: int | None, cursor: str | None) -> str:
@@ -499,7 +548,13 @@ class _Templates:
         return Template.model_validate(self._c.request("GET", f"/templates/{id_or_slug}"))
 
     def create(self, **template: Any) -> Template:
-        return Template.model_validate(self._c.request("POST", "/templates", template))
+        """Creates a template. A Word or PowerPoint template (``kind`` ``docx`` or ``pptx``) takes its document as
+        ``file`` (bytes or a binary file object, up to 20 MB) and optionally ``file_name``; it is sent as multipart."""
+        file, file_name, fields = _split_file(template)
+        if file is not None:
+            files, form = _office_parts(file, file_name, fields)
+            return Template.model_validate(self._c.request("POST", "/templates", files=files, form=form))
+        return Template.model_validate(self._c.request("POST", "/templates", fields))
 
     def update(self, id_or_slug: str, **patch: Any) -> Template:
         return Template.model_validate(self._c.request("PUT", f"/templates/{id_or_slug}", patch))
@@ -515,7 +570,18 @@ class _Templates:
         return [TemplateVersion.model_validate(v) for v in self._c.request("GET", f"/templates/{id_or_slug}/versions")["data"]]
 
     def create_version(self, id_or_slug: str, **version: Any) -> TemplateVersion:
-        return TemplateVersion.model_validate(self._c.request("POST", f"/templates/{id_or_slug}/versions", version))
+        """Creates a draft version. For a Word or PowerPoint template, ``file`` replaces the document; without it
+        the latest version's file is kept and only data, schema or settings change."""
+        file, file_name, fields = _split_file(version)
+        path = f"/templates/{id_or_slug}/versions"
+        if file is not None:
+            files, form = _office_parts(file, file_name, fields)
+            return TemplateVersion.model_validate(self._c.request("POST", path, files=files, form=form))
+        return TemplateVersion.model_validate(self._c.request("POST", path, fields))
+
+    def version_file(self, id_or_slug: str, which: str | int = "published") -> bytes:
+        """The Word or PowerPoint file of a version (``which`` as for ``version``); needs ``template:read``."""
+        return self._c._send("GET", f"/templates/{id_or_slug}/versions/{which}/file", raw=True)[1]
 
     def publish(self, id_or_slug: str, number: int, *, allow_breaking: bool = False) -> TemplateVersion:
         """Publishes a version; a data schema that breaks callers of the published one raises ``schema_breaking_change`` unless ``allow_breaking``."""
@@ -583,6 +649,27 @@ class _Pdf:
 
     def info(self, source: Render | str) -> PdfInfo:
         return PdfInfo.model_validate(self._c.request("POST", "/pdf/info", {"source": _source_id(source)}))
+
+    def convert(
+        self,
+        source: Render | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        """Converts an office document to a PDF render (Starter plan and above): an uploaded ``file`` (Word, Excel,
+        PowerPoint, OpenDocument, RTF or HTML, up to 20 MB, not kept), or ``source``, the render of a Word or
+        PowerPoint template. ``page_ranges``, ``landscape``, ``single_page_sheets`` and the output options."""
+        key = idempotency_key or str(uuid.uuid4())
+        if (source is None) == (file is None):
+            raise FormfeedError("invalid_request", "pass either source or file")
+        if file is not None:
+            files, form = _office_parts(file, file_name, options)
+            return Render.model_validate(self._c.request("POST", "/pdf/convert", files=files, form=form, idempotency_key=key))
+        body = {**_options(options), "source": _source_id(source)}  # type: ignore[arg-type]
+        return Render.model_validate(self._c.request("POST", "/pdf/convert", body, idempotency_key=key))
 
 
 class _Files:
@@ -852,7 +939,11 @@ class _AsyncTemplates:
         return Template.model_validate(await self._c.request("GET", f"/templates/{id_or_slug}"))
 
     async def create(self, **template: Any) -> Template:
-        return Template.model_validate(await self._c.request("POST", "/templates", template))
+        file, file_name, fields = _split_file(template)
+        if file is not None:
+            files, form = _office_parts(file, file_name, fields)
+            return Template.model_validate(await self._c.request("POST", "/templates", files=files, form=form))
+        return Template.model_validate(await self._c.request("POST", "/templates", fields))
 
     async def update(self, id_or_slug: str, **patch: Any) -> Template:
         return Template.model_validate(await self._c.request("PUT", f"/templates/{id_or_slug}", patch))
@@ -867,7 +958,15 @@ class _AsyncTemplates:
         return [TemplateVersion.model_validate(v) for v in (await self._c.request("GET", f"/templates/{id_or_slug}/versions"))["data"]]
 
     async def create_version(self, id_or_slug: str, **version: Any) -> TemplateVersion:
-        return TemplateVersion.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/versions", version))
+        file, file_name, fields = _split_file(version)
+        path = f"/templates/{id_or_slug}/versions"
+        if file is not None:
+            files, form = _office_parts(file, file_name, fields)
+            return TemplateVersion.model_validate(await self._c.request("POST", path, files=files, form=form))
+        return TemplateVersion.model_validate(await self._c.request("POST", path, fields))
+
+    async def version_file(self, id_or_slug: str, which: str | int = "published") -> bytes:
+        return (await self._c._send("GET", f"/templates/{id_or_slug}/versions/{which}/file", raw=True))[1]
 
     async def publish(self, id_or_slug: str, number: int, *, allow_breaking: bool = False) -> TemplateVersion:
         return TemplateVersion.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/versions/{number}/publish", _guard(allow_breaking)))
@@ -922,6 +1021,24 @@ class _AsyncPdf:
 
     async def info(self, source: Render | str) -> PdfInfo:
         return PdfInfo.model_validate(await self._c.request("POST", "/pdf/info", {"source": _source_id(source)}))
+
+    async def convert(
+        self,
+        source: Render | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        key = idempotency_key or str(uuid.uuid4())
+        if (source is None) == (file is None):
+            raise FormfeedError("invalid_request", "pass either source or file")
+        if file is not None:
+            files, form = _office_parts(file, file_name, options)
+            return Render.model_validate(await self._c.request("POST", "/pdf/convert", files=files, form=form, idempotency_key=key))
+        body = {**_options(options), "source": _source_id(source)}  # type: ignore[arg-type]
+        return Render.model_validate(await self._c.request("POST", "/pdf/convert", body, idempotency_key=key))
 
 
 class _AsyncFiles:

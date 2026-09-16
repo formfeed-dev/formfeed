@@ -1,24 +1,39 @@
 import {
   EngineSyntaxError,
+  analyzeOffice,
   defaultHelpers,
   defaultLimits,
   flowDocument,
   getEngine,
+  isOfficeKind,
   mergeSettings,
+  officeTextParts,
   pagedDocument,
+  renderOffice,
   renderVersion,
   type AssembleVendor,
   type BrandContext,
   type Diagnostic,
+  type OfficeImageHost,
+  type OfficeRenderResult,
   type RenderContext,
   type RenderedDocument,
+  type TemplateKind,
 } from '@formfeed/engine';
 import { readBrand } from './brand';
+import { DevkitError } from './errors';
 import type { Project } from './project-config';
 import { partialResolver, type LocalTemplate } from './project';
 
+/**
+ * A finding of `diagnose`. Word and PowerPoint findings name the part and paragraph instead of a line
+ * (their `range` is 1:1), because a line of the extracted text means nothing in the document.
+ */
+export type LocalDiagnostic = Diagnostic & { part?: string; paragraph?: number };
+
 /** The same diagnostics the editor shows: analysis of the body against the sample data plus compile errors. */
-export function diagnose(tpl: LocalTemplate, sampleData: unknown): Diagnostic[] {
+export function diagnose(tpl: LocalTemplate, sampleData: unknown): LocalDiagnostic[] {
+  if (tpl.file) return diagnoseOffice(tpl, tpl.file.bytes, sampleData);
   const engine = getEngine(tpl.meta.engine);
   const diagnostics: Diagnostic[] = [];
   try {
@@ -50,6 +65,83 @@ export function diagnose(tpl: LocalTemplate, sampleData: unknown): Diagnostic[] 
       range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
     });
   return diagnostics;
+}
+
+const nowhere = { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } };
+
+/** What the office template page lists: tag, structure and engine findings per part and paragraph. */
+function diagnoseOffice(tpl: LocalTemplate, file: Uint8Array, sampleData: unknown): LocalDiagnostic[] {
+  let analysis;
+  try {
+    analysis = analyzeOffice(file, { engine: tpl.meta.engine, sampleData });
+  } catch (e) {
+    const code = (e as { code?: unknown }).code;
+    return [{ severity: 'error', code: typeof code === 'string' ? code : 'office-document-invalid', message: e instanceof Error ? e.message : String(e), range: nowhere }];
+  }
+  return analysis.diagnostics.map((d) => ({
+    severity: d.severity,
+    code: d.code,
+    message: d.text ? `${d.message} (${d.text})` : d.message,
+    range: nowhere,
+    part: d.part,
+    paragraph: d.paragraph,
+  }));
+}
+
+export interface OfficeLocalOptions {
+  locale?: string;
+  /** Where `asset()` resolves; the workspace library's CDN base for a document that leaves the machine. */
+  assetBaseUrl?: string;
+  brand?: BrandContext;
+  /** Loads and draws pictures and codes; without one, only PNG and JPEG data URLs are placed. */
+  images?: OfficeImageHost;
+  /** For snapshots: the source of the engine's placeholder nonce, so repeated runs fill alike. */
+  random?: () => number;
+}
+
+/** Fills a Word or PowerPoint template with the shared engine, as the render-worker does. */
+export async function renderOfficeLocal(project: Project, tpl: LocalTemplate, data: unknown, options: OfficeLocalOptions = {}): Promise<OfficeRenderResult> {
+  if (!tpl.file) throw new DevkitError(`${tpl.slug} is not a Word or PowerPoint template`, 'validation');
+  const context = renderContext(project, tpl, options.assetBaseUrl, options.brand);
+  if (options.locale) context.locale = options.locale;
+  return renderOffice(tpl.file.bytes, { engine: tpl.meta.engine, data, context, images: options.images, random: options.random });
+}
+
+/**
+ * The filled parts of a Word or PowerPoint document as readable text for snapshots: each part's XML,
+ * one element per line and indented, text kept beside its element, under a `--- <part> ---` line.
+ */
+export function officeSnapshot(filled: Uint8Array): string {
+  return officeTextParts(filled)
+    .map((part) => `--- ${part.name} ---\n${prettyXml(part.xml)}`)
+    .join('\n');
+}
+
+/** Indents XML one element per line; text and the closing tag stay on the line of their element. */
+export function prettyXml(xml: string): string {
+  const lines: string[] = [];
+  let depth = 0;
+  let open = false; // the last line is an opening tag whose element is still open
+  for (const token of xml.match(/<[^>]*>|[^<]+/g) ?? []) {
+    if (token.startsWith('</')) {
+      depth = Math.max(0, depth - 1);
+      if (open && lines.length) lines[lines.length - 1] += token;
+      else lines.push('  '.repeat(depth) + token);
+      open = false;
+    } else if (token.startsWith('<?') || token.startsWith('<!')) {
+      lines.push('  '.repeat(depth) + token);
+      open = false;
+    } else if (token.startsWith('<')) {
+      lines.push('  '.repeat(depth) + token);
+      open = !token.endsWith('/>');
+      if (open) depth++;
+    } else if (token.trim() || open) {
+      // text belongs to the element it stands in
+      if (lines.length) lines[lines.length - 1] += token;
+      else lines.push(token);
+    }
+  }
+  return lines.join('\n') + '\n';
 }
 
 /**
@@ -85,10 +177,11 @@ export interface LocalRenderOptions {
 
 /** Assembles the complete document with the shared engine; no browser involved. */
 export async function renderLocal(project: Project, tpl: LocalTemplate, data: unknown, options: LocalRenderOptions): Promise<RenderedDocument> {
+  const kind = htmlKind(tpl);
   const ctx = renderContext(project, tpl, options.assetBaseUrl, options.brand);
   if (options.locale) ctx.locale = options.locale;
   return renderVersion(
-    { engine: tpl.meta.engine, html: tpl.html, css: tpl.css, head: tpl.head, settings: mergeSettings(tpl.settings), kind: tpl.meta.kind },
+    { engine: tpl.meta.engine, html: tpl.html, css: tpl.css, head: tpl.head, settings: mergeSettings(tpl.settings), kind },
     data,
     ctx,
     options.mode,
@@ -96,14 +189,21 @@ export async function renderLocal(project: Project, tpl: LocalTemplate, data: un
   );
 }
 
+/** The kind of an HTML template; Word and PowerPoint templates go through `renderOfficeLocal`. */
+function htmlKind(tpl: LocalTemplate): TemplateKind {
+  if (isOfficeKind(tpl.meta.kind)) throw new DevkitError(`${tpl.slug} is a ${tpl.meta.kind} template; fill it with renderOfficeLocal`, 'validation');
+  return tpl.meta.kind;
+}
+
 /** Wraps a preview render for the screen the way the editor does. */
 export function previewDocument(tpl: LocalTemplate, rendered: RenderedDocument, mode: 'flow' | 'paged', pagedScriptUrl: string): string {
+  const kind = htmlKind(tpl);
   const draft = {
     document: rendered.document,
     headerHtml: rendered.headerHtml,
     footerHtml: rendered.footerHtml,
     settings: rendered.settings,
-    kind: tpl.meta.kind,
+    kind,
   };
-  return mode === 'paged' && tpl.meta.kind === 'pdf' ? pagedDocument(draft, { pagedScriptUrl }) : flowDocument(draft);
+  return mode === 'paged' && kind === 'pdf' ? pagedDocument(draft, { pagedScriptUrl }) : flowDocument(draft);
 }

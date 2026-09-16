@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
@@ -13,9 +13,12 @@ import {
   inferSchemaFromDataSets,
   isApitemplateHtmlTemplate,
   isApitemplateRegion,
+  isOfficeKind,
   isOutputFormat,
   isScss,
   jsreportTemplates,
+  OfficeTemplateError,
+  outputsForKind,
   RenderError,
   type Diagnostic as EngineDiagnostic,
   type ApitemplateListItem,
@@ -24,7 +27,7 @@ import {
   type OutputFormat,
   type TemplateKind,
 } from '@formfeed/engine';
-import type { Channel, FormfeedError, RenderInput, SchemaChange, SharedPartialPutResult, TemplateVersion } from '@formfeed/sdk-ts';
+import type { Channel, FormfeedError, Render, RenderInput, SchemaChange, SharedPartialPutResult, TemplateVersion } from '@formfeed/sdk-ts';
 import {
   createClient,
   defaultProjectConfig,
@@ -61,6 +64,8 @@ import {
   listLocalFiles,
   listTemplateSlugs,
   localTypeSource,
+  officeSnapshot,
+  officeVersionPayload,
   partialContentHash,
   readBrand,
   readState,
@@ -69,8 +74,10 @@ import {
   recordSync,
   redactData,
   renderLocal,
+  renderOfficeLocal,
   sharedPartialPath,
   templateDir,
+  templateFileName,
   titleFromSlug,
   versionPayload,
   writeBrand,
@@ -81,6 +88,7 @@ import {
   type TypeSource,
 } from '@formfeed/devkit';
 import { onlyNames, planPull, planPush, remoteAssetBase } from './lib/files';
+import { cliImageHost } from './lib/office-images';
 
 /**
  * Command tree of spec 15 §3. `buildProgram()` is exported for tests: commands never call
@@ -107,6 +115,9 @@ export interface ProgramContext {
 }
 
 const VERSION = '0.2.0';
+
+/** Largest file `pdf convert` uploads; the API refuses bigger ones with `file_too_large`. */
+const OFFICE_UPLOAD_LIMIT = 20 * 1024 * 1024;
 
 export function buildProgram(ctx: ProgramContext = {}): Command {
   const program = new Command('formfeed')
@@ -369,6 +380,8 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
                   message: opts.message,
                   baseChecksum: opts.force ? undefined : known?.checksum,
                   allowBreaking: Boolean(opts.allowBreaking),
+                  // a Word or PowerPoint document is uploaded only when it is not the one last synced
+                  sendFile: !known?.fileSha256 || known.fileSha256 !== tpl.file?.sha256,
                 }),
               );
         const result: Record<string, unknown> = { slug: one, status: version.status, number: version.number, checksum: version.checksum };
@@ -416,15 +429,28 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           json.push({ slug: one, changed: ['*'] });
           continue;
         }
-        const local = versionPayload(tpl);
-        const files: Array<[string, string, string]> = [
-          ['template.html', remote.html ?? '', local.html],
-          ['style.css', remote.css ?? '', local.css],
-          ['head.html', remote.head ?? '', local.head],
+        const changed: string[] = [];
+        const files: Array<[string, string, string]> = [];
+        if (tpl.file) {
+          // a document is compared by its hash; open both in Word or PowerPoint to see what changed
+          const name = templateFileName(tpl.meta.kind);
+          if (remote.source_file?.sha256 !== tpl.file.sha256) {
+            changed.push(name);
+            out.push(`${one}/${name}: differs from the document of v${remote.number} (${tpl.file.bytes.length} bytes locally, ${remote.source_file?.bytes ?? 0} remotely)`);
+          }
+        } else {
+          const local = versionPayload(tpl);
+          files.push(
+            ['template.html', remote.html ?? '', local.html],
+            ['style.css', remote.css ?? '', local.css],
+            ['head.html', remote.head ?? '', local.head],
+          );
+        }
+        const local = tpl.file ? officeVersionPayload(tpl) : versionPayload(tpl);
+        files.push(
           ['settings.json', JSON.stringify(remote.settings ?? {}, null, 2), JSON.stringify(local.settings, null, 2)],
           ['data/default.json', JSON.stringify(remote.sample_data ?? {}, null, 2), JSON.stringify(local.sample_data, null, 2)],
-        ];
-        const changed: string[] = [];
+        );
         for (const [file, a, b] of files) {
           const lines = formatDiff(`${one}/${file}`, a, b);
           if (lines.length) {
@@ -556,7 +582,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const project = requireProject(s);
       const slugs = slug ? [slug] : listTemplateSlugs(project);
       if (slugs.length === 0) throw new CliError(`No templates in ${project.templatesDir}`, exitCodes.usage);
-      const report: Array<{ slug: string; diagnostics: ReturnType<typeof diagnose> }> = [];
+      const report: Array<{ slug: string; file: string; diagnostics: ReturnType<typeof diagnose> }> = [];
       // `brand` is a built-in root of the analysis; a broken .formfeed/brand.json fails here rather
       // than in the first render
       readBrand(project);
@@ -566,10 +592,10 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         const set = defaultData(tpl, opts.data);
         const diagnostics = diagnose(tpl, set.data);
         errors += diagnostics.filter((d) => d.severity === 'error').length;
-        report.push({ slug: one, diagnostics });
+        report.push({ slug: one, file: templateFileName(tpl.meta.kind), diagnostics });
       }
       emit(p(), { ok: errors === 0, errors, templates: report }, () => [
-        ...report.flatMap((r) => r.diagnostics.map((d) => formatDiagnostic(`${r.slug}/template.html`, d))),
+        ...report.flatMap((r) => r.diagnostics.map((d) => formatDiagnostic(`${r.slug}/${r.file}`, d))),
         errors === 0 ? `${report.length} template(s) valid` : `${errors} error(s)`,
       ]);
       if (errors > 0) throw new CliError(`${errors} error(s) found`, exitCodes.validation, { silent: true });
@@ -580,7 +606,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .description('True render through the API from the local files (test keys are free)')
     .option('--data <name-or-file>', 'data set name or a JSON file')
     .option('--out <file>', 'output file (default: <slug>.<ext>)')
-    .option('--output <format>', 'pdf, png, jpg or webp (default: the template\'s kind and image format)', parseOutput)
+    .option('--output <format>', "pdf, png, jpg, webp, docx or pptx (default: the template's kind and settings)", parseOutput)
     .option('--remote', 'render the published remote version instead of local files')
     .action(async (slug: string, opts: { data?: string; out?: string; output?: OutputFormat; remote?: boolean }) => {
       const s = settings();
@@ -588,23 +614,48 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const c = client(s);
       const tpl = readTemplate(project, slug);
       const data = loadData(project.root, tpl, opts.data);
+      const allowed = outputsForKind(tpl.meta.kind);
+      if (opts.output && !allowed.includes(opts.output))
+        throw new CliError(`A ${tpl.meta.kind} template renders to ${allowed.join(' or ')}, not ${opts.output}`, exitCodes.usage);
       // local files leave as HTML, which has no kind, so the output is decided here; the published
       // version decides its own
       const output = opts.output ?? defaultOutput(tpl.meta.kind, tpl.settings);
-      const render = opts.remote
-        ? await c.renders.create({ template: slug, data: data as Record<string, unknown>, ...(opts.output ? { output: opts.output } : {}) })
-        : await (async () => {
-            // the document leaves complete, so asset() must already point at the workspace library
-            const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c), brand: readBrand(project) });
-            return c.renders.create({ html: rendered.document, settings: rendered.settings as Record<string, unknown>, output, meta: { source: 'formfeed render', template: slug } });
-          })();
+      const target = (extension: string) => resolve(ctx.cwd ?? process.cwd(), opts.out ?? `${slug}.${extension}`);
+      let warnings: string[] = [];
+      let render: Render;
+      if (opts.remote) {
+        render = await c.renders.create({ template: slug, data: data as Record<string, unknown>, ...(opts.output ? { output: opts.output } : {}) });
+      } else if (tpl.file) {
+        // No API renders a local Word or PowerPoint file: it is filled here with the render-worker's
+        // engine, and a PDF comes from the converter, as the worker would make it.
+        const filled = await fillOffice(project, tpl, data, c, ctx.fetch);
+        warnings = filled.warnings;
+        if (output !== 'pdf') {
+          const file = target(output);
+          mkdirSync(dirname(file), { recursive: true });
+          writeFileSync(file, filled.bytes);
+          emit(p(), { file, output, filled: 'locally', warnings }, () => [...warnings.map((w) => `warn   ${w}`), `filled locally -> ${file}`]);
+          return;
+        }
+        render = await c.pdf.convert(
+          { file: { data: filled.bytes, name: `${slug}.${tpl.meta.kind}` } },
+          { filename: `${slug}.pdf`, meta: { source: 'formfeed render', template: slug } },
+        );
+      } else {
+        // the document leaves complete, so asset() must already point at the workspace library
+        const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c), brand: readBrand(project) });
+        render = await c.renders.create({ html: rendered.document, settings: rendered.settings as Record<string, unknown>, output, meta: { source: 'formfeed render', template: slug } });
+      }
       const finished = render.status === 'succeeded' || render.status === 'failed' ? render : await c.renders.waitFor(render.id);
       if (finished.status !== 'succeeded') throw new CliError(`render ${finished.id} failed: ${JSON.stringify(finished.error)}`, exitCodes.network, finished);
       const bytes = await c.renders.download(finished);
-      const file = resolve(ctx.cwd ?? process.cwd(), opts.out ?? `${slug}.${finished.output || output}`);
+      const file = target(finished.output || output);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, bytes);
-      emit(p(), { ...finished, file }, () => [`${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s) -> ${file}`]);
+      emit(p(), { ...finished, file, warnings }, () => [
+        ...warnings.map((w) => `warn   ${w}`),
+        `${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s) -> ${file}`,
+      ]);
     });
 
   program
@@ -624,7 +675,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       if (!slugs.includes(chosen) && !existsSync(templateDir(project, chosen)))
         throw new CliError(`No template "${chosen}"; available: ${slugs.join(', ')}`, exitCodes.usage);
       const apiClient = s.apiKey ? client(s) : null;
-      const server = await startDevServer({ project, slug: chosen, port: opts.port, host: opts.host, data: opts.data, locale: opts.locale, client: apiClient, log: (l) => p().err(l) });
+      const server = await startDevServer({ project, slug: chosen, port: opts.port, host: opts.host, data: opts.data, locale: opts.locale, client: apiClient, fetch: ctx.fetch, log: (l) => p().err(l) });
       p().out(`formfeed dev: ${chosen} on ${server.url}${apiClient ? '' : ' (no API key: true render disabled)'}`);
       if (opts.open) void import('node:child_process').then(({ exec }) => exec(`${process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open'} ${server.url}`));
       ctx.onServer?.(server);
@@ -654,24 +705,38 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           const data = defaultData(tpl, names.includes(name) ? name : undefined).data;
           const diagnostics = diagnose(tpl, data);
           const errors = diagnostics.filter((d) => d.severity === 'error');
+          const source = `${one}/${templateFileName(tpl.meta.kind)}`;
           if (errors.length > 0) {
             results.push({ slug: one, data: name, status: 'failed', errors: errors.length });
-            lines.push(...errors.map((d) => formatDiagnostic(`${one}/template.html`, d)));
+            lines.push(...errors.map((d) => formatDiagnostic(source, d)));
             continue;
           }
-          const rendered = await renderLocal(project, tpl, data, { mode: 'preview', brand });
-          const file = snapshotPath(project, one, name);
+          // Word and PowerPoint: the filled parts' XML, pretty printed, so a diff is readable. Offline
+          // and repeatable: no pictures are loaded and the placeholder nonce is fixed.
+          let current: string;
+          if (tpl.file) {
+            try {
+              current = officeSnapshot((await renderOfficeLocal(project, tpl, data, { brand, random: () => 0.5 })).bytes);
+            } catch (e) {
+              results.push({ slug: one, data: name, status: 'failed', errors: 1 });
+              lines.push(...officeFailureLines(source, e));
+              continue;
+            }
+          } else {
+            current = (await renderLocal(project, tpl, data, { mode: 'preview', brand })).document;
+          }
+          const file = snapshotPath(project, one, name, tpl.file ? 'xml' : 'html');
           if (opts.updateSnapshots) {
             mkdirSync(dirname(file), { recursive: true });
-            writeFileSync(file, rendered.document);
+            writeFileSync(file, current);
             results.push({ slug: one, data: name, status: 'written' });
           } else if (!existsSync(file)) {
             results.push({ slug: one, data: name, status: 'no-snapshot' });
-          } else if (readFileSync(file, 'utf8') === rendered.document) {
+          } else if (readFileSync(file, 'utf8').replace(/\r\n/g, '\n') === current) {
             results.push({ slug: one, data: name, status: 'passed' });
           } else {
             results.push({ slug: one, data: name, status: 'failed', snapshot: file });
-            lines.push(...formatDiff(`${one}/${name}`, readFileSync(file, 'utf8'), rendered.document, 2, ['approved', 'current']));
+            lines.push(...formatDiff(`${one}/${name}`, readFileSync(file, 'utf8'), current, 2, ['approved', 'current']));
           }
         }
       }
@@ -717,14 +782,23 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       for (const one of slugs) {
         const tpl = readTemplate(project, one);
         const set = defaultData(tpl);
-        const output = defaultOutput(tpl.meta.kind, tpl.settings);
-        const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl, brand });
-        const created = await c.renders.create({
-          html: rendered.document,
-          settings: rendered.settings as Record<string, unknown>,
-          output,
-          meta: { source: 'formfeed ci preview', template: one },
-        });
+        // a pull request is reviewed as PDF: Word and PowerPoint templates are filled here and converted
+        const output = tpl.file ? 'pdf' : defaultOutput(tpl.meta.kind, tpl.settings);
+        const meta = { source: 'formfeed ci preview', template: one };
+        let created: Render;
+        if (tpl.file) {
+          let filled;
+          try {
+            filled = await renderOfficeLocal(project, tpl, set.data, { assetBaseUrl, brand, images: cliImageHost(ctx.fetch) });
+          } catch (e) {
+            rows.push({ slug: one, data: set.name, status: 'failed', error: officeFailureLines(one, e).join(' ') });
+            continue;
+          }
+          created = await c.pdf.convert({ file: { data: filled.bytes, name: `${one}.${tpl.meta.kind}` } }, { filename: `${one}.pdf`, meta });
+        } else {
+          const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl, brand });
+          created = await c.renders.create({ html: rendered.document, settings: rendered.settings as Record<string, unknown>, output, meta });
+        }
         const render = created.status === 'succeeded' || created.status === 'failed' ? created : await c.renders.waitFor(created.id);
         if (render.status !== 'succeeded') {
           rows.push({ slug: one, data: set.name, status: 'failed', error: JSON.stringify(render.error ?? null) });
@@ -958,6 +1032,53 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       emit(p(), { name: file.name, deleted: true }, () => [`${file.name}: deleted`]);
     });
 
+  // --- PDF tools (spec 22 §3) ------------------------------------------------------------------
+  const pdfCmd = program.command('pdf').description('PDF tools through the API');
+  pdfCmd
+    .command('convert <source>')
+    .description('Convert a Word, Excel, PowerPoint, OpenDocument, RTF or HTML file to PDF (Starter plan and above); a render id (rnd_…) of a Word or PowerPoint template converts its output')
+    .option('--out <file>', 'output file (default: the file name with .pdf, or <render id>.pdf)')
+    .option('--page-ranges <ranges>', 'pages to convert, e.g. 1-3,5')
+    .option('--landscape', 'landscape for spreadsheets and documents without their own page setup')
+    .option('--single-page-sheets', 'each spreadsheet sheet on one page')
+    .option('--no-download', 'create the PDF render without downloading it')
+    .action(async (source: string, opts: { out?: string; pageRanges?: string; landscape?: boolean; singlePageSheets?: boolean; download: boolean }) => {
+      const s = settings();
+      const cwd = ctx.cwd ?? process.cwd();
+      const path = resolve(cwd, source);
+      const isFile = existsSync(path);
+      if (!isFile && !/^rnd_[A-Za-z0-9]+$/.test(source))
+        throw new CliError(`No file ${path}, and ${source} is not a render id (rnd_…)`, exitCodes.usage);
+      if (opts.pageRanges && !/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(opts.pageRanges))
+        throw new CliError('--page-ranges looks like 1-3,5', exitCodes.usage);
+      const stem = isFile ? basename(path, extname(path)) : source;
+      if (isFile && statSync(path).size > OFFICE_UPLOAD_LIMIT)
+        throw new CliError(`${path} is larger than ${OFFICE_UPLOAD_LIMIT / 1024 / 1024} MB, the limit for conversions`, exitCodes.usage);
+      const options = {
+        filename: `${stem}.pdf`,
+        meta: { source: 'formfeed pdf convert' },
+        ...(opts.pageRanges ? { page_ranges: opts.pageRanges } : {}),
+        ...(opts.landscape ? { landscape: true } : {}),
+        ...(opts.singlePageSheets ? { single_page_sheets: true } : {}),
+      };
+      const c = client(s);
+      const render = isFile
+        ? await c.pdf.convert({ file: { data: new Uint8Array(readFileSync(path)), name: basename(path) } }, options)
+        : await c.pdf.convert(source, options);
+      const finished = render.status === 'succeeded' || render.status === 'failed' ? render : await c.renders.waitFor(render.id);
+      if (finished.status !== 'succeeded') throw new CliError(`conversion ${finished.id} failed: ${JSON.stringify(finished.error)}`, exitCodes.network, finished);
+      const warnings = ((finished as { warnings?: unknown }).warnings as string[] | undefined) ?? [];
+      const summary = `${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s)`;
+      if (!opts.download) {
+        emit(p(), { ...finished, warnings }, () => [...warnings.map((w) => `warn   ${w}`), `${summary}, ${finished.download_url ?? 'no URL'}`]);
+        return;
+      }
+      const file = resolve(cwd, opts.out ?? `${stem}.pdf`);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, await c.renders.download(finished));
+      emit(p(), { ...finished, file, warnings }, () => [...warnings.map((w) => `warn   ${w}`), `${summary} -> ${file}`]);
+    });
+
   const rendersCmd = program.command('renders').description('Inspect renders');
   rendersCmd
     .command('get <id>')
@@ -1090,24 +1211,30 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         const tpl = readTemplate(project, slug);
         const brand = readBrand(project);
         const diagnostics = diagnose(tpl, data);
-        let rendered: Awaited<ReturnType<typeof renderLocal>> | null = null;
+        // the snapshot is what `formfeed test` compares: the document, or a Word or PowerPoint file's filled XML
+        let rendered: string | null = null;
         if (!diagnostics.some((d) => d.severity === 'error')) {
           try {
             // --run reproduces with the render's locale; the snapshot renders the way `formfeed test` compares it
-            if (opts.run && input.locale) await renderLocal(project, tpl, data, { mode: 'preview', brand, locale: input.locale });
-            rendered = await renderLocal(project, tpl, data, { mode: 'preview', brand });
+            if (tpl.file) {
+              if (opts.run && input.locale) await renderOfficeLocal(project, tpl, data, { brand, locale: input.locale });
+              rendered = officeSnapshot((await renderOfficeLocal(project, tpl, data, { brand, random: () => 0.5 })).bytes);
+            } else {
+              if (opts.run && input.locale) await renderLocal(project, tpl, data, { mode: 'preview', brand, locale: input.locale });
+              rendered = (await renderLocal(project, tpl, data, { mode: 'preview', brand })).document;
+            }
           } catch (e) {
             diagnostics.push(runtimeDiagnostic(e));
           }
         }
         errors = diagnostics.filter((d) => d.severity === 'error').length;
         result['diagnostics'] = diagnostics;
-        lines.push(...diagnostics.map((d) => formatDiagnostic(`${slug}/template.html`, d)));
+        lines.push(...diagnostics.map((d) => formatDiagnostic(`${slug}/${templateFileName(tpl.meta.kind)}`, d)));
         if (opts.run) lines.push(errors ? `${errors} error(s) rendering ${slug} with ${name}` : `${slug} renders with ${name} without errors`);
-        if (opts.snapshot && rendered) {
-          const snapshot = snapshotPath(project, slug, name);
+        if (opts.snapshot && rendered !== null) {
+          const snapshot = snapshotPath(project, slug, name, tpl.file ? 'xml' : 'html');
           mkdirSync(dirname(snapshot), { recursive: true });
-          writeFileSync(snapshot, rendered.document);
+          writeFileSync(snapshot, rendered);
           result['snapshot'] = snapshot;
           lines.push(`snapshot -> ${snapshot}`);
         } else if (opts.snapshot) {
@@ -1482,7 +1609,7 @@ async function triggerData(c: ReturnType<typeof createClient>, s: Settings, slug
       throw new CliError(`${path} is not valid JSON: ${e instanceof Error ? e.message : e}`, exitCodes.usage);
     }
   }
-  if (s.project && existsSync(join(templateDir(s.project, slug), 'template.html')))
+  if (s.project && listTemplateSlugs(s.project).includes(slug))
     return (defaultData(readTemplate(s.project, slug)).data ?? {}) as Record<string, unknown>;
   for (const which of ['published', 'latest'] as const) {
     try {
@@ -1503,8 +1630,35 @@ function parseEngine(value: string): EngineId {
 }
 
 function parseOutput(value: string): OutputFormat {
-  if (!isOutputFormat(value)) throw new InvalidArgumentError('output must be pdf, png, jpg or webp');
+  if (!isOutputFormat(value)) throw new InvalidArgumentError('output must be pdf, png, jpg, webp, docx or pptx');
   return value;
+}
+
+/**
+ * Fills a local Word or PowerPoint template as the render-worker does: `asset()` resolves against the
+ * workspace library, pictures are fetched and codes drawn by `cliImageHost`. A template that cannot be
+ * filled is a validation error naming the part.
+ */
+async function fillOffice(project: ReturnType<typeof requireProject>, tpl: LocalTemplate, data: unknown, c: ReturnType<typeof createClient>, fetchImpl?: typeof fetch) {
+  try {
+    return await renderOfficeLocal(project, tpl, data, {
+      assetBaseUrl: await remoteAssetBase(c),
+      brand: readBrand(project),
+      images: cliImageHost(fetchImpl),
+    });
+  } catch (e) {
+    const lines = officeFailureLines(`${tpl.slug}/${templateFileName(tpl.meta.kind)}`, e);
+    throw new CliError(lines.join('\n'), exitCodes.validation);
+  }
+}
+
+/** Why a Word or PowerPoint template could not be filled, one finding per line. */
+function officeFailureLines(source: string, e: unknown): string[] {
+  if (e instanceof OfficeTemplateError && e.diagnostics.length)
+    return e.diagnostics.map((d) => formatDiagnostic(source, { ...d, range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } } }));
+  const code = (e as { code?: unknown }).code;
+  const message = e instanceof Error ? e.message : String(e);
+  return [`error  ${source}  ${message}${typeof code === 'string' ? `  [${code}]` : ''}`];
 }
 
 function loadData(root: string, tpl: LocalTemplate, nameOrFile?: string): unknown {
@@ -1522,7 +1676,9 @@ async function pullTemplates(c: ReturnType<typeof createClient>, project: Return
   for (const t of list) {
     const version = await c.templates.versions.get(t.slug, draft || !t.published_version ? 'latest' : 'published');
     const meta: TemplateMeta = { name: t.name, kind: t.kind, engine: t.engine, description: t.description, tags: t.tags };
-    const dir = writeTemplate(project, t.slug, meta, version);
+    // the document of exactly this version, even when a newer one was saved meanwhile
+    const file = isOfficeKind(t.kind) ? await c.templates.versions.file(t.slug, version.number) : undefined;
+    const dir = writeTemplate(project, t.slug, meta, version, file);
     recordSync(project, t.slug, version, readTemplate(project, t.slug));
     pulled.push({ slug: t.slug, number: version.number, status: version.status, dir, partials: Object.keys(version.partials ?? {}).length });
   }
@@ -1598,9 +1754,8 @@ async function pushTemplate(
   c: ReturnType<typeof createClient>,
   project: ReturnType<typeof requireProject>,
   tpl: LocalTemplate,
-  opts: { publish: boolean; message?: string; baseChecksum?: string; allowBreaking?: boolean },
+  opts: { publish: boolean; message?: string; baseChecksum?: string; allowBreaking?: boolean; sendFile?: boolean },
 ): Promise<TemplateVersion> {
-  const payload = versionPayload(tpl);
   let exists = true;
   try {
     await c.templates.get(tpl.slug);
@@ -1609,6 +1764,38 @@ async function pushTemplate(
     else throw e;
   }
   let version: TemplateVersion;
+  if (tpl.file) {
+    // Word and PowerPoint: the document travels as multipart, the rest as form fields
+    const fields = officeVersionPayload(tpl);
+    const file = { data: tpl.file.bytes, name: `${tpl.slug}.${tpl.file.format}` };
+    if (!exists) {
+      await c.templates.create({
+        name: tpl.meta.name,
+        slug: tpl.slug,
+        description: tpl.meta.description ?? null,
+        kind: tpl.file.format,
+        engine: tpl.meta.engine,
+        tags: tpl.meta.tags ?? [],
+        ...fields,
+        publish: opts.publish,
+        file,
+      });
+      version = await c.templates.versions.get(tpl.slug, 'latest');
+    } else {
+      version = await c.templates.versions.create(tpl.slug, {
+        ...fields,
+        change_note: opts.message ?? 'formfeed templates push',
+        ...(opts.baseChecksum ? { base_checksum: opts.baseChecksum } : {}),
+        publish: opts.publish,
+        ...(opts.publish && opts.allowBreaking ? { allow_breaking: true } : {}),
+        // without a file the API keeps the latest version's document
+        ...(opts.sendFile !== false ? { file } : {}),
+      });
+    }
+    recordSync(project, tpl.slug, version, tpl);
+    return version;
+  }
+  const payload = versionPayload(tpl);
   if (!exists) {
     await c.templates.create({
       name: tpl.meta.name,
@@ -1692,9 +1879,9 @@ interface PreviewRow {
   error?: string;
 }
 
-/** Approved snapshots live beside the template, the layout the docs describe. */
-function snapshotPath(project: Parameters<typeof templateDir>[0], slug: string, dataSet: string): string {
-  return join(templateDir(project, slug), 'tests', '__snapshots__', `${dataSet}.html`);
+/** Approved snapshots live beside the template, the layout the docs describe (`.xml` for Word and PowerPoint). */
+function snapshotPath(project: Parameters<typeof templateDir>[0], slug: string, dataSet: string, extension: 'html' | 'xml'): string {
+  return join(templateDir(project, slug), 'tests', '__snapshots__', `${dataSet}.${extension}`);
 }
 
 /**

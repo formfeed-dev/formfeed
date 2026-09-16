@@ -186,6 +186,15 @@ export function analyzeOffice(
   return { format, tags, diagnostics, variables: [...variables.values()], fonts };
 }
 
+/**
+ * The parts a template can fill (body, headers, footers and notes of Word; slides and notes of
+ * PowerPoint) with their XML, in archive order: what the dev kit's snapshots compare.
+ */
+export function officeTextParts(file: Uint8Array): Array<{ name: string; xml: string }> {
+  const { format, archive } = openTemplate(file);
+  return archive.entries.filter((e) => PARTS[format].test(e.name)).map((e) => ({ name: e.name, xml: readText(e) }));
+}
+
 export async function renderOffice(file: Uint8Array, options: OfficeRenderOptions): Promise<OfficeRenderResult> {
   const { format, archive } = openTemplate(file);
 

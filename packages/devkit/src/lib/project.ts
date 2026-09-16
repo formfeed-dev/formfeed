@@ -1,7 +1,15 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
-import { normalisePartialName, type EngineId, type TemplateKind, type TemplateSettings } from '@formfeed/engine';
+import { basename, dirname, extname, join } from 'node:path';
+import {
+  isOfficeKind,
+  normalisePartialName,
+  officeKinds,
+  type EngineId,
+  type OfficeKind,
+  type TemplateKind,
+  type TemplateSettings,
+} from '@formfeed/engine';
 import type { TemplateVersion } from '@formfeed/sdk-ts';
 import { DevkitError } from './errors';
 import { collectPartials } from './partials';
@@ -15,16 +23,31 @@ import type { Project } from './project-config';
  */
 export interface TemplateMeta {
   name: string;
-  kind: TemplateKind;
+  /** An HTML kind, or `docx`/`pptx` for Word and PowerPoint templates. */
+  kind: TemplateKind | OfficeKind;
   engine: EngineId;
   description?: string | null;
   tags?: string[];
+}
+
+/**
+ * The document of a Word or PowerPoint template (spec 22 §7): `template.docx` or `template.pptx`
+ * instead of `template.html`. Such a folder has no markup, style, head, header, footer or partials.
+ */
+export interface LocalOfficeFile {
+  format: OfficeKind;
+  path: string;
+  bytes: Uint8Array;
+  sha256: string;
 }
 
 export interface LocalTemplate {
   slug: string;
   dir: string;
   meta: TemplateMeta;
+  /** The Word or PowerPoint document; `null` for HTML templates. */
+  file: LocalOfficeFile | null;
+  /** Empty for Word and PowerPoint templates. */
   html: string;
   css: string;
   head: string;
@@ -52,6 +75,8 @@ export interface TemplateState {
   status: string;
   /** Hash of the local files at that moment; a different hash means local edits. */
   contentHash: string;
+  /** Word and PowerPoint templates: the document's SHA-256, so `push` uploads it only when it changed. */
+  fileSha256?: string;
   syncedAt: string;
 }
 
@@ -83,10 +108,18 @@ function readJson<T>(path: string, what: string): T | null {
   }
 }
 
+/** The file a template folder is built around, by kind. */
+export const templateFileName = (kind: TemplateKind | string): string => (isOfficeKind(kind) ? `template.${kind}` : 'template.html');
+
+/** The template files a folder holds; a template folder has exactly one. */
+function sourceFilesIn(dir: string): string[] {
+  return ['template.html', ...officeKinds.map((k) => `template.${k}`)].filter((name) => existsSync(join(dir, name)));
+}
+
 export function listTemplateSlugs(project: Project): string[] {
   if (!existsSync(project.templatesDir)) return [];
   return readdirSync(project.templatesDir)
-    .filter((name) => existsSync(join(project.templatesDir, name, 'template.html')))
+    .filter((name) => sourceFilesIn(join(project.templatesDir, name)).length > 0)
     .sort();
 }
 
@@ -94,21 +127,39 @@ export function templateDir(project: Project, slug: string): string {
   return join(project.templatesDir, slug);
 }
 
+const sha256Of = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+function readOfficeFile(dir: string, name: string): LocalOfficeFile {
+  const path = join(dir, name);
+  const bytes = new Uint8Array(readFileSync(path));
+  return { format: extname(name).slice(1) as OfficeKind, path, bytes, sha256: sha256Of(bytes) };
+}
+
 export function readTemplate(project: Project, slug: string): LocalTemplate {
   const dir = templateDir(project, slug);
-  const html = readText(join(dir, 'template.html'));
-  if (html === null) throw new DevkitError(`No template "${slug}" in ${project.templatesDir} (template.html missing)`);
+  const sources = sourceFilesIn(dir);
+  if (sources.length === 0)
+    throw new DevkitError(`No template "${slug}" in ${project.templatesDir} (template.html, template.docx or template.pptx missing)`);
+  if (sources.length > 1)
+    throw new DevkitError(`${dir} holds ${sources.join(' and ')}; a template folder has one of them`, 'validation');
+  const file = sources[0] === 'template.html' ? null : readOfficeFile(dir, sources[0]!);
+  const html = file ? '' : (readText(join(dir, 'template.html')) ?? '');
   const metaFile = readJson<Partial<TemplateMeta>>(join(dir, 'template.json'), 'template.json') ?? {};
+  if (file && metaFile.kind && metaFile.kind !== file.format)
+    throw new DevkitError(`${slug}: template.json says kind "${metaFile.kind}", but the folder holds ${basename(file.path)}`, 'validation');
+  if (!file && isOfficeKind(metaFile.kind))
+    throw new DevkitError(`${slug}: template.json says kind "${metaFile.kind}", but the folder holds template.html instead of template.${metaFile.kind}`, 'validation');
   const meta: TemplateMeta = {
     name: metaFile.name ?? titleFromSlug(slug),
-    kind: metaFile.kind ?? 'pdf',
+    kind: file?.format ?? metaFile.kind ?? 'pdf',
     engine: metaFile.engine ?? project.config.engine,
     description: metaFile.description ?? null,
     tags: metaFile.tags ?? [],
   };
   const settings: TemplateSettings = { ...(readJson<TemplateSettings>(join(dir, 'settings.json'), 'settings.json') ?? {}) };
-  const header = readText(join(dir, 'header.html'));
-  const footer = readText(join(dir, 'footer.html'));
+  // a Word or PowerPoint document brings its own header and footer
+  const header = file ? null : readText(join(dir, 'header.html'));
+  const footer = file ? null : readText(join(dir, 'footer.html'));
   if (header !== null && header.trim()) settings.header = { ...(settings.header ?? {}), html: header };
   if (footer !== null && footer.trim()) settings.footer = { ...(settings.footer ?? {}), html: footer };
   const dataSets: Record<string, unknown> = {};
@@ -118,14 +169,18 @@ export function readTemplate(project: Project, slug: string): LocalTemplate {
       dataSets[basename(file, '.json')] = readJson<unknown>(join(dataDir, file), `data/${file}`);
     }
   }
-  const { partials, missing, shared } = collectPartials(project, meta.engine, [html, settings.header?.html, settings.footer?.html]);
+  // office templates cannot include partials (the engine reports an include as an error)
+  const { partials, missing, shared } = file
+    ? { partials: {}, missing: [], shared: [] }
+    : collectPartials(project, meta.engine, [html, settings.header?.html, settings.footer?.html]);
   return {
     slug,
     dir,
     meta,
+    file,
     html,
-    css: readText(join(dir, 'style.css')) ?? '',
-    head: readText(join(dir, 'head.html')) ?? '',
+    css: file ? '' : (readText(join(dir, 'style.css')) ?? ''),
+    head: file ? '' : (readText(join(dir, 'head.html')) ?? ''),
     settings,
     dataSets,
     dataSchema: readJson<Record<string, unknown>>(join(dir, 'schema.json'), 'schema.json'),
@@ -145,6 +200,11 @@ export function defaultData(tpl: LocalTemplate, name?: string): { name: string; 
   return chosen ? { name: chosen, data: tpl.dataSets[chosen] } : { name: 'empty', data: {} };
 }
 
+/**
+ * Writes a pulled version into the template folder. A Word or PowerPoint template needs its
+ * document as `file`; the folder then holds `template.<kind>` and none of the HTML files, so a
+ * template whose kind changed leaves nothing behind that would be read as its source.
+ */
 export function writeTemplate(
   project: Project,
   slug: string,
@@ -153,18 +213,24 @@ export function writeTemplate(
     data_sets?: Record<string, unknown> | null;
     partials?: Record<string, string> | null;
   },
+  file?: Uint8Array,
 ): string {
   const dir = templateDir(project, slug);
+  const office = isOfficeKind(meta.kind);
+  if (office && !file) throw new DevkitError(`${slug} is a ${meta.kind} template; its document is needed to write the folder`);
   mkdirSync(join(dir, 'data'), { recursive: true });
   const settings = { ...(version.settings ?? {}) } as TemplateSettings;
-  const header = settings.header?.html ?? '';
-  const footer = settings.footer?.html ?? '';
+  const header = office ? '' : (settings.header?.html ?? '');
+  const footer = office ? '' : (settings.footer?.html ?? '');
   if (settings.header) settings.header = stripHtml(settings.header);
   if (settings.footer) settings.footer = stripHtml(settings.footer);
   writeFileSync(join(dir, 'template.json'), JSON.stringify(meta, null, 2) + '\n');
-  writeFileSync(join(dir, 'template.html'), version.html ?? '');
-  writeOrRemove(join(dir, 'style.css'), version.css ?? '');
-  writeOrRemove(join(dir, 'head.html'), version.head ?? '');
+  for (const name of ['template.html', ...officeKinds.map((k) => `template.${k}`)])
+    if (name !== templateFileName(meta.kind) && existsSync(join(dir, name))) rmSync(join(dir, name));
+  if (office) writeFileSync(join(dir, templateFileName(meta.kind)), file!);
+  else writeFileSync(join(dir, 'template.html'), version.html ?? '');
+  writeOrRemove(join(dir, 'style.css'), office ? '' : (version.css ?? ''));
+  writeOrRemove(join(dir, 'head.html'), office ? '' : (version.head ?? ''));
   writeOrRemove(join(dir, 'header.html'), header);
   writeOrRemove(join(dir, 'footer.html'), footer);
   writeFileSync(join(dir, 'settings.json'), JSON.stringify(settings, null, 2) + '\n');
@@ -210,8 +276,8 @@ function writeOrRemove(path: string, content: string): void {
   else if (existsSync(path)) rmSync(path);
 }
 
-/** Files of a push request: what the API's TemplateVersionCreate takes. */
-export function versionPayload(tpl: LocalTemplate) {
+/** What every version carries besides its source: settings, data, schema and translations. */
+function commonPayload(tpl: LocalTemplate) {
   const sample = tpl.dataSets['default'] ?? Object.values(tpl.dataSets)[0] ?? {};
   // `default` travels as `sample_data` (what the API renders); the rest as named sets, the same
   // ones the editor shows.
@@ -219,14 +285,29 @@ export function versionPayload(tpl: LocalTemplate) {
     Object.entries(tpl.dataSets).filter(([name]) => name !== 'default'),
   );
   return {
-    html: tpl.html,
-    css: tpl.css,
-    head: tpl.head,
     settings: tpl.settings as Record<string, unknown>,
     sample_data: (sample ?? {}) as Record<string, unknown>,
     data_sets: named as Record<string, unknown>,
     data_schema: tpl.dataSchema,
     i18n: tpl.i18n,
+  };
+}
+
+/**
+ * Fields of a push request besides the document: what the API's version create takes for a Word or
+ * PowerPoint template. The document itself travels as the multipart `file`.
+ */
+export function officeVersionPayload(tpl: LocalTemplate) {
+  return commonPayload(tpl);
+}
+
+/** Files of a push request: what the API's TemplateVersionCreate takes. */
+export function versionPayload(tpl: LocalTemplate) {
+  return {
+    html: tpl.html,
+    css: tpl.css,
+    head: tpl.head,
+    ...commonPayload(tpl),
     // only when the template includes one, so a project without partials sends what it always sent
     ...(Object.keys(tpl.partials).length ? { partials: tpl.partials } : {}),
   };
@@ -234,6 +315,11 @@ export function versionPayload(tpl: LocalTemplate) {
 
 /** Stable hash of the local files; compared with the state to detect local edits. */
 export function contentHash(tpl: LocalTemplate): string {
+  if (tpl.file) {
+    const payload = officeVersionPayload(tpl);
+    const parts = [tpl.file.format, tpl.file.sha256, payload.settings, payload.sample_data, payload.data_sets, payload.data_schema, payload.i18n];
+    return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+  }
   const payload = versionPayload(tpl);
   const parts: unknown[] = [payload.html, payload.css, payload.head, payload.settings, payload.sample_data, payload.data_sets, payload.data_schema, payload.i18n];
   // appended only when there are partials, so hashes recorded before they existed still match
@@ -259,6 +345,7 @@ export function recordSync(project: Project, slug: string, version: Pick<Templat
     number: version.number,
     status: version.status,
     contentHash: contentHash(tpl),
+    ...(tpl.file ? { fileSha256: tpl.file.sha256 } : {}),
     syncedAt: new Date().toISOString(),
   };
   writeState(project, state);

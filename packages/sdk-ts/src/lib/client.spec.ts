@@ -381,7 +381,97 @@ describe('templates', () => {
   });
 });
 
+describe('Word and PowerPoint templates', () => {
+  const docx = new Uint8Array([0x50, 0x4b, 3, 4]);
+
+  it('creates a template from its file as multipart, with objects as JSON text', async () => {
+    const { calls, fetchImpl } = stub(() => json({ ...templateRow, kind: 'docx' }, 201));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    const created = await client.templates.create({
+      name: 'Offer',
+      slug: 'offer',
+      kind: 'docx',
+      engine: 'jinja2',
+      tags: ['sales'],
+      sample_data: { customer: { name: 'Olvarest GmbH' } },
+      publish: true,
+      file: { data: docx, name: 'offer.docx' },
+    });
+    expect(created.kind).toBe('docx');
+    expect(calls[0]!.url).toBe('https://api-eu.formfeed.dev/v1/templates');
+    expect(calls[0]!.headers['content-type']).toBeUndefined();
+    const form = calls[0]!.body as FormData;
+    expect(form.get('kind')).toBe('docx');
+    expect(form.get('tags')).toBe('["sales"]');
+    expect(form.get('sample_data')).toBe('{"customer":{"name":"Olvarest GmbH"}}');
+    expect(form.get('publish')).toBe('true');
+    const part = form.get('file') as File;
+    expect(part.name).toBe('offer.docx');
+    expect(new Uint8Array(await part.arrayBuffer())).toEqual(docx);
+  });
+
+  it('sends a new version with a file as multipart and without one as JSON', async () => {
+    const version = { id: 'v2', number: 2, status: 'draft', checksum: 'c', source_file: { sha256: 'ab', bytes: 4, format: 'docx' } };
+    const { calls, fetchImpl } = stub(() => json(version, 201));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+
+    const saved = await client.templates.versions.create('offer', { file: { data: new Blob([docx]) }, change_note: 'New layout' });
+    expect(saved.source_file).toEqual({ sha256: 'ab', bytes: 4, format: 'docx' });
+    const form = calls[0]!.body as FormData;
+    expect(form.get('change_note')).toBe('New layout');
+    expect((form.get('file') as File).name).toBe('document');
+
+    await client.templates.versions.create('offer', { sample_data: { a: 1 }, file: undefined });
+    expect(calls[1]!.headers['content-type']).toBe('application/json');
+    expect(calls[1]!.body).toEqual({ sample_data: { a: 1 } });
+  });
+
+  it('downloads a version file as bytes and reads problems as JSON', async () => {
+    const { calls, fetchImpl } = stub((call) =>
+      call.url.includes('/versions/9/')
+        ? json({ type: 'https://docs.formfeed.dev/errors/not-found', title: 'Not found', status: 404, code: 'not_found' }, 404)
+        : new Response(docx, { status: 200, headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } }),
+    );
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl, maxRetries: 0 });
+    expect(await client.templates.versions.file('offer', 'latest')).toEqual(docx);
+    expect(calls[0]!.url).toBe('https://api-eu.formfeed.dev/v1/templates/offer/versions/latest/file');
+    expect(calls[0]!.headers['accept']).toBe('*/*');
+    const missing = await client.templates.versions.file('offer', 9).catch((e: unknown) => e);
+    expect((missing as FormfeedError).code).toBe('not_found');
+  });
+
+  it('renders a template to its own format', async () => {
+    const { calls, fetchImpl } = stub(() => json({ ...render, output: 'docx' }));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    await client.renders.create({ template: 'offer', output: 'docx', data: {} });
+    expect(calls[0]!.body).toMatchObject({ output: 'docx' });
+  });
+});
+
 describe('PDF tools', () => {
+  it('converts an uploaded office file or a template render to PDF', async () => {
+    const { calls, fetchImpl } = stub(() => json({ ...render, id: 'rnd_pdf' }));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    const converted = await client.pdf.convert(
+      { file: { data: new Uint8Array([1, 2]), name: 'sheet.xlsx' } },
+      { landscape: true, single_page_sheets: false, expires_in: 3600, meta: { order: 7 } },
+    );
+    expect(converted.id).toBe('rnd_pdf');
+    expect(calls[0]!.url).toBe('https://api-eu.formfeed.dev/v1/pdf/convert');
+    expect(calls[0]!.headers['idempotency-key']).toMatch(/\S+/);
+    const form = calls[0]!.body as FormData;
+    expect(form.get('landscape')).toBe('true');
+    expect(form.get('single_page_sheets')).toBe('false');
+    expect(form.get('expires_in')).toBe('3600');
+    expect(form.get('meta')).toBe('{"order":7}');
+    expect((form.get('file') as File).name).toBe('sheet.xlsx');
+
+    await client.pdf.convert({ id: 'rnd_docx' } as never, { page_ranges: '1-2' });
+    expect(calls[1]!.body).toEqual({ source: 'rnd_docx', page_ranges: '1-2' });
+    await client.pdf.convert('rnd_pptx');
+    expect(calls[2]!.body).toEqual({ source: 'rnd_pptx' });
+  });
+
   it('posts sources as render ids with an idempotency key, and info without one', async () => {
     const { calls, fetchImpl } = stub((call) =>
       call.url.endsWith('/pdf/info') ? json({ source: 'rnd_1', page_count: 2, pages: [], encrypted: false, metadata: {} }) : json({ ...render, id: 'rnd_9', units: 0.5 }),

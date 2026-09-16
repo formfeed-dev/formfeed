@@ -8,7 +8,9 @@ from pydantic import BaseModel, ConfigDict
 
 Region = Literal["eu", "us"]
 Engine = Literal["jinja2", "liquid", "handlebars"]
-OutputFormat = Literal["pdf", "png", "jpg", "webp"]
+#: A Word template produces ``docx`` or ``pdf``, a PowerPoint template ``pptx`` or ``pdf``.
+OutputFormat = Literal["pdf", "png", "jpg", "webp", "docx", "pptx"]
+TemplateKind = Literal["pdf", "image", "docx", "pptx"]
 RenderStatus = Literal["queued", "rendering", "succeeded", "failed"]
 
 
@@ -150,6 +152,14 @@ class Template(_Model):
     updated_at: str | None = None
 
 
+class TemplateFile(_Model):
+    """The file of a Word or PowerPoint template version; download it with ``templates.version_file``."""
+
+    sha256: str
+    bytes: int
+    format: Literal["docx", "pptx"]
+
+
 class TemplateVersion(_Model):
     id: str
     number: int
@@ -169,6 +179,8 @@ class TemplateVersion(_Model):
     partials: dict[str, str] | None = None
     #: Publishing only: how the data schema changed against the version callers used before.
     schema_check: SchemaCheck | None = None
+    #: Word and PowerPoint templates: the version's file; ``None`` for other kinds.
+    source_file: TemplateFile | None = None
 
 
 class SchemaChange(_Model):

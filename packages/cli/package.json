@@ -43,5 +43,8 @@
     "chart.js": "^4.5.0",
     "commander": "^14.0.3",
     "pagedjs": "^0.4.3"
+  },
+  "optionalDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
   }
 }

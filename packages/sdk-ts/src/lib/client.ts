@@ -6,7 +6,11 @@
  */
 export type Region = 'eu' | 'us';
 export type Engine = 'jinja2' | 'liquid' | 'handlebars';
-export type OutputFormat = 'pdf' | 'png' | 'jpg' | 'webp';
+/**
+ * PDF and image templates, HTML and URLs produce `pdf` or an image; a Word template produces `docx`
+ * or `pdf`, a PowerPoint template `pptx` or `pdf`.
+ */
+export type OutputFormat = 'pdf' | 'png' | 'jpg' | 'webp' | 'docx' | 'pptx';
 export type RenderStatus = 'queued' | 'rendering' | 'succeeded' | 'failed';
 
 export interface FormfeedOptions {
@@ -194,6 +198,23 @@ export interface FileUpload {
   contentType?: string;
 }
 
+/** A Word, PowerPoint or other office file sent to the API: a template's file or a document to convert. */
+export interface OfficeFileUpload {
+  /** The bytes: a Blob or File, a Uint8Array (Node's Buffer is one) or an ArrayBuffer. */
+  data: Blob | Uint8Array | ArrayBuffer;
+  /** The file name, e.g. `offer.docx`; a File's own name when omitted. The API reads the type from the content. */
+  name?: string;
+}
+
+export interface ConvertOptions extends PdfOutputOptions {
+  /** Pages to convert, e.g. `1-3,5`; all when omitted. */
+  page_ranges?: string;
+  /** Landscape for spreadsheets and documents without their own page setup. */
+  landscape?: boolean;
+  /** Each spreadsheet sheet on one page. */
+  single_page_sheets?: boolean;
+}
+
 export interface FileListOptions {
   /** Only names starting with this, e.g. `brand/`. */
   prefix?: string;
@@ -334,7 +355,16 @@ export interface RenderInput {
   created_at: string;
 }
 
-export type TemplateKind = 'pdf' | 'image';
+/** `docx` and `pptx` templates are Word and PowerPoint files with tags in their text (Starter plan and above). */
+export type TemplateKind = 'pdf' | 'image' | 'docx' | 'pptx';
+export type OfficeTemplateKind = 'docx' | 'pptx';
+
+/** The file of a Word or PowerPoint template version; download it with `templates.versions.file`. */
+export interface TemplateFile {
+  sha256: string;
+  bytes: number;
+  format: OfficeTemplateKind;
+}
 export type VersionStatus = 'draft' | 'published' | 'archived';
 
 export interface Template {
@@ -393,6 +423,8 @@ export interface TemplateVersion extends Partial<TemplateFiles> {
   published_at: string | null;
   /** Publishing only: how the data schema changed against the version callers used before. */
   schema_check?: SchemaCheck;
+  /** Word and PowerPoint templates: the version's file; `null` for other kinds. */
+  source_file?: TemplateFile | null;
 }
 
 /** One difference between two data schemas, from the point of view of a caller sending data. */
@@ -464,6 +496,57 @@ export interface TemplateVersionCreate extends TemplateFiles {
   publish?: boolean;
   /** With `publish`: go ahead although the data schema breaks callers of the published version. */
   allow_breaking?: boolean;
+}
+
+/** What a Word or PowerPoint template has besides its file: no markup, no partials. */
+type OfficeFields = Omit<TemplateFiles, 'html' | 'css' | 'head' | 'partials'>;
+
+/** A Word or PowerPoint template, created from its file (up to 20 MB). */
+export interface OfficeTemplateCreate extends OfficeFields {
+  name: string;
+  slug: string;
+  description?: string | null;
+  kind: OfficeTemplateKind;
+  engine: Engine;
+  tags?: string[];
+  publish?: boolean;
+  file: OfficeFileUpload;
+}
+
+/**
+ * A new version of a Word or PowerPoint template: with `file`, the new document; without, the
+ * latest version's file is kept and only data, schema or settings change.
+ */
+export interface OfficeVersionCreate extends OfficeFields {
+  file?: OfficeFileUpload;
+  change_note?: string;
+  base_checksum?: string;
+  publish?: boolean;
+  allow_breaking?: boolean;
+}
+
+const isOfficeInput = (input: object): input is { file?: OfficeFileUpload } => 'file' in input;
+
+/** The bytes of an upload as a Blob, named for the multipart part. */
+function blobOf(file: OfficeFileUpload): { blob: Blob; name: string } {
+  const blob = file.data instanceof Blob ? file.data : new Blob([file.data as BlobPart]);
+  const own = typeof File !== 'undefined' && file.data instanceof File ? file.data.name : undefined;
+  return { blob, name: file.name ?? own ?? 'document' };
+}
+
+/**
+ * A multipart body the way the API reads it: the file as `file`, strings as they are, booleans
+ * and numbers as text, objects and arrays as JSON text; `undefined` fields are left out.
+ */
+function multipart(fields: Record<string, unknown>, file: OfficeFileUpload): FormData {
+  const form = new FormData();
+  const { blob, name } = blobOf(file);
+  form.set('file', blob, name);
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    form.set(key, typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value));
+  }
+  return form;
 }
 
 export interface Usage {
@@ -652,6 +735,21 @@ export class Formfeed {
       this.request<Render>('POST', '/pdf/watermark', { ...watermark, source: idOf(source) }, withKey(options)),
     info: (source: Render | string, options: RequestOptions = {}): Promise<PdfInfo> =>
       this.request<PdfInfo>('POST', '/pdf/info', { source: idOf(source) }, options),
+    /**
+     * Converts an office document to a PDF render (Starter plan and above): an uploaded file (Word,
+     * Excel, PowerPoint, OpenDocument, RTF or HTML, up to 20 MB, not kept), or the output of a Word or
+     * PowerPoint template render. Costs follow the PDF rule. A busy converter answers 503, which is
+     * retried like any other.
+     */
+    convert: (
+      source: { file: OfficeFileUpload } | Render | string,
+      convert: ConvertOptions = {},
+      options: RequestOptions = {},
+    ): Promise<Render> => {
+      if (typeof source === 'object' && 'file' in source)
+        return this.request<Render>('POST', '/pdf/convert', multipart({ ...convert }, source.file), withKey(options));
+      return this.request<Render>('POST', '/pdf/convert', { ...convert, source: idOf(source) }, withKey(options));
+    },
   };
 
   /**
@@ -791,8 +889,14 @@ export class Formfeed {
     },
     get: (idOrSlug: string, options: RequestOptions = {}): Promise<Template> =>
       this.request<Template>('GET', `/templates/${encodeURIComponent(idOrSlug)}`, undefined, options),
-    create: (input: TemplateCreate, options: RequestOptions = {}): Promise<Template> =>
-      this.request<Template>('POST', '/templates', input, options),
+    /** A Word or PowerPoint template (`kind` `docx` or `pptx`) is created from its `file`, sent as multipart. */
+    create: (input: TemplateCreate | OfficeTemplateCreate, options: RequestOptions = {}): Promise<Template> => {
+      if (isOfficeInput(input) && input.file) {
+        const { file, ...fields } = input;
+        return this.request<Template>('POST', '/templates', multipart(fields, file), options);
+      }
+      return this.request<Template>('POST', '/templates', input, options);
+    },
     update: (
       idOrSlug: string,
       patch: { name?: string; description?: string | null; tags?: string[] },
@@ -806,8 +910,21 @@ export class Formfeed {
       /** `which`: 'published', 'latest', a version number or a channel name (its main version). Carries the files. */
       get: (idOrSlug: string, which: string | number = 'published', options: RequestOptions = {}): Promise<TemplateVersion> =>
         this.request<TemplateVersion>('GET', `/templates/${encodeURIComponent(idOrSlug)}/versions/${encodeURIComponent(String(which))}`, undefined, options),
-      create: (idOrSlug: string, input: TemplateVersionCreate, options: RequestOptions = {}): Promise<TemplateVersion> =>
-        this.request<TemplateVersion>('POST', `/templates/${encodeURIComponent(idOrSlug)}/versions`, input, options),
+      /** For a Word or PowerPoint template, pass `file` to replace the document; without it the latest file is kept. */
+      create: (idOrSlug: string, input: TemplateVersionCreate | OfficeVersionCreate, options: RequestOptions = {}): Promise<TemplateVersion> => {
+        const path = `/templates/${encodeURIComponent(idOrSlug)}/versions`;
+        if (isOfficeInput(input)) {
+          const { file, ...fields } = input;
+          if (file) return this.request<TemplateVersion>('POST', path, multipart(fields, file), options);
+          return this.request<TemplateVersion>('POST', path, fields, options);
+        }
+        return this.request<TemplateVersion>('POST', path, input, options);
+      },
+      /** The Word or PowerPoint file of a version (`which` as for `get`); needs `template:read`. */
+      file: async (idOrSlug: string, which: string | number = 'published', options: RequestOptions = {}): Promise<Uint8Array> => {
+        const path = `/templates/${encodeURIComponent(idOrSlug)}/versions/${encodeURIComponent(String(which))}/file`;
+        return (await this.send<Uint8Array>('GET', path, undefined, options, 'bytes')).body;
+      },
       /**
        * Publishes a version. When both versions store a data schema and the new one breaks callers of the
        * published one, the API refuses with `schema_breaking_change` unless `allowBreaking` is set.
@@ -907,17 +1024,21 @@ export class Formfeed {
     return (await this.send<T>(method, path, body, options)).body;
   }
 
-  /** `request` with the HTTP status, for endpoints whose answer depends on it (201 created, 200 updated). */
+  /**
+   * `request` with the HTTP status, for endpoints whose answer depends on it (201 created, 200 updated).
+   * `bytes` returns a successful body as bytes (file downloads); problems are JSON either way.
+   */
   private async send<T>(
     method: string,
     path: string,
     body?: unknown,
     options: RequestOptions = {},
+    as: 'json' | 'bytes' = 'json',
   ): Promise<{ status: number; body: T }> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.apiKey}`,
-      accept: 'application/json',
+      accept: as === 'bytes' ? '*/*' : 'application/json',
       'user-agent': 'formfeed-sdk-ts/0.2',
     };
     // FormData brings its own multipart content type with the boundary; everything else is JSON.
@@ -953,8 +1074,14 @@ export class Formfeed {
         continue;
       }
       if (res.status === 204) return { status: 204, body: undefined as T };
+      if (as === 'bytes' && res.ok) return { status: res.status, body: new Uint8Array(await res.arrayBuffer()) as T };
       const text = await res.text();
-      const json = text ? (JSON.parse(text) as unknown) : null;
+      let json: unknown = null;
+      try {
+        json = text ? (JSON.parse(text) as unknown) : null;
+      } catch {
+        if (res.ok) throw new FormfeedError('invalid_response', `the API answered HTTP ${res.status} with a body that is not JSON`, res.status);
+      }
       if (!res.ok) {
         const problem = (json ?? {}) as Problem;
         throw new FormfeedError(

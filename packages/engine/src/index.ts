@@ -84,7 +84,7 @@ export {
   renderVersion,
 } from './lib/assemble';
 export type { ChartSpec, ImageOptions } from './lib/helpers';
-export { flowDocument, pagedDocument, pageNumberSpans, paperOf } from './lib/preview';
+export { flowDocument, pagedDocument, pageNumberSpans, paperOf, zoomGestureScript } from './lib/preview';
 export type { PagedOptions, RenderedDraft } from './lib/preview';
 export {
   annotateSourcePositions,
@@ -113,6 +113,7 @@ export {
   OFFICE_FILLED_MAX_BYTES,
   OfficeTemplateError,
   analyzeOffice,
+  officeTextParts,
   renderOffice,
   type OfficeAnalysis,
   type OfficeAnalysisDiagnostic,

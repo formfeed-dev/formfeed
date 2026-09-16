@@ -7,7 +7,8 @@ import { copyFileSync, mkdirSync } from 'node:fs';
 import { build } from 'esbuild';
 import { writeThirdPartyLicenses } from '../../tools/publish/third-party-licenses.mjs';
 
-const externals = ['commander', 'pagedjs', 'chart.js', '@tailwindcss/browser'];
+// @resvg/resvg-js is an optional native dependency: it draws the codes of Word and PowerPoint templates
+const externals = ['commander', 'pagedjs', 'chart.js', '@tailwindcss/browser', '@resvg/resvg-js'];
 
 const { metafile } = await build({
   entryPoints: ['packages/cli/src/main.ts'],

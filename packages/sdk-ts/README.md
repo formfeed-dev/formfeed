@@ -43,6 +43,27 @@ const job = await client.renders.batch({
 const finished = await client.jobs.waitFor(job.id);
 ```
 
+## Word and PowerPoint
+
+```ts
+import { readFile } from 'node:fs/promises';
+
+// a template is a .docx or .pptx with tags such as {{ customer.name }} in its text
+await client.templates.create({
+  name: 'Offer',
+  slug: 'offer',
+  kind: 'docx',
+  engine: 'jinja2',
+  file: { data: await readFile('offer.docx'), name: 'offer.docx' },
+  publish: true,
+});
+
+const filled = await client.renders.create({ template: 'offer', output: 'docx', data }); // or output: 'pdf'
+
+// any office document to PDF (Word, Excel, PowerPoint, OpenDocument, RTF)
+const pdf = await client.pdf.convert({ file: { data: await readFile('report.xlsx'), name: 'report.xlsx' } }, { single_page_sheets: true });
+```
+
 ## Webhooks
 
 ```ts

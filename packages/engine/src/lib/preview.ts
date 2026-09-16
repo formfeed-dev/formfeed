@@ -103,6 +103,31 @@ const pageNavScript = `<script>
 </script>`;
 
 /**
+ * Zoom gestures inside a preview frame: Ctrl+wheel (a touchpad pinch arrives as one too) and
+ * Ctrl+plus/minus/0 would zoom the whole app, and the sandboxed frame's events never reach the app,
+ * so the frame cancels them and asks the parent by message:
+ * `{ type: 'formfeed:zoom', deltaY, deltaMode }` or `{ type: 'formfeed:zoom', step: 'in' | 'out' | 'reset' }`.
+ * The office quick preview's frame uses the same script.
+ */
+export const zoomGestureScript = `<script>
+(function () {
+  var say = function (message) { try { parent.postMessage(message, '*'); } catch (e) {} };
+  window.addEventListener('wheel', function (event) {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    say({ type: 'formfeed:zoom', deltaY: event.deltaY, deltaMode: event.deltaMode });
+  }, { passive: false });
+  window.addEventListener('keydown', function (event) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    var step = event.key === '+' || event.key === '=' ? 'in' : event.key === '-' ? 'out' : event.key === '0' ? 'reset' : null;
+    if (!step) return;
+    event.preventDefault();
+    say({ type: 'formfeed:zoom', step: step });
+  });
+})();
+</script>`;
+
+/**
  * Puts the preview's styles and scripts at the start of the head, after the leading meta tags and
  * before the template's own head. Text or a body element in the template's head makes the parser
  * close the head there, so anything appended before `</head>` would land in the body: Paged.js then
@@ -144,7 +169,7 @@ body.formfeed-preview { box-sizing: border-box; width: ${paper.width}; min-heigh
   const footer = footerHtml
     ? `<div class="formfeed-chrome" style="${chromeBoxStyle(settings, 'footer')}margin-top:8px">${pageNumberSpans(footerHtml, '1', '1')}</div>`
     : '';
-  return intoHead(draft.document, `${chrome}${inspectScript}`)
+  return intoHead(draft.document, `${chrome}${inspectScript}${zoomGestureScript}`)
     .replace(/(<body[^>]*>)/, `$1${header}`)
     .replace('</body>', `${footer}</body>`);
 }
@@ -193,6 +218,6 @@ html { background: #e5e7eb; }
     : '';
   return intoHead(
     draft.document,
-    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${config}${script}${inspectScript}${pageNavScript}`,
+    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${config}${script}${inspectScript}${pageNavScript}${zoomGestureScript}`,
   ).replace(/(<body[^>]*>)/, `$1${header}${footer}`);
 }

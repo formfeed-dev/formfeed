@@ -4,11 +4,22 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
-import type { Formfeed } from '@formfeed/sdk-ts';
+import type { Formfeed, Render } from '@formfeed/sdk-ts';
 import type { Project } from './config';
 import { CliError, exitCodes } from './errors';
-import { contentTypeFor, defaultData, diagnose, localFilePath, previewDocument, readTemplate, renderLocal, type LocalTemplate } from '@formfeed/devkit';
+import {
+  contentTypeFor,
+  defaultData,
+  diagnose,
+  localFilePath,
+  previewDocument,
+  readTemplate,
+  renderLocal,
+  renderOfficeLocal,
+  type LocalTemplate,
+} from '@formfeed/devkit';
 import { remoteAssetBase } from './files';
+import { cliImageHost } from './office-images';
 
 /**
  * `formfeed dev` (spec 15 §4): the editor's preview frame served locally. The server renders with
@@ -16,6 +27,10 @@ import { remoteAssetBase } from './files';
  * server-sent events whenever a file under the template or partials folder changes. Templates see
  * the brand kit of `.formfeed/brand.json` (`renderLocal` reads it on every render). Binds to
  * localhost only; the true-render button needs an API key and stays off without one.
+ *
+ * A Word or PowerPoint template has no local preview (spec 22 §7): the page lists the document's
+ * findings, and the true render (filled here, converted by the API) is shown in the frame; after the
+ * first one, every saved change renders again.
  */
 export interface DevServerOptions {
   project: Project;
@@ -26,6 +41,8 @@ export interface DevServerOptions {
   locale?: string;
   /** Present when a key is configured: true renders go through the API as test renders. */
   client?: Formfeed | null;
+  /** Loads the pictures of Word and PowerPoint templates; the global fetch by default. */
+  fetch?: typeof fetch;
   log?: (line: string) => void;
 }
 
@@ -93,7 +110,9 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
   };
   const watchers: FSWatcher[] = [];
   // `.formfeed` holds brand.json: `formfeed brand pull` in another terminal reloads the preview
-  for (const dir of [template?.dir ?? `${project.templatesDir}/${slug}`, project.partialsDir, project.filesDir, join(project.root, '.formfeed')]) {
+  // `reload` assigned it, which the compiler cannot see through the closure
+  const loaded = template as LocalTemplate | null;
+  for (const dir of [loaded?.dir ?? `${project.templatesDir}/${slug}`, project.partialsDir, project.filesDir, join(project.root, '.formfeed')]) {
     if (!existsSync(dir)) continue;
     try {
       watchers.push(watch(dir, { recursive: true }, broadcast));
@@ -161,6 +180,11 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
         res.end(errorPage(loadError ?? 'template not found'));
         return;
       }
+      if (template.file) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(officePage(template.meta.kind, Boolean(options.client)));
+        return;
+      }
       const mode = url.searchParams.get('mode') === 'flow' || template.meta.kind === 'image' ? 'flow' : 'paged';
       const set = defaultData(template, url.searchParams.get('data') ?? options.data ?? undefined);
       const locale = url.searchParams.get('locale') ?? options.locale ?? undefined;
@@ -194,16 +218,33 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
       const set = defaultData(template, body.data ?? options.data ?? undefined);
       // a true render leaves as a complete document, so it resolves against the remote library
       assetBase ??= await remoteAssetBase(options.client);
-      const rendered = await renderLocal(project, template, set.data, { mode: 'print', assetBaseUrl: assetBase });
+      const meta = { source: 'formfeed dev', template: slug };
       try {
-        const render = await options.client.renders.create({
-          html: rendered.document,
-          settings: rendered.settings as Record<string, unknown>,
-          output: body.output ?? (template.meta.kind === 'image' ? 'png' : 'pdf'),
-          meta: { source: 'formfeed dev', template: slug },
-        });
+        let render: Render;
+        let warnings: string[] = [];
+        if (template.file) {
+          // no API renders a local document: filled here as the worker would, converted there
+          let filled;
+          try {
+            filled = await renderOfficeLocal(project, template, set.data, { assetBaseUrl: assetBase, images: cliImageHost(options.fetch) });
+          } catch (e) {
+            res.writeHead(422, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+            return;
+          }
+          warnings = filled.warnings;
+          render = await options.client.pdf.convert({ file: { data: filled.bytes, name: `${slug}.${template.meta.kind}` } }, { filename: `${slug}.pdf`, meta });
+        } else {
+          const rendered = await renderLocal(project, template, set.data, { mode: 'print', assetBaseUrl: assetBase });
+          render = await options.client.renders.create({
+            html: rendered.document,
+            settings: rendered.settings as Record<string, unknown>,
+            output: body.output ?? (template.meta.kind === 'image' ? 'png' : 'pdf'),
+            meta,
+          });
+        }
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(render));
+        res.end(JSON.stringify({ ...render, warnings }));
       } catch (e) {
         const status = (e as { status?: number }).status;
         res.writeHead(status && status >= 400 ? status : 502, { 'content-type': 'application/json' });
@@ -231,6 +272,7 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
       dataSets: Object.keys(template.dataSets),
       dataSet: set.name,
       locales: template.i18n ? Object.keys(template.i18n) : [],
+      office: Boolean(template.file),
       diagnostics: diagnose(template, set.data),
       trueRender: Boolean(options.client),
       error: null,
@@ -266,6 +308,15 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
+}
+
+/** The frame of a Word or PowerPoint template before its first true render. */
+function officePage(kind: string, canRender: boolean): string {
+  const app = kind === 'pptx' ? 'PowerPoint' : 'Word';
+  const next = canRender
+    ? 'Press <strong>True render</strong>: the document is filled here and converted to PDF by the API. After that, every saved change renders again.'
+    : 'Log in with <code>formfeed login --api-key ff_test_…</code> to render it as PDF.';
+  return `<!doctype html><meta charset="utf-8"><body style="font:14px/1.5 system-ui;padding:32px;color:#3f3f46;background:#f4f4f5"><strong>${app} template</strong><p>Edit <code>template.${kind}</code> in ${app} and save it; the findings on the right update on every save. There is no local preview of ${app} documents.</p><p>${next}</p></body>`;
 }
 
 function errorPage(message: string): string {
@@ -323,14 +374,25 @@ function shell(slug: string): string {
 <script>
 (function () {
   var state = { mode: 'paged', data: null, locale: null };
+  // Word and PowerPoint: the frame shows the last true render, and saves render again once there was one
+  var office = { active: false, pdf: null, auto: false };
   var $ = function (id) { return document.getElementById(id); };
   function query() {
     var p = new URLSearchParams(); p.set('mode', state.mode);
     if (state.data) p.set('data', state.data); if (state.locale) p.set('locale', state.locale);
     return p.toString();
   }
-  function refresh() {
+  function showPreview() {
+    // template HTML runs sandboxed; Chrome shows no PDF in a sandboxed frame, so only the PDF goes without
+    $('frame').setAttribute('sandbox', 'allow-scripts allow-same-origin');
     $('frame').src = '/preview?' + query() + '&t=' + Date.now();
+  }
+  function showPdf(url) {
+    $('frame').removeAttribute('sandbox');
+    $('frame').src = url;
+  }
+  function refresh() {
+    if (!(office.active && office.pdf)) showPreview();
     fetch('/api/state?' + query()).then(function (r) { return r.json(); }).then(function (s) {
       $('name').textContent = s.name ? s.name + ' · ' + s.slug : s.slug;
       var sel = $('data'); sel.innerHTML = '';
@@ -338,14 +400,17 @@ function shell(slug: string): string {
       $('localeWrap').hidden = !s.locales.length;
       var ls = $('locale'); ls.innerHTML = '';
       s.locales.forEach(function (l) { var o = document.createElement('option'); o.value = l; o.textContent = l; if (l === state.locale) o.selected = true; ls.appendChild(o); });
-      $('paged').disabled = s.kind === 'image';
+      office.active = Boolean(s.office);
+      $('paged').disabled = s.kind === 'image' || office.active;
+      $('flow').disabled = office.active;
       $('render').disabled = !s.trueRender; $('render').title = s.trueRender ? 'Render through the API as a test render' : 'Run formfeed login --api-key first';
       var box = $('diagnostics'); box.innerHTML = '';
       if (s.error) { var e = document.createElement('div'); e.className = 'diag error'; e.textContent = s.error; box.appendChild(e); }
       if (!s.diagnostics.length && !s.error) { box.innerHTML = '<div class="diag info">No findings</div>'; }
       s.diagnostics.forEach(function (d) {
         var el = document.createElement('div'); el.className = 'diag ' + d.severity;
-        el.innerHTML = '<code>' + d.range.start.line + ':' + d.range.start.column + '</code> ' + d.message.replace(/</g, '&lt;') + ' <code>[' + d.code + ']</code>';
+        var at = d.part ? d.part + (d.paragraph ? ' ¶' + d.paragraph : '') : d.range.start.line + ':' + d.range.start.column;
+        el.innerHTML = '<code>' + at.replace(/</g, '&lt;') + '</code> ' + d.message.replace(/</g, '&lt;') + ' <code>[' + d.code + ']</code>';
         box.appendChild(el);
       });
       $('status').textContent = 'updated ' + new Date().toLocaleTimeString();
@@ -356,7 +421,7 @@ function shell(slug: string): string {
   ['flow', 'paged'].forEach(function (m) { $(m).addEventListener('click', function () {
     state.mode = m; $('flow').setAttribute('aria-pressed', String(m === 'flow')); $('paged').setAttribute('aria-pressed', String(m === 'paged')); refresh();
   }); });
-  $('render').addEventListener('click', function () {
+  function render() {
     $('result').textContent = 'Rendering…';
     fetch('/api/render', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data: state.data }) })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
@@ -365,11 +430,19 @@ function shell(slug: string): string {
         var r = res.body;
         $('result').innerHTML = (r.page_count ? r.page_count + ' page(s) · ' : '') + (r.units != null ? r.units + ' units · ' : '') +
           (r.download_url ? '<a href="' + r.download_url + '" target="_blank" rel="noopener">open output</a>' : r.status);
+        (r.warnings || []).forEach(function (w) {
+          var el = document.createElement('div'); el.className = 'diag warning'; el.textContent = w; $('result').appendChild(el);
+        });
+        if (office.active && r.download_url) { office.pdf = r.download_url; office.auto = true; showPdf(r.download_url); }
       })
       .catch(function (e) { $('result').textContent = String(e); });
-  });
+  }
+  $('render').addEventListener('click', render);
   var es = new EventSource('/events');
-  es.addEventListener('change', refresh);
+  es.addEventListener('change', function () {
+    refresh();
+    if (office.active && office.auto) render();
+  });
   window.addEventListener('message', function (ev) { if (ev.data && ev.data.type === 'formfeed:pages') $('status').textContent = ev.data.pages + ' page(s) · updated ' + new Date().toLocaleTimeString(); });
   refresh();
 })();

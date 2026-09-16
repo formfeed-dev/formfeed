@@ -26,6 +26,19 @@ async with AsyncFormfeed("ff_test_…") as client:
     render = await client.renders.create(html="<h1>Hello</h1>", output="png")
 ```
 
+Word and PowerPoint:
+
+```python
+# a template is a .docx or .pptx with tags such as {{ customer.name }} in its text
+with open("offer.docx", "rb") as f:
+    client.templates.create(name="Offer", slug="offer", kind="docx", engine="jinja2", file=f, publish=True)
+filled = client.renders.create(template="offer", output="docx", data={"customer": {"name": "Olvarest GmbH"}})
+
+# any office document to PDF (Word, Excel, PowerPoint, OpenDocument, RTF)
+with open("report.xlsx", "rb") as f:
+    pdf = client.pdf.convert(file=f, single_page_sheets=True)
+```
+
 Webhooks:
 
 ```python

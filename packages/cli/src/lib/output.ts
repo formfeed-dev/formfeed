@@ -30,9 +30,11 @@ export function table(rows: string[][], header?: string[]): string[] {
   return lines;
 }
 
-export function formatDiagnostic(file: string, d: Diagnostic): string {
+/** One finding per line; Word and PowerPoint findings name the part and paragraph instead of a line. */
+export function formatDiagnostic(file: string, d: Diagnostic & { part?: string; paragraph?: number }): string {
   const tag = d.severity === 'error' ? 'error' : d.severity === 'warning' ? 'warn ' : 'info ';
-  return `${tag}  ${file}:${d.range.start.line}:${d.range.start.column}  ${d.message}  [${d.code}]`;
+  const at = d.part ? `${file} › ${d.part}${d.paragraph ? ` ¶${d.paragraph}` : ''}` : `${file}:${d.range.start.line}:${d.range.start.column}`;
+  return `${tag}  ${at}  ${d.message}  [${d.code}]`;
 }
 
 /** Reports an error the documented way and returns the exit code to use. */
