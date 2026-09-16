@@ -25,6 +25,15 @@ export {
   type RemovedRelationship,
   type SanitisedDocument,
 } from './sanitise';
+export { STRUCTURAL_ELEMENT, applyStructure, blockRole, type StructuredPart } from './structure';
+export {
+  findTags,
+  normaliseTags,
+  undoAutocorrect,
+  type NormalisedTags,
+  type OfficeDiagnostic,
+  type OfficeDiagnosticCode,
+} from './tags';
 export {
   createNonce,
   fromTemplateOutput,

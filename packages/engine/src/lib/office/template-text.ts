@@ -16,13 +16,55 @@ export type TextFlavour = 'wordprocessing' | 'drawing';
 
 const TEXT_ELEMENT: Record<TextFlavour, string> = { wordprocessing: 'w:t', drawing: 'a:t' };
 
+/**
+ * One run of markup between two pieces of text. What it contains decides whether a tag may span it:
+ * run boundaries inside a paragraph may be merged away, a paragraph or hyperlink boundary may not
+ * (`office/tags.ts`).
+ */
+export interface MarkupPiece {
+  raw: string;
+  /** Paragraphs (`w:p`, `a:p`) that open in this piece; the index of the paragraph a tag sits in. */
+  paragraphOpens: number;
+  /** A paragraph starts or ends here, so text on both sides is not in the same paragraph. */
+  paragraphBoundary: boolean;
+  /**
+   * Something other than a plain run boundary: a hyperlink, a content control, a tracked change, a
+   * field, an alternate-content branch. Merging across it would move text out of its element.
+   */
+  containerBoundary: boolean;
+}
+
 export interface TemplateSource {
   /** The part as template text: decoded text of the text elements, placeholders for the markup. */
   source: string;
-  markup: string[];
+  markup: MarkupPiece[];
   nonce: string;
   flavour: TextFlavour;
 }
+
+/** Elements whose boundary a tag may not cross (spec 22 §4.3 step 4). */
+const CONTAINERS = new Set([
+  'w:hyperlink',
+  'w:sdt',
+  'w:sdtContent',
+  'w:ins',
+  'w:del',
+  'w:smartTag',
+  'w:fldSimple',
+  'w:fldChar',
+  'w:instrText',
+  'mc:AlternateContent',
+  'mc:Choice',
+  'mc:Fallback',
+  'w:txbxContent',
+  'w:tbl',
+  'w:tr',
+  'w:tc',
+  'a:tbl',
+  'a:tr',
+  'a:tc',
+]);
+const PARAGRAPHS = new Set(['w:p', 'a:p']);
 
 export interface FilledPart {
   xml: string;
@@ -34,6 +76,28 @@ const OPEN = '\uE000';
 const CLOSE = '\uE001';
 
 /** A nonce of letters only, so it never reads as a number next to the index. */
+/** The element `applyStructure` puts in place of a structural paragraph or row. */
+const STRUCTURAL = 'ff:tag';
+const STRUCTURAL_ELEMENTS = /<ff:tag>[^<]*<\/ff:tag>/g;
+
+function isTextElement(name: string, textElement: string): boolean {
+  return name === textElement || name === STRUCTURAL;
+}
+
+function emptyPiece(): MarkupPiece {
+  return { raw: '', paragraphOpens: 0, paragraphBoundary: false, containerBoundary: false };
+}
+
+/** The placeholder of markup piece `index`, as it appears in the template source. */
+export function placeholderFor(nonce: string, index: number): string {
+  return `${OPEN}${nonce}${index}${CLOSE}`;
+}
+
+/** Matches any placeholder of this template, with the piece index in group 1. */
+export function placeholderPattern(nonce: string): RegExp {
+  return new RegExp(`${OPEN}${nonce}(\\d+)${CLOSE}`, 'g');
+}
+
 export function createNonce(random: () => number = Math.random): string {
   let nonce = '';
   for (let i = 0; i < 16; i++) nonce += String.fromCharCode(97 + Math.floor(random() * 26));
@@ -44,15 +108,15 @@ export function toTemplateSource(xml: string, flavour: TextFlavour, nonce: strin
   const tokens = tokenize(xml, part);
   assertWellFormed(tokens, part);
   const textElement = TEXT_ELEMENT[flavour];
-  const markup: string[] = [];
+  const markup: MarkupPiece[] = [];
   let source = '';
-  let pending = '';
+  let pending: MarkupPiece = emptyPiece();
   let inText = false;
   const flush = () => {
-    if (!pending) return;
+    if (!pending.raw) return;
     source += `${OPEN}${nonce}${markup.length}${CLOSE}`;
     markup.push(pending);
-    pending = '';
+    pending = emptyPiece();
   };
   for (const token of tokens) {
     if (token.kind === 'text' && inText) {
@@ -60,9 +124,15 @@ export function toTemplateSource(xml: string, flavour: TextFlavour, nonce: strin
       source += decodeText(token.raw);
       continue;
     }
-    pending += token.raw;
-    if (token.kind === 'open' && token.name === textElement && !token.selfClosing) inText = true;
-    else if (token.kind === 'close' && token.name === textElement) inText = false;
+    pending.raw += token.raw;
+    if (token.kind === 'open' || token.kind === 'close') {
+      if (PARAGRAPHS.has(token.name)) {
+        pending.paragraphBoundary = true;
+        if (token.kind === 'open' && !token.selfClosing) pending.paragraphOpens++;
+      } else if (CONTAINERS.has(token.name)) pending.containerBoundary = true;
+    }
+    if (token.kind === 'open' && isTextElement(token.name, textElement) && !token.selfClosing) inText = true;
+    else if (token.kind === 'close' && isTextElement(token.name, textElement)) inText = false;
   }
   flush();
   return { source, markup, nonce, flavour };
@@ -80,12 +150,14 @@ export function fromTemplateOutput(output: string, template: TemplateSource, par
     xml += escapeText(text);
     const piece = template.markup[Number(m[1])];
     if (piece === undefined) throw new OfficeError('office_document_invalid', `${part ?? 'part'}: unknown placeholder`);
-    xml += piece;
+    xml += piece.raw;
     last = (m.index ?? 0) + m[0].length;
   }
   const { text, removed } = stripForbidden(output.slice(last));
   removedCharacters += removed;
   xml += escapeText(text);
+  // Structural tags have done their work; their elements go (office/structure.ts).
+  xml = xml.replace(STRUCTURAL_ELEMENTS, '');
   const laidOut = layoutText(xml, template.flavour, part);
   return { xml: laidOut, removedCharacters };
 }

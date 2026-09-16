@@ -33,8 +33,11 @@ describe('toTemplateSource', () => {
   it('turns only text element content into decoded template text', () => {
     const template = toTemplateSource(doc(para('{% if a &gt; b %}R&amp;D{% endif %}', '<w:rPr><w:b/></w:rPr>')), 'wordprocessing', 'abcdefghijklmnop');
     expect(template.source).toBe('\uE000abcdefghijklmnop0\uE001{% if a > b %}R&D{% endif %}\uE000abcdefghijklmnop1\uE001');
-    expect(template.markup[0]).toContain('<w:rPr><w:b/></w:rPr><w:t>');
-    expect(template.markup[1]).toBe('</w:t></w:r></w:p></w:body></w:document>');
+    expect(template.markup[0]?.raw).toContain('<w:rPr><w:b/></w:rPr><w:t>');
+    expect(template.markup[1]?.raw).toBe('</w:t></w:r></w:p></w:body></w:document>');
+    // the closing piece ends the paragraph, so a tag may not span it
+    expect(template.markup[1]).toMatchObject({ paragraphBoundary: true, containerBoundary: false });
+    expect(template.markup[0]).toMatchObject({ paragraphOpens: 1, paragraphBoundary: true });
   });
 
   it('leaves field codes and deleted text as markup', () => {
