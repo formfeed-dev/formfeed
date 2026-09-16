@@ -165,6 +165,9 @@ export function pagedDocument(draft: RenderedDraft, options: PagedOptions): stri
 .ff-running-header { position: running(ffHeader); }
 .ff-running-footer { position: running(ffFooter); }
 .ff-running-header, .ff-running-footer { color: #6b7280; font: 10px/1.3 system-ui, sans-serif; }
+/* Chromium prints the header at the top edge and the footer at the bottom edge; margin boxes centre */
+.pagedjs_margin-top-center { align-items: flex-start !important; }
+.pagedjs_margin-bottom-center { align-items: flex-end !important; }
 .ff-running-header { ${chromeBoxStyle(settings, 'header')} }
 .ff-running-footer { ${chromeBoxStyle(settings, 'footer')} }
 .ff-page-no::after { content: counter(page); }
