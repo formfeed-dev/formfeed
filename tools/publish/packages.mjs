@@ -15,7 +15,7 @@
  * `packages/cli`, `mcp` and `n8n-nodes-formfeed` repeat `author`, `repository` and `bugs` in their
  * own package.json; keep them equal to `common` below.
  */
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 /** The public repository the packages are published from (tools/public-repo). */
 export const PUBLIC_REPOSITORY = 'formfeed-dev/formfeed';

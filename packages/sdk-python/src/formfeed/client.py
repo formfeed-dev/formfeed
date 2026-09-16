@@ -40,7 +40,7 @@ from .models import (
 )
 
 HOSTS: dict[str, str] = {"eu": "https://api-eu.formfeed.dev/v1", "us": "https://api-us.formfeed.dev/v1"}
-USER_AGENT = "formfeed-sdk-python/0.2"
+USER_AGENT = "formfeed-sdk-python/0.3"
 RETRY_STATUSES = (429, 503)
 
 T = TypeVar("T")

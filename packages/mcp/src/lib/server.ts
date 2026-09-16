@@ -15,7 +15,7 @@ export interface ServerOptions {
   fetch?: typeof fetch;
 }
 
-export const SERVER_INFO = { name: 'formfeed', version: '0.2.0' };
+export const SERVER_INFO = { name: 'formfeed', version: '0.3.0' };
 
 const engineSchema = z.enum(['jinja2', 'liquid', 'handlebars']);
 const outputSchema = z.enum(outputFormats);
