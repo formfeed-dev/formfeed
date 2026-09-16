@@ -17,6 +17,7 @@ export const officeFormats = [
   'xls',
   'ppt',
   'rtf',
+  'html',
 ] as const;
 export type OfficeFormat = (typeof officeFormats)[number];
 
@@ -34,6 +35,7 @@ export const officeContentTypes: Record<OfficeFormat, string> = {
   xls: 'application/vnd.ms-excel',
   ppt: 'application/vnd.ms-powerpoint',
   rtf: 'application/rtf',
+  html: 'text/html',
 };
 
 export interface DetectedOffice {
@@ -88,7 +90,7 @@ const unsupported = (message: string, details: Record<string, unknown> = {}) =>
   new OfficeError('file_type_unsupported', message, details);
 
 const ACCEPTED =
-  'Accepted are DOCX, XLSX, PPTX, ODT, ODS, ODP, DOC, XLS, PPT and RTF';
+  'Accepted are DOCX, XLSX, PPTX, ODT, ODS, ODP, DOC, XLS, PPT, RTF and HTML';
 
 export function detectOfficeFormat(bytes: Uint8Array): DetectedOffice {
   if (bytes.length > officeLimits.maxFileBytes)
@@ -103,6 +105,9 @@ export function detectOfficeFormat(bytes: Uint8Array): DetectedOffice {
   if (isZip(bytes)) return detectZip(bytes);
   if (isCfb(bytes)) return { format: detectCfb(bytes), archive: null };
   if (startsWithAscii(bytes, '{\\rtf')) return { format: 'rtf', archive: null };
+  // Word's "save as web page" and many report exports are HTML under a .doc name; LibreOffice reads
+  // them, and the name never decides the type here either.
+  if (isHtml(bytes)) return { format: 'html', archive: null };
   throw unsupported(`The file is not an office document. ${ACCEPTED}.`);
 }
 
@@ -180,6 +185,19 @@ export function isMacroPart(name: string): boolean {
 /** A DOCTYPE anywhere in the text (entity expansion); the text is already decoded, UTF-16 included. */
 export function hasDoctype(xml: string): boolean {
   return /<!DOCTYPE/i.test(xml) || /<!ENTITY/i.test(xml);
+}
+
+/**
+ * HTML: a BOM, whitespace, comments and an XML declaration may come first, then `<!DOCTYPE html>` or
+ * `<html>`. Deliberately narrow, so an SVG, an XML file or a text file is still refused.
+ */
+export function isHtml(bytes: Uint8Array): boolean {
+  let start = 0;
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) start = 3;
+  const head = new TextDecoder().decode(bytes.subarray(start, start + 4096));
+  const withoutProlog = head.replace(/^\s+/, '').replace(/^<\?xml[^>]*\?>\s*/i, '');
+  const withoutComments = withoutProlog.replace(/^(?:<!--[\s\S]*?-->\s*)+/, '');
+  return /^(?:<!doctype\s+html|<html[\s>])/i.test(withoutComments);
 }
 
 function startsWithAscii(bytes: Uint8Array, prefix: string): boolean {

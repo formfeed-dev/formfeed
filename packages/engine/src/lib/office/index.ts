@@ -8,6 +8,7 @@ export {
   cfbStreamNames,
   detectOfficeFormat,
   hasDoctype,
+  isHtml,
   isMacroPart,
   officeContentTypes,
   officeFormats,
@@ -18,6 +19,7 @@ export {
 } from './detect';
 export {
   parseAttributes,
+  remoteResourceCount,
   removeExternalRelationships,
   sanitiseForConversion,
   type RemovedRelationship,

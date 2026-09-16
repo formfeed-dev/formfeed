@@ -29,6 +29,16 @@ export interface SanitisedDocument {
   /** The input itself when nothing had to change. */
   bytes: Uint8Array;
   removed: RemovedRelationship[];
+  /** What the customer should know about the conversion, for the render's warnings. */
+  notes: string[];
+}
+
+/** `src`/`href` of a resource the converter would have to fetch, which it never does. */
+const REMOTE_RESOURCE = /<(?:img|image|link|object|embed|iframe|input)\b[^>]*\b(?:src|href|data)\s*=\s*["']?(https?:|\/\/|file:)/gi;
+
+/** How many remote resources an HTML document references; they stay empty in the PDF. */
+export function remoteResourceCount(html: string): number {
+  return [...html.matchAll(REMOTE_RESOURCE)].length;
 }
 
 /** A DOCTYPE may only appear before the root element, so the first bytes of a part decide. */
@@ -36,7 +46,19 @@ const PROLOG_BYTES = 64 * 1024;
 
 export function sanitiseForConversion(bytes: Uint8Array): SanitisedDocument {
   const { format, archive } = detectOfficeFormat(bytes);
-  if (!archive) return { format, bytes, removed: [] };
+  if (format === 'html') {
+    // Nothing to rewrite: the sidecar refuses every fetch, so remote images simply stay empty.
+    const remote = remoteResourceCount(new TextDecoder().decode(bytes));
+    return {
+      format,
+      bytes,
+      removed: [],
+      notes: remote
+        ? [`The document references ${remote} resource(s) on the web; they are not loaded and stay empty in the PDF`]
+        : [],
+    };
+  }
+  if (!archive) return { format, bytes, removed: [], notes: [] };
 
   for (const entry of archive.entries)
     if (isXmlPart(entry.name) && hasDoctype(prolog(entry)))
@@ -47,7 +69,7 @@ export function sanitiseForConversion(bytes: Uint8Array): SanitisedDocument {
       );
 
   if (format !== 'docx' && format !== 'xlsx' && format !== 'pptx')
-    return { format, bytes, removed: [] };
+    return { format, bytes, removed: [], notes: [] };
   return stripExternalRelationships(format, bytes, archive);
 }
 
@@ -67,12 +89,12 @@ function stripExternalRelationships(
     removed.push(...fromPart.map((r) => ({ part: entry.name, ...r })));
     rewritten.set(entry.name, new TextEncoder().encode(cleaned));
   }
-  if (!removed.length) return { format, bytes, removed };
+  if (!removed.length) return { format, bytes, removed, notes: [] };
   const entries: ZipWriteEntry[] = archive.entries.map((entry) => {
     const data = rewritten.get(entry.name);
     return data ? { name: entry.name, data } : entry;
   });
-  return { format, bytes: writeZip(entries), removed };
+  return { format, bytes: writeZip(entries), removed, notes: [] };
 }
 
 /**

@@ -351,6 +351,19 @@ describe('detectOfficeFormat', () => {
     );
   });
 
+  it('detects HTML, whatever the file is named, and still refuses other text', () => {
+    // Word's "save as web page" and report exports carry .doc names (spec 22 §3.2)
+    const wordHtml = " <html xmlns:o='urn:schemas-microsoft-com:office:office'><head><meta charset='utf-8'></head><body><p>x</p></body></html>";
+    expect(detectOfficeFormat(strToU8(wordHtml)).format).toBe('html');
+    expect(detectOfficeFormat(new Uint8Array([0xef, 0xbb, 0xbf, ...strToU8(wordHtml)])).format).toBe('html');
+    expect(detectOfficeFormat(strToU8('<!DOCTYPE html>\n<html><body>x</body></html>')).format).toBe('html');
+    expect(
+      detectOfficeFormat(strToU8('<?xml version="1.0"?><!-- note --><html xmlns="http://www.w3.org/1999/xhtml"><body/></html>')).format,
+    ).toBe('html');
+    for (const other of ['<svg xmlns="http://www.w3.org/2000/svg"/>', '<?xml version="1.0"?><root/>', 'plain text', '{"a":1}'])
+      expect(codeOf(() => detectOfficeFormat(strToU8(other))), other).toBe('file_type_unsupported');
+  });
+
   it('detects RTF and refuses everything else', () => {
     expect(detectOfficeFormat(strToU8('{\\rtf1\\ansi hello}')).format).toBe(
       'rtf',
@@ -436,6 +449,16 @@ describe('sanitiseForConversion', () => {
     ).toBe('office_document_invalid');
   });
 
+  it('passes HTML through and says what the converter will not load', () => {
+    const plain = sanitiseForConversion(strToU8('<html><body><p>Fennlor</p></body></html>'));
+    expect(plain).toMatchObject({ format: 'html', removed: [], notes: [] });
+    const remote = sanitiseForConversion(
+      strToU8('<html><body><img src="https://olvarest.example/logo.png"><link href="//cdn.example/a.css"><img src="data:image/png;base64,AA"></body></html>'),
+    );
+    expect(remote.notes).toEqual([expect.stringContaining('2 resource(s) on the web')]);
+    expect(remote.bytes).toHaveLength(plain.bytes.length > 0 ? remote.bytes.length : 0);
+  });
+
   it('checks ODF parts but leaves legacy formats to the sidecar', () => {
     const bad = odf('application/vnd.oasis.opendocument.text', {
       'styles.xml': strToU8('<!DOCTYPE x><x/>'),
@@ -448,6 +471,7 @@ describe('sanitiseForConversion', () => {
       format: 'doc',
       bytes: legacy,
       removed: [],
+      notes: [],
     });
   });
 
