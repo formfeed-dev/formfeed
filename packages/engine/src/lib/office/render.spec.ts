@@ -4,7 +4,8 @@ import { defaultHelpers } from '../helpers';
 import type { EngineId, RenderContext } from '../types';
 import { documentFonts, fontDiagnostics } from './fonts';
 import { makeIdsUnique } from './ids';
-import { OfficeTemplateError, renderOffice } from './render';
+import { OfficeTemplateError, analyzeOffice, renderOffice } from './render';
+import { starterDocument } from './starter';
 import { dropTaggedFallbacks } from './structure';
 import { assertWellFormed, tokenize } from './xml';
 import { readText, readZip } from './zip';
@@ -119,6 +120,64 @@ describe('renderOffice', () => {
     expect(xml).toContain('<a:rPr b="1"/><a:t>Olvarest GmbH</a:t>');
     expect(xml.match(/<a:rPr i="1"\/>/g)).toHaveLength(2);
     expect(xml).not.toContain('{%');
+  });
+});
+
+describe('analyzeOffice', () => {
+  it('lists tags per paragraph, variables and engine problems as paragraphs', () => {
+    const body =
+      p('Kunde: {{ customer.name }}') +
+      p('{% for item in items %}') +
+      p('{{ item.name | nope }}') +
+      p('{% endfor %}') +
+      p('{# Hinweis #}{{ missing.value }}');
+    const analysis = analyzeOffice(docx(body, { 'word/fontTable.xml': strToU8('<w:fonts xmlns:w="w"><w:font w:name="Aptos"/></w:fonts>') }), {
+      engine: 'jinja2',
+      sampleData: data,
+      installedFonts: ['Liberation Sans'],
+    });
+    expect(analysis.format).toBe('docx');
+    expect(analysis.tags.map((t) => [t.paragraph, t.kind, t.text])).toEqual([
+      [1, 'output', '{{ customer.name }}'],
+      [2, 'block', '{% for item in items %}'],
+      [3, 'output', '{{ item.name | nope }}'],
+      [4, 'block', '{% endfor %}'],
+      [5, 'comment', '{# Hinweis #}'],
+      [5, 'output', '{{ missing.value }}'],
+    ]);
+    expect(analysis.variables.map((v) => v.path.join('.'))).toContain('customer.name');
+    const unknownFilter = analysis.diagnostics.find((d) => d.text.includes('nope'));
+    expect(unknownFilter).toMatchObject({ part: 'word/document.xml', paragraph: 3 });
+    expect(analysis.diagnostics.find((d) => d.message.includes('missing'))).toMatchObject({ paragraph: 5 });
+    expect(analysis.diagnostics.find((d) => d.code === 'office-font-substituted')).toMatchObject({ text: 'Aptos', severity: 'warning' });
+    expect(analysis.fonts).toEqual([{ name: 'Aptos', embedded: false }]);
+  });
+
+  it('reports includes and split tags without rendering', () => {
+    const analysis = analyzeOffice(docx(p('Text') + p("{% include 'footer' %}") + p('{{ customer') + p('.name }}')), { engine: 'jinja2' });
+    expect(analysis.diagnostics.map((d) => [d.code, d.paragraph])).toEqual(
+      expect.arrayContaining([
+        ['unsupported-in-office', 2],
+        ['office-tag-spans-elements', 3],
+      ]),
+    );
+  });
+});
+
+describe('starterDocument', () => {
+  it('fills in every engine with its own sample data and has nothing to report', async () => {
+    for (const engine of ['jinja2', 'liquid', 'handlebars'] as EngineId[]) {
+      const starter = starterDocument(engine);
+      const analysis = analyzeOffice(starter.bytes, { engine, sampleData: starter.sampleData });
+      expect(analysis.diagnostics.filter((d) => d.severity !== 'info'), engine).toEqual([]);
+      const result = await renderOffice(starter.bytes, { engine, data: starter.sampleData, context });
+      const xml = await document(result.bytes);
+      expect(xml, engine).toContain('Offer A-2026-001');
+      expect(xml, engine).toContain('>Implementation<');
+      expect(xml, engine).toContain('Valid for 30 days.');
+      expect(xml, engine).not.toContain('{');
+      assertWellFormed(tokenize(xml));
+    }
   });
 });
 

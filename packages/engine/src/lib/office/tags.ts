@@ -54,24 +54,7 @@ const AUTOCORRECTED: Array<[RegExp, string]> = [
 ];
 
 export function normaliseTags(template: TemplateSource, part: string): NormalisedTags {
-  const pattern = placeholderPattern(template.nonce);
-  // The text without placeholders, and for each character where it came from in the source.
-  let text = '';
-  const origin: number[] = [];
-  const placeholders: Placeholder[] = [];
-  let last = 0;
-  for (const m of template.source.matchAll(pattern)) {
-    for (let i = last; i < (m.index ?? 0); i++) {
-      text += template.source[i];
-      origin.push(i);
-    }
-    placeholders.push({ index: Number(m[1]), at: text.length, from: m.index ?? 0, to: (m.index ?? 0) + m[0].length });
-    last = (m.index ?? 0) + m[0].length;
-  }
-  for (let i = last; i < template.source.length; i++) {
-    text += template.source[i];
-    origin.push(i);
-  }
+  const { text, origin, placeholders } = stripPlaceholders(template);
   /** Where a span of `text` sits in the source. */
   const sourceRange = (from: number, to: number): [number, number] => [
     origin[from] ?? template.source.length,
@@ -129,6 +112,57 @@ interface Placeholder {
   /** Its span in the template source. */
   from: number;
   to: number;
+}
+
+/** The source's text without placeholders, where each character came from, and the placeholders. */
+function stripPlaceholders(template: TemplateSource): { text: string; origin: number[]; placeholders: Placeholder[] } {
+  const pattern = placeholderPattern(template.nonce);
+  let text = '';
+  const origin: number[] = [];
+  const placeholders: Placeholder[] = [];
+  let last = 0;
+  for (const m of template.source.matchAll(pattern)) {
+    for (let i = last; i < (m.index ?? 0); i++) {
+      text += template.source[i];
+      origin.push(i);
+    }
+    placeholders.push({ index: Number(m[1]), at: text.length, from: m.index ?? 0, to: (m.index ?? 0) + m[0].length });
+    last = (m.index ?? 0) + m[0].length;
+  }
+  for (let i = last; i < template.source.length; i++) {
+    text += template.source[i];
+    origin.push(i);
+  }
+  return { text, origin, placeholders };
+}
+
+/** A tag as the office template page lists it (spec 22 §6). */
+export interface OfficeTag {
+  part: string;
+  paragraph: number;
+  /** The tag as the engine reads it, on one line. */
+  text: string;
+  /** `output` for `{{ }}`, `block` for `{% %}` and Handlebars blocks, `comment` for `{# #}`. */
+  kind: 'output' | 'block' | 'comment';
+}
+
+/** Every tag of a (normalised) part with its paragraph. */
+export function listTags(template: TemplateSource, part: string): OfficeTag[] {
+  const { text, placeholders } = stripPlaceholders(template);
+  return findTags(text).map((tag) => {
+    const raw = text.slice(tag.start, tag.end);
+    const kind = raw.startsWith('{#') ? 'comment' : raw.startsWith('{%') || /^\{\{~?\s*[#/^]/.test(raw) || /^\{\{~?\s*else\b/.test(raw) ? 'block' : 'output';
+    return { part, paragraph: paragraphOf(template, placeholders, tag.start), text: raw.replace(/\s+/g, ' ').trim(), kind };
+  });
+}
+
+/** The 1-based paragraph an offset of the template source sits in (engine diagnostics). */
+export function paragraphAtSource(template: TemplateSource, offset: number): number {
+  const { origin, placeholders } = stripPlaceholders(template);
+  // the text position of the first character at or after the offset
+  let at = origin.findIndex((o) => o >= offset);
+  if (at === -1) at = origin.length;
+  return paragraphOf(template, placeholders, at);
 }
 
 /** Applies non-overlapping edits, last first, so earlier offsets stay valid. */

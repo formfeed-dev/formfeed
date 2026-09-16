@@ -112,7 +112,12 @@ export {
 export {
   OFFICE_FILLED_MAX_BYTES,
   OfficeTemplateError,
+  analyzeOffice,
   renderOffice,
+  type OfficeAnalysis,
+  type OfficeAnalysisDiagnostic,
   type OfficeRenderOptions,
   type OfficeRenderResult,
 } from './lib/office/render';
+export type { OfficeTag } from './lib/office/tags';
+export { starterDocument } from './lib/office/starter';

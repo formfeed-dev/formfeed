@@ -27,14 +27,18 @@ export {
 } from './sanitise';
 export { STRUCTURAL_ELEMENT, applyStructure, blockRole, dropTaggedFallbacks, type StructuredPart } from './structure';
 export { makeIdsUnique } from './ids';
+export { starterDocument } from './starter';
 export { METRIC_COMPATIBLE, documentFonts, fontDiagnostics, type DocumentFont } from './fonts';
 export {
   findTags,
+  listTags,
   normaliseTags,
+  paragraphAtSource,
   undoAutocorrect,
   type NormalisedTags,
   type OfficeDiagnostic,
   type OfficeDiagnosticCode,
+  type OfficeTag,
 } from './tags';
 export {
   createNonce,

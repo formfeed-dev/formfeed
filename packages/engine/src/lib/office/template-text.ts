@@ -126,7 +126,8 @@ export function toTemplateSource(xml: string, flavour: TextFlavour, nonce: strin
     }
     pending.raw += token.raw;
     if (token.kind === 'open' || token.kind === 'close') {
-      if (PARAGRAPHS.has(token.name)) {
+      // a structural tag stands for the paragraph it replaced, so it counts as one
+      if (PARAGRAPHS.has(token.name) || token.name === STRUCTURAL) {
         pending.paragraphBoundary = true;
         if (token.kind === 'open' && !token.selfClosing) pending.paragraphOpens++;
       } else if (CONTAINERS.has(token.name)) pending.containerBoundary = true;
