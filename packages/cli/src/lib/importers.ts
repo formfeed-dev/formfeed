@@ -3,11 +3,19 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { strFromU8, unzipSync } from 'fflate';
-import { readJsreportExport, type JsreportBundle, type PdfmonkeyTemplate } from '@formfeed/engine';
+import {
+  apitemplateRegions,
+  readJsreportExport,
+  type ApitemplateApiTemplate,
+  type ApitemplateListItem,
+  type ApitemplateRegion,
+  type JsreportBundle,
+  type PdfmonkeyTemplate,
+} from '@formfeed/engine';
 import { CliError, exitCodes } from './errors';
 
 /**
- * The I/O around the importers in `@formfeed/engine` (spec 10 §4): PDFMonkey's API, the jsreport
+ * The I/O around the importers in `@formfeed/engine` (spec 10 §4): apitemplate.io's and PDFMonkey's APIs, the jsreport
  * export zip and an optional Sass compiler. The conversions themselves are the engine's, shared
  * with the app.
  */
@@ -42,6 +50,48 @@ export async function pdfmonkeyTemplateIds(fetchImpl: typeof fetch, key: string,
 export async function pdfmonkeyTemplate(fetchImpl: typeof fetch, key: string, id: string): Promise<PdfmonkeyTemplate> {
   const payload = await pdfmonkeyRequest(fetchImpl, key, `/document_templates/${encodeURIComponent(id)}`);
   return (payload['document_template'] ?? payload) as PdfmonkeyTemplate;
+}
+
+export async function apitemplateRequest(
+  fetchImpl: typeof fetch,
+  key: string,
+  region: ApitemplateRegion,
+  path: string,
+): Promise<Record<string, unknown>> {
+  let res: Response;
+  try {
+    res = await fetchImpl(`${apitemplateRegions[region]}/v2/${path}`, { headers: { 'x-api-key': key, accept: 'application/json' } });
+  } catch (e) {
+    throw new CliError(`apitemplate.io is not reachable: ${e instanceof Error ? e.message : String(e)}`, exitCodes.network);
+  }
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const message = typeof payload['message'] === 'string' ? payload['message'] : undefined;
+  if (res.status === 401 || res.status === 403)
+    throw new CliError(
+      `apitemplate.io rejected the API key${message ? ` (${message})` : ''}; check the key under API Integration and the region (--source-region).`,
+      exitCodes.auth,
+    );
+  if (res.status === 429) throw new CliError('apitemplate.io rate limit reached; try again in a few seconds.', exitCodes.network);
+  if (!res.ok || payload['status'] === 'error')
+    throw new CliError(`apitemplate.io: ${message ?? `HTTP ${res.status}`}`, res.status >= 500 ? exitCodes.network : exitCodes.usage);
+  return payload;
+}
+
+/** Every template of the account (`list-templates` pages with limit and offset). */
+export async function apitemplateTemplateList(fetchImpl: typeof fetch, key: string, region: ApitemplateRegion): Promise<ApitemplateListItem[]> {
+  const pageSize = 300;
+  const out: ApitemplateListItem[] = [];
+  for (let page = 0; page < 20; page++) {
+    const payload = await apitemplateRequest(fetchImpl, key, region, `list-templates?limit=${pageSize}&offset=${page * pageSize}`);
+    const batch = Array.isArray(payload['templates']) ? (payload['templates'] as ApitemplateListItem[]) : [];
+    out.push(...batch.filter((t) => t && t.template_id));
+    if (batch.length < pageSize) break;
+  }
+  return out;
+}
+
+export async function apitemplateTemplate(fetchImpl: typeof fetch, key: string, region: ApitemplateRegion, id: string): Promise<ApitemplateApiTemplate> {
+  return (await apitemplateRequest(fetchImpl, key, region, `get-template?template_id=${encodeURIComponent(id)}`)) as ApitemplateApiTemplate;
 }
 
 /**

@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { strToU8, zipSync } from 'fflate';
 import { run, type ProgramContext } from './commands';
 
-// `formfeed import pdfmonkey|jsreport`: the conversions are the engine's (tested there); these tests
-// cover the I/O around them: PDFMonkey's API, the export zip and writing template folders.
+// `formfeed import apitemplate|pdfmonkey|jsreport`: the conversions are the engine's (tested there); these tests
+// cover the I/O around them: apitemplate.io's and PDFMonkey's APIs, the export zip and writing template folders.
 
 const pdfmonkeyTemplate = {
   id: 'pm-1',
@@ -30,6 +30,35 @@ function pdfmonkeyApi() {
       return json({ document_template_cards: [{ id: 'pm-1', identifier: 'Order confirmation', edition_mode: 'code' }, { id: 'pm-2', identifier: 'Builder', edition_mode: 'builder' }], meta: { current_page: 1, total_pages: 1 } });
     if (url.endsWith('/document_templates/pm-1')) return json({ document_template: pdfmonkeyTemplate });
     return json({ errors: [] }, 404);
+  }) as typeof fetch;
+  return { calls, fetchImpl };
+}
+
+function apitemplateApi() {
+  const calls: Array<{ url: string; key: string | null }> = [];
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const templates: Record<string, Record<string, unknown>> = {
+    'aaa111': { status: 'success', template_id: 'aaa111', body: '<h1>{{ project.name }}</h1>', css: 'h1 { color: red }', settings: JSON.stringify({ paper_size: 'A4', margin_top: '20' }) },
+    'bbb222': { status: 'success', template_id: 'bbb222', body: '<p>{{ total }}</p>', css: '', settings: '' },
+    'ccc333': { status: 'success', template_id: 'ccc333', body: '', css: '', settings: '' },
+  };
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const key = new Headers(init?.headers).get('x-api-key');
+    calls.push({ url, key });
+    if (key !== 'at_key') return json({ status: 'error', message: 'Invalid API key' }, 403);
+    if (url.includes('/v2/list-templates?'))
+      return json({
+        status: 'success',
+        templates: [
+          { template_id: 'aaa111', name: 'overview-MDS', format: 'PDF', group_name: 'MDS' },
+          { template_id: 'bbb222', name: 'overview MDS', format: 'PDF', group_name: 'MDS' },
+          { template_id: 'ccc333', name: 'broken', format: 'PDF', group_name: 'solario' },
+          { template_id: 'ddd444', name: 'social card', format: 'JPEG', group_name: 'MDS' },
+        ],
+      });
+    const id = /get-template\?template_id=(\w+)/.exec(url)?.[1] ?? '';
+    return templates[id] ? json(templates[id]) : json({ status: 'error', message: 'Template not found' }, 404);
   }) as typeof fetch;
   return { calls, fetchImpl };
 }
@@ -75,6 +104,58 @@ describe('formfeed import', () => {
     expect(err.join('\n')).toContain('PDFMONKEY_API_KEY');
     const api = pdfmonkeyApi();
     expect(await run(['import', 'pdfmonkey', '--template', 'pm-1'], { ...ctx, fetch: api.fetchImpl, env: { ...ctx.env, PDFMONKEY_API_KEY: 'wrong' } })).toBe(3);
+  });
+
+  it('reads the PDF templates of an apitemplate.io group with the API key', async () => {
+    const api = apitemplateApi();
+    const code = await run(['import', 'apitemplate', '--group', 'mds', '--source-region', 'de', '--json'], {
+      ...ctx,
+      fetch: api.fetchImpl,
+      env: { ...ctx.env, APITEMPLATE_API_KEY: 'at_key' },
+    });
+    expect(code, err.join('\n')).toBe(0);
+    // the JPEG layer design is not read; both hosts are the region's
+    expect(api.calls.map((c) => c.url)).toEqual([
+      'https://rest-de.apitemplate.io/v2/list-templates?limit=300&offset=0',
+      'https://rest-de.apitemplate.io/v2/get-template?template_id=aaa111',
+      'https://rest-de.apitemplate.io/v2/get-template?template_id=bbb222',
+    ]);
+    const report = JSON.parse(out.at(-1) ?? '{}') as { imported: Array<{ slug: string; template_id: string }>; failed: unknown[] };
+    // both names give the slug overview-mds; the second gets its own folder
+    expect(report.imported.map((r) => [r.slug, r.template_id])).toEqual([
+      ['overview-mds', 'aaa111'],
+      ['overview-mds-2', 'bbb222'],
+    ]);
+    const tplDir = join(dir, 'templates', 'overview-mds');
+    expect(readFileSync(join(tplDir, 'template.html'), 'utf8')).toBe('<h1>{{ project.name }}</h1>');
+    expect(JSON.parse(readFileSync(join(tplDir, 'settings.json'), 'utf8'))).toMatchObject({ paper: { format: 'A4' }, margin: { top: '20mm' } });
+    expect(JSON.parse(readFileSync(join(tplDir, 'template.json'), 'utf8'))).toMatchObject({ name: 'overview-MDS', engine: 'jinja2', tags: ['imported', 'apitemplate'] });
+    expect(await run(['validate', 'overview-mds'], ctx), out.join('\n')).toBe(0);
+  });
+
+  it('reports apitemplate.io templates without HTML and fails when nothing was imported', async () => {
+    const api = apitemplateApi();
+    const withKey = { ...ctx, fetch: api.fetchImpl };
+    expect(await run(['import', 'apitemplate', '--key', 'at_key', '--template', 'aaa111', 'ccc333', 'zzz999'], withKey), err.join('\n')).toBe(0);
+    const text = out.join('\n');
+    expect(text).toContain('Imported overview-MDS (jinja2)');
+    expect(text).toMatch(/failed broken \(ccc333\): apitemplate\.io returned no HTML/);
+    expect(text).toMatch(/failed zzz999 \(zzz999\): apitemplate\.io: Template not found/);
+    expect(existsSync(join(dir, 'templates', 'broken'))).toBe(false);
+    expect(await run(['import', 'apitemplate', '--key', 'at_key', '--template', 'ccc333'], withKey)).toBe(1);
+  });
+
+  it('needs an apitemplate.io key, a selection and a known region', async () => {
+    expect(await run(['import', 'apitemplate', '--all'], ctx)).toBe(2);
+    expect(err.join('\n')).toContain('APITEMPLATE_API_KEY');
+    expect(await run(['import', 'apitemplate', '--key', 'at_key'], ctx)).toBe(2);
+    expect(await run(['import', 'apitemplate', '--key', 'at_key', '--all', '--source-region', 'mars'], ctx)).toBe(2);
+    expect(err.join('\n')).toContain('Unknown apitemplate.io region "mars"');
+    expect(await run(['import', 'apitemplate', '--all', '--html', 'body.html'], ctx)).toBe(2);
+    const api = apitemplateApi();
+    expect(await run(['import', 'apitemplate', '--all', '--key', 'wrong'], { ...ctx, fetch: api.fetchImpl })).toBe(3);
+    expect(err.join('\n')).toContain('Invalid API key');
+    expect(api.calls).toHaveLength(1);
   });
 
   it('imports the Handlebars chrome-pdf templates of a jsreport export', async () => {

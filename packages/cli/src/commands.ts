@@ -5,15 +5,20 @@ import { Command, InvalidArgumentError } from 'commander';
 import {
   defaultOutput,
   EngineSyntaxError,
+  apitemplateRegions,
   importApitemplate,
+  importApitemplateFromApi,
   importJsreport,
   importPdfmonkey,
   inferSchemaFromDataSets,
+  isApitemplateHtmlTemplate,
+  isApitemplateRegion,
   isOutputFormat,
   isScss,
   jsreportTemplates,
   RenderError,
   type Diagnostic as EngineDiagnostic,
+  type ApitemplateListItem,
   type EngineId,
   type ImportResult,
   type OutputFormat,
@@ -36,7 +41,15 @@ import { deviceLogin } from './lib/device-login';
 import { startDevServer } from './lib/dev-server';
 import { formatDiff } from './lib/diff';
 import { CliError, exitCodes } from './lib/errors';
-import { pdfmonkeyTemplate, pdfmonkeyTemplateIds, projectSassCompiler, readJsreportFile, readSnippets } from './lib/importers';
+import {
+  apitemplateTemplate,
+  apitemplateTemplateList,
+  pdfmonkeyTemplate,
+  pdfmonkeyTemplateIds,
+  projectSassCompiler,
+  readJsreportFile,
+  readSnippets,
+} from './lib/importers';
 import { defaultConnect, listenStatePath, readListenState, runListen, type Connect } from './lib/listen';
 import { emit, formatDiagnostic, printer, reportError, table, type Printer } from './lib/output';
 import {
@@ -1241,25 +1254,113 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
 
   importCmd
     .command('apitemplate')
-    .description('Create a local template from files exported from apitemplate.io')
-    .requiredOption('--html <file>', 'template body (HTML)')
-    .option('--css <file>', 'stylesheet')
-    .option('--settings <file>', 'settings JSON (paper, margins, header and footer)')
-    .option('--sample <file>', 'sample data JSON')
-    .option('--name <name>', 'template name')
-    .option('--slug <slug>', 'folder and slug (default: from the name)')
-    .action((opts: { html: string; css?: string; settings?: string; sample?: string; name?: string; slug?: string }) => {
-      const read = (f?: string) => (f ? readFileSync(resolve(cwd(), f), 'utf8') : undefined);
-      const result = importApitemplate({
-        name: opts.name ?? basename(opts.html, extname(opts.html)),
-        html: read(opts.html) ?? '',
-        css: read(opts.css),
-        settings: opts.settings ? (JSON.parse(read(opts.settings) ?? '{}') as Record<string, unknown>) : undefined,
-        sample_data: opts.sample ? JSON.parse(read(opts.sample) ?? '{}') : undefined,
-      });
-      const written = writeImported(result, opts.slug);
-      emit(p(), written, () => reportLines([written]));
-    });
+    .description('Create local templates from apitemplate.io: read with an API key, or from exported files')
+    .option('--key <key>', 'apitemplate.io API key (or APITEMPLATE_API_KEY)')
+    .option('--template <ids...>', 'template ids to read with the key')
+    .option('--all', 'read every PDF template of the account with the key')
+    .option('--group <name>', 'read the PDF templates of this apitemplate.io group with the key')
+    .option('--source-region <region>', `apitemplate.io region of the account: ${Object.keys(apitemplateRegions).join(', ')} (or APITEMPLATE_REGION)`)
+    .option('--html <file>', 'template body (HTML), instead of reading it with a key')
+    .option('--css <file>', 'stylesheet (with --html)')
+    .option('--settings <file>', 'settings JSON: paper, margins, header and footer (with --html)')
+    .option('--sample <file>', 'sample data JSON (with --html)')
+    .option('--name <name>', 'template name (with --html)')
+    .option('--slug <slug>', 'folder and slug (default: from the name; with --html)')
+    .action(
+      async (opts: {
+        key?: string;
+        template?: string[];
+        all?: boolean;
+        group?: string;
+        sourceRegion?: string;
+        html?: string;
+        css?: string;
+        settings?: string;
+        sample?: string;
+        name?: string;
+        slug?: string;
+      }) => {
+        const env = ctx.env ?? process.env;
+        const fromApi = Boolean(opts.template?.length || opts.all || opts.group);
+        if (opts.html) {
+          if (fromApi) throw new CliError('Use either --html or --template/--all/--group, not both.', exitCodes.usage);
+          const read = (f?: string) => (f ? readFileSync(resolve(cwd(), f), 'utf8') : undefined);
+          const result = importApitemplate({
+            name: opts.name ?? basename(opts.html, extname(opts.html)),
+            html: read(opts.html) ?? '',
+            css: read(opts.css),
+            settings: opts.settings ? (JSON.parse(read(opts.settings) ?? '{}') as Record<string, unknown>) : undefined,
+            sample_data: opts.sample ? JSON.parse(read(opts.sample) ?? '{}') : undefined,
+          });
+          const written = writeImported(result, opts.slug);
+          emit(p(), written, () => reportLines([written]));
+          return;
+        }
+        if (!fromApi)
+          throw new CliError(
+            'Name the templates with --template <id…>, --group <name> or --all (with an API key), or pass exported files with --html.',
+            exitCodes.usage,
+          );
+        const key = opts.key ?? env['APITEMPLATE_API_KEY'];
+        if (!key) throw new CliError('An apitemplate.io API key is required: --key or APITEMPLATE_API_KEY.', exitCodes.usage);
+        const region = opts.sourceRegion ?? env['APITEMPLATE_REGION'] ?? 'default';
+        if (!isApitemplateRegion(region))
+          throw new CliError(`Unknown apitemplate.io region "${region}"; use one of ${Object.keys(apitemplateRegions).join(', ')}.`, exitCodes.usage);
+        requireProject(settings());
+        const fetchImpl = ctx.fetch ?? globalThis.fetch;
+
+        // the list gives names, formats and groups, also for templates named by id
+        const listed = await apitemplateTemplateList(fetchImpl, key, region);
+        const byId = new Map(listed.map((t) => [t.template_id, t]));
+        const skipped: string[] = [];
+        let items: ApitemplateListItem[];
+        if (opts.template?.length) {
+          items = [...new Set(opts.template)].map((id) => byId.get(id) ?? { template_id: id });
+        } else {
+          const group = opts.group?.trim().toLowerCase();
+          const inScope = listed.filter((t) => !group || (t.group_name ?? '').trim().toLowerCase() === group);
+          items = inScope.filter((t) => isApitemplateHtmlTemplate(t));
+          for (const t of inScope.filter((x) => !isApitemplateHtmlTemplate(x)))
+            skipped.push(`skip   ${t.name ?? t.template_id} (${t.template_id}): ${t.format} templates are layer designs without HTML`);
+          if (!items.length)
+            throw new CliError(
+              opts.group ? `No PDF templates in the apitemplate.io group "${opts.group}".` : 'The apitemplate.io account has no PDF templates.',
+              exitCodes.usage,
+            );
+        }
+
+        const written: Array<ImportResult & { dir: string; template_id: string }> = [];
+        const failed: Array<{ template_id: string; name: string; error: string }> = [];
+        const slugs = new Set<string>();
+        for (const item of items) {
+          let result: ImportResult;
+          try {
+            result = importApitemplateFromApi(item, await apitemplateTemplate(fetchImpl, key, region, item.template_id));
+          } catch (e) {
+            // a rejected key, the rate limit or a network failure would hit every template the same way
+            if (!(e instanceof CliError) || e.exitCode !== exitCodes.usage) throw e;
+            failed.push({ template_id: item.template_id, name: item.name ?? item.template_id, error: e.message });
+            continue;
+          }
+          if (!result.html.trim()) {
+            failed.push({ template_id: item.template_id, name: result.name, error: result.errors[0]?.message ?? 'no HTML' });
+            continue;
+          }
+          // two templates of the same name must not share a folder
+          let slug = result.slug;
+          for (let n = 2; slugs.has(slug); n++) slug = `${result.slug}-${n}`;
+          slugs.add(slug);
+          written.push({ ...writeImported(result, slug), template_id: item.template_id });
+        }
+        for (const x of failed) skipped.push(`failed ${x.name} (${x.template_id}): ${x.error}`);
+        emit(p(), { imported: written, failed }, () => [
+          ...reportLines(written),
+          ...skipped,
+          ...(written.length ? [`${written.length} template(s) written; review them with "formfeed dev", then "formfeed templates push".`] : []),
+        ]);
+        if (!written.length) throw new CliError('No template could be imported.', exitCodes.validation, { silent: true });
+      },
+    );
 
   importCmd
     .command('pdfmonkey')

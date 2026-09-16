@@ -54,8 +54,15 @@ export {
   snippetsFor,
   snippetText,
 } from './lib/snippets';
-export { importApitemplate, slugFromName } from './lib/import/apitemplate';
-export type { ApitemplateExport } from './lib/import/apitemplate';
+export {
+  apitemplateRegions,
+  importApitemplate,
+  importApitemplateFromApi,
+  isApitemplateHtmlTemplate,
+  isApitemplateRegion,
+  slugFromName,
+} from './lib/import/apitemplate';
+export type { ApitemplateApiTemplate, ApitemplateExport, ApitemplateListItem, ApitemplateRegion } from './lib/import/apitemplate';
 export type { ImportNote, ImportResult, ImportSource } from './lib/import/common';
 export { importPdfmonkey, strftimeToDateFns } from './lib/import/pdfmonkey';
 export type { PdfmonkeyImportOptions, PdfmonkeySettings, PdfmonkeyTemplate } from './lib/import/pdfmonkey';

@@ -1,4 +1,10 @@
-import { importApitemplate, slugFromName } from './apitemplate';
+import {
+  importApitemplate,
+  importApitemplateFromApi,
+  isApitemplateHtmlTemplate,
+  isApitemplateRegion,
+  slugFromName,
+} from './apitemplate';
 
 describe('apitemplate.io importer', () => {
   it('maps settings, keeps the source and parses the sample data', () => {
@@ -77,5 +83,49 @@ describe('apitemplate.io importer', () => {
     expect(slugFromName('!!')).toMatch(/^imported-/);
     const bad = importApitemplate({ name: 'x', html: '<p></p>', sample_data: '{not json' });
     expect(bad.warnings.map((w) => w.code)).toContain('sample-json');
+  });
+
+  it('does not report every variable as missing when there is no sample data', () => {
+    const result = importApitemplate({ name: 'No sample', html: '<p>{{ customer.name }}</p>' });
+    expect(result.warnings).toEqual([]);
+    expect(result.changes.join(' ')).toContain('no sample data');
+    const withSample = importApitemplate({ name: 'Sample', html: '<p>{{ customer.name }}</p>', sample_data: {} });
+    expect(withSample.warnings.map((w) => w.code)).toEqual(['unknown-variable']);
+  });
+});
+
+describe('apitemplate.io API import', () => {
+  const item = { template_id: '3a677b23217dd954', name: 'circuit-diagram', format: 'PDF', group_name: 'MDS' };
+
+  it('parses the settings string of get-template and keeps body and CSS', () => {
+    const result = importApitemplateFromApi(item, {
+      template_id: item.template_id,
+      body: '<h1>{{ project.name }}</h1>',
+      css: 'h1 { color: red }',
+      settings: JSON.stringify({ paper_size: 'A4', orientation: '1', margin_top: '20', footer_template: '<span>{{ page_number }}</span>' }),
+    });
+    expect(result).toMatchObject({ name: 'circuit-diagram', slug: 'circuit-diagram', kind: 'pdf', engine: 'jinja2', html: '<h1>{{ project.name }}</h1>', css: 'h1 { color: red }', errors: [] });
+    expect(result.settings.paper?.format).toBe('A4');
+    expect(result.settings.margin?.top).toBe('20mm');
+    expect(result.settings.footer?.html).toContain('pageNumber');
+    expect(result.sampleData).toEqual({});
+  });
+
+  it('reports a missing body and unreadable settings instead of failing', () => {
+    const empty = importApitemplateFromApi({ template_id: 'abc', name: '' }, { body: null, settings: '{broken' });
+    expect(empty.name).toBe('abc');
+    expect(empty.errors[0]?.code).toBe('no-body');
+    expect(empty.warnings[0]?.code).toBe('settings-json');
+    const objectSettings = importApitemplateFromApi(item, { body: '<p>x</p>', settings: { paper_size: 'Letter' } });
+    expect(objectSettings.settings.paper?.format).toBe('Letter');
+  });
+
+  it('tells HTML templates from image templates and checks regions', () => {
+    expect(isApitemplateHtmlTemplate({ format: 'PDF' })).toBe(true);
+    expect(isApitemplateHtmlTemplate({ format: null })).toBe(true);
+    expect(isApitemplateHtmlTemplate({ format: 'JPEG' })).toBe(false);
+    expect(isApitemplateRegion('de')).toBe(true);
+    expect(isApitemplateRegion('toString')).toBe(false);
+    expect(isApitemplateRegion('eu')).toBe(false);
   });
 });

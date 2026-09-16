@@ -97,6 +97,8 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
     changes.push('image size defaults to 1200 × 630 (change it in Settings)');
   }
 
+  const noSample = input.sample_data === undefined || input.sample_data === null || (typeof input.sample_data === 'string' && !input.sample_data.trim());
+  if (noSample) changes.push('no sample data: the preview stays empty and missing fields are not checked until you add some');
   const sample = parseSample(input.sample_data);
   if (sample.error) warnings.push({ code: 'sample-json', message: `Sample data is not valid JSON (${sample.error}); the draft starts without sample data.`, docs: '/migrate/apitemplate-io#sample-data' });
 
@@ -115,7 +117,8 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
   }
   warnings.push(...setInLoop(html));
 
-  const checked = checkTemplate('jinja2', html, sample.data, name, {
+  // without sample data every variable would count as missing
+  const checked = checkTemplate('jinja2', html, noSample ? undefined : sample.data, name, {
     syntax: '/templates/languages#jinja2',
     filters: '/templates/helpers',
     sampleData: '/migrate/apitemplate-io#sample-data',
@@ -140,4 +143,90 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
     warnings,
     changes,
   };
+}
+
+// --- apitemplate.io API v2 --------------------------------------------------------------------
+
+/**
+ * apitemplate.io's regional API hosts (their "Regional API endpoints"). The key works in the
+ * region its account lives in; the importer only ever contacts these hosts.
+ */
+export const apitemplateRegions = {
+  default: 'https://rest.apitemplate.io',
+  de: 'https://rest-de.apitemplate.io',
+  us: 'https://rest-us.apitemplate.io',
+  au: 'https://rest-au.apitemplate.io',
+  alt: 'https://rest-alt.apitemplate.io',
+  'alt-de': 'https://rest-alt-de.apitemplate.io',
+  'alt-us': 'https://rest-alt-us.apitemplate.io',
+} as const;
+export type ApitemplateRegion = keyof typeof apitemplateRegions;
+
+export function isApitemplateRegion(value: unknown): value is ApitemplateRegion {
+  return typeof value === 'string' && Object.hasOwn(apitemplateRegions, value);
+}
+
+/** One entry of `GET /v2/list-templates`. */
+export interface ApitemplateListItem {
+  template_id: string;
+  name?: string | null;
+  status?: string | null;
+  /** `PDF` or `JPEG`. */
+  format?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  group_name?: string | null;
+}
+
+/** `GET /v2/get-template` (experimental on their side): the HTML body, CSS and print settings. */
+export interface ApitemplateApiTemplate {
+  status?: string | null;
+  template_id?: string | null;
+  body?: string | null;
+  css?: string | null;
+  /** A JSON string in their API; an object is accepted too. */
+  settings?: string | Record<string, unknown> | null;
+}
+
+/**
+ * Only PDF templates carry HTML; apitemplate.io's image templates are layer designs that
+ * `get-template` does not return.
+ */
+export function isApitemplateHtmlTemplate(item: Pick<ApitemplateListItem, 'format'>): boolean {
+  return !item.format || String(item.format).toUpperCase() === 'PDF';
+}
+
+/**
+ * Converts a template read through apitemplate.io's API. Their API has no sample data, so the
+ * draft starts without; a template without a body (an image template, or an editor the API does
+ * not serve) becomes a result with an error and no HTML, which callers skip.
+ */
+export function importApitemplateFromApi(item: ApitemplateListItem, template: ApitemplateApiTemplate): ImportResult {
+  let settings: Record<string, unknown> | null = null;
+  let settingsError: string | undefined;
+  if (typeof template.settings === 'string' && template.settings.trim()) {
+    try {
+      const parsed: unknown = JSON.parse(template.settings);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) settings = parsed as Record<string, unknown>;
+    } catch (e) {
+      settingsError = e instanceof Error ? e.message : String(e);
+    }
+  } else if (template.settings && typeof template.settings === 'object') settings = template.settings;
+
+  const name = (item.name ?? '').trim() || item.template_id;
+  const html = typeof template.body === 'string' ? template.body : '';
+  const result = importApitemplate({ name, html, css: template.css ?? '', settings, format: item.format });
+  if (settingsError)
+    result.warnings.unshift({
+      code: 'settings-json',
+      message: `apitemplate.io returned settings that are not valid JSON (${settingsError}); the draft uses the default paper and margins.`,
+      docs: '/migrate/apitemplate-io#settings',
+    });
+  if (!html.trim())
+    result.errors.unshift({
+      code: 'no-body',
+      message: `apitemplate.io returned no HTML for template ${item.template_id}. Copy it from their editor and import it by hand.`,
+      docs: '/migrate/apitemplate-io#import-templates',
+    });
+  return result;
 }
