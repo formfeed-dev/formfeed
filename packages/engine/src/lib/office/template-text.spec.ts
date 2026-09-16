@@ -134,10 +134,21 @@ describe('DrawingML text', () => {
   });
 });
 
-describe('layoutText', () => {
-  it('refuses text that ends up outside a text element', () => {
-    expect(() => layoutText(doc('<w:p>stray</w:p>'), 'wordprocessing')).toThrow(OfficeError);
-    expect(() => layoutText(doc('<w:p>\n  </w:p>'), 'wordprocessing')).not.toThrow();
+describe('text outside text elements', () => {
+  it('refuses printed text that would land between elements', () => {
+    const template = toTemplateSource(doc(para('{{ x }}')), 'wordprocessing', createNonce());
+    expect(() => fromTemplateOutput(`stray${template.source}`, template)).toThrow(OfficeError);
+    expect(() => fromTemplateOutput(`${template.source}stray`, template)).toThrow(OfficeError);
+    expect(() => fromTemplateOutput(`\n  ${template.source}`, template)).not.toThrow();
+  });
+
+  it('keeps the text other elements hold: field codes, table styles', async () => {
+    const field =
+      '<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>';
+    const { xml } = await fill(doc(field + para('{{ name }}')), 'jinja2', { name: 'Olvarest GmbH' });
+    expect(xml).toContain('<w:instrText xml:space="preserve"> PAGE </w:instrText>');
+    expect(xml).toContain('<w:t>Olvarest GmbH</w:t>');
+    expect(layoutText('<a:tbl xmlns:a="a"><a:tblPr><a:tableStyleId>{5C22544A}</a:tableStyleId></a:tblPr></a:tbl>', 'drawing')).toContain('{5C22544A}');
   });
 });
 

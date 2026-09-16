@@ -65,7 +65,7 @@ export class DrawingCollector {
 
 /** A drawing ready to place. */
 export type ResolvedDrawing =
-  | { kind: 'picture'; media: string; widthEmu: number; heightEmu: number; alt: string }
+  | { kind: 'picture'; media: string; widthEmu: number; heightEmu: number; alt: string; /** A size was asked for. */ sized: boolean }
   | { kind: 'page-break' }
   | { kind: 'nothing' };
 
@@ -206,7 +206,14 @@ export class DrawingResolver {
       heightEmu = Math.round((heightEmu * maxWidthEmu) / widthEmu);
       widthEmu = maxWidthEmu;
     }
-    return { kind: 'picture', media: picture.media.name, widthEmu: Math.round(widthEmu), heightEmu: Math.round(heightEmu), alt: request.alt ?? '' };
+    return {
+      kind: 'picture',
+      media: picture.media.name,
+      widthEmu: Math.round(widthEmu),
+      heightEmu: Math.round(heightEmu),
+      alt: request.alt ?? '',
+      sized: wantW !== null || wantH !== null,
+    };
   }
 
   private async prepare(
@@ -292,7 +299,7 @@ export function inlinePicture(picture: Extract<ResolvedDrawing, { kind: 'picture
 /** The highest drawing id of a part, so new pictures start after it. */
 export function highestDrawingId(xml: string): number {
   let highest = 0;
-  for (const m of xml.matchAll(/<(?:wp:docPr|pic:cNvPr)\b[^>]*\sid="(\d+)"/g)) highest = Math.max(highest, Number(m[1]));
+  for (const m of xml.matchAll(/<(?:wp:docPr|pic:cNvPr|p:cNvPr)\b[^>]*\sid="(\d+)"/g)) highest = Math.max(highest, Number(m[1]));
   return highest;
 }
 

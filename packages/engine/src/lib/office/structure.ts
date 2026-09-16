@@ -20,7 +20,7 @@ export interface StructuredPart {
   diagnostics: OfficeDiagnostic[];
 }
 
-interface Span {
+export interface Span {
   name: string;
   start: number;
   end: number;
@@ -44,6 +44,8 @@ type Role = 'open' | 'close' | 'middle' | 'single';
 const PARAGRAPH = new Set(['w:p', 'a:p']);
 const ROW = new Set(['w:tr', 'a:tr']);
 const CELL = new Set(['w:tc', 'a:tc']);
+/** Elements that must hold at least one paragraph: Word cells and text boxes, PowerPoint text bodies. */
+const BODIES = new Set(['w:tc', 'w:txbxContent', 'p:txBody', 'a:txBody']);
 const TEXT = new Set(['w:t', 'a:t']);
 const CONTENT = new Set(['w:drawing', 'w:pict', 'w:object', 'w:fldChar', 'w:fldSimple', 'w:br', 'w:tab', 'w:sym', 'a:br', 'a:fld', 'w:footnoteReference', 'w:endnoteReference']);
 
@@ -185,23 +187,51 @@ export function applyStructure(xml: string, part: string): StructuredPart {
     // A section break stays where it is: an opening tag goes after it, anything else before it.
     if (keep) text = s.role === 'open' ? `<w:p>${keep}</w:p>${text}` : `${text}<w:p>${keep}</w:p>`;
     replacements.push({ start: span.start, end: span.end, text });
-    const cell = ancestor(span, CELL);
-    if (cell && !keep) cellsEmptied.set(cell, (cellsEmptied.get(cell) ?? 0) + 1);
+    // the element that must keep a paragraph: a Word cell, or a PowerPoint text body
+    const holder = span.parent && BODIES.has(span.parent.name) ? span.parent : null;
+    if (holder && !keep) cellsEmptied.set(holder, (cellsEmptied.get(holder) ?? 0) + 1);
   }
-  // A cell whose every paragraph was a tag gets an empty one, or Word refuses the table.
-  for (const [cell, emptied] of cellsEmptied) {
-    const total = paragraphs.filter((p) => p.span.parent === cell).length;
+  // A cell or text body whose every paragraph was a tag gets an empty one, or Word and PowerPoint
+  // refuse the file. The empty paragraph goes last, after any properties the element starts with.
+  for (const [holder, emptied] of cellsEmptied) {
+    const total = paragraphs.filter((p) => p.span.parent === holder).length;
     if (emptied >= total) {
-      const empty = cell.name === 'a:tc' ? '<a:p/>' : '<w:p/>';
-      replacements.push({ start: cell.end, end: cell.end - 1, text: empty });
+      const empty = holder.name.startsWith('w:') ? '<w:p/>' : '<a:p/>';
+      replacements.push({ start: holder.end, end: holder.end - 1, text: empty });
     }
   }
 
   return { xml: rewrite(tokens, replacements), diagnostics };
 }
 
+/**
+ * A loop over an empty list can leave a table without rows, which Word and PowerPoint refuse (spec 22
+ * §4.3 step 5): such a Word table is removed, and so is the graphic frame of such a slide table.
+ */
+export function removeEmptyTables(xml: string): string {
+  if (!xml.includes(':tbl')) return xml;
+  const tokens = tokenize(xml);
+  const root = buildSpans(tokens);
+  const drop: Array<{ start: number; end: number; text: string }> = [];
+  const walk = (span: Span) => {
+    if ((span.name === 'w:tbl' || span.name === 'a:tbl') && !span.children.some((c) => ROW.has(c.name))) {
+      let target: Span = span;
+      for (let p = span.parent; p && span.name === 'a:tbl'; p = p.parent)
+        if (p.name === 'p:graphicFrame') {
+          target = p;
+          break;
+        }
+      drop.push({ start: target.start, end: target.end, text: '' });
+      return;
+    }
+    for (const child of span.children) walk(child);
+  };
+  walk(root);
+  return drop.length ? rewrite(tokens, drop) : xml;
+}
+
 /** Builds the element tree; `start`/`end` are token indexes of the open and close tags. */
-function buildSpans(tokens: XmlToken[]): Span {
+export function buildSpans(tokens: XmlToken[]): Span {
   const root: Span = { name: '#root', start: -1, end: tokens.length, parent: null, children: [] };
   const stack: Span[] = [root];
   tokens.forEach((token, index) => {
@@ -264,7 +294,7 @@ function isInside(span: Span, container: Span): boolean {
 }
 
 /** Joins the tokens back, with the token ranges replaced; an empty range inserts before `start`. */
-function rewrite(tokens: XmlToken[], replacements: Array<{ start: number; end: number; text: string }>): string {
+export function rewrite(tokens: XmlToken[], replacements: Array<{ start: number; end: number; text: string }>): string {
   const byStart = new Map<number, Array<{ end: number; text: string }>>();
   for (const r of replacements) {
     const list = byStart.get(r.start) ?? [];

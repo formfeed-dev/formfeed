@@ -11,7 +11,7 @@ import { writeZip } from './zip';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
 /** The tags of one engine: a value, a value through a helper, and a loop over the lines. */
-function tags(engine: EngineId) {
+export function starterTags(engine: EngineId) {
   if (engine === 'handlebars')
     return {
       number: '{{offer.number}}',
@@ -26,6 +26,7 @@ function tags(engine: EngineId) {
       note: '{{offer.note}}',
       ifClose: '{{/if}}',
       code: '{{qrcode offer.url size=96}}',
+      codeFit: '{{qrcode offer.url}}',
     };
   // Jinja2 and Liquid read helpers as filters the same way
   const pipe = (value: string, helper: string) => `{{ ${value} | ${helper} }}`;
@@ -42,6 +43,8 @@ function tags(engine: EngineId) {
     note: '{{ offer.note }}',
     ifClose: '{% endif %}',
     code: engine === 'liquid' ? '{{ offer.url | qrcode: size: 96 }}' : '{{ qrcode(offer.url, { size: 96 }) }}',
+    /** Without a size: on a slide the code fills its box. */
+    codeFit: engine === 'liquid' ? '{{ offer.url | qrcode }}' : '{{ qrcode(offer.url) }}',
   };
 }
 
@@ -55,7 +58,7 @@ const row = (cells: string) => `<w:tr>${cells}</w:tr>`;
 
 /** The starter document for an engine, with the sample data that fills it. */
 export function starterDocument(engine: EngineId): { bytes: Uint8Array; sampleData: Record<string, unknown> } {
-  const t = tags(engine);
+  const t = starterTags(engine);
   const body = [
     paragraph(`Offer ${t.number}`, 'Title'),
     paragraph(`For ${t.customer}, ${t.date}`),
@@ -96,19 +99,24 @@ export function starterDocument(engine: EngineId): { bytes: Uint8Array; sampleDa
   ];
   return {
     bytes: writeZip(files.map(([name, text]) => ({ name, data: encoder.encode(text) }))),
-    sampleData: {
-      customer: { name: 'Olvarest GmbH' },
-      offer: {
-        number: 'A-2026-001',
-        url: 'https://example.test/offers/A-2026-001',
-        date: '2026-09-16',
-        lines: [
-          { description: 'Consulting', total: 300 },
-          { description: 'Implementation', total: 1200 },
-        ],
-        total: 1500,
-        note: 'Valid for 30 days.',
-      },
+    sampleData: starterSampleData(),
+  };
+}
+
+/** The data the starter files are filled with; a fresh copy each time. */
+export function starterSampleData(): Record<string, unknown> {
+  return {
+    customer: { name: 'Olvarest GmbH' },
+    offer: {
+      number: 'A-2026-001',
+      url: 'https://example.test/offers/A-2026-001',
+      date: '2026-09-16',
+      lines: [
+        { description: 'Consulting', total: 300 },
+        { description: 'Implementation', total: 1200 },
+      ],
+      total: 1500,
+      note: 'Valid for 30 days.',
     },
   };
 }

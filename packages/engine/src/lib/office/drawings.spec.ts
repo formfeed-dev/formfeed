@@ -133,23 +133,13 @@ describe('office drawings', () => {
     }
   });
 
-  it('refuses charts, Markdown and drawings in PowerPoint', async () => {
+  it('refuses charts and Markdown', async () => {
     await expect(renderOffice(docx(p("{{ chart({ type: 'bar', values: [1] }) }}")), { engine: 'jinja2', data: {}, context })).rejects.toMatchObject({
       diagnostics: [expect.objectContaining({ code: 'unsupported-in-office' })],
     });
     await expect(renderOffice(docx(p('{{ note | markdown }}')), { engine: 'jinja2', data: { note: '*x*' }, context })).rejects.toBeInstanceOf(
       OfficeTemplateError,
     );
-    const pptx = zipSync({
-      '[Content_Types].xml': strToU8(
-        '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>',
-      ),
-      'ppt/presentation.xml': strToU8('<p:presentation xmlns:p="p"/>'),
-      'ppt/slides/slide1.xml': strToU8('<p:sld xmlns:p="p" xmlns:a="a"><p:txBody><a:p><a:r><a:t>{{ qrcode(\'x\') }}</a:t></a:r></a:p></p:txBody></p:sld>'),
-    });
-    await expect(renderOffice(pptx, { engine: 'jinja2', data: {}, context, images: host() })).rejects.toMatchObject({
-      diagnostics: [expect.objectContaining({ code: 'unsupported-in-office' })],
-    });
     const analysis = analyzeOffice(docx(p('Text') + p("{{ chart({ type: 'bar' }) }}")), { engine: 'jinja2' });
     expect(analysis.diagnostics).toEqual([expect.objectContaining({ code: 'unsupported-in-office', paragraph: 2 })]);
   });

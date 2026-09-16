@@ -19,7 +19,8 @@ import {
 import { OfficeError } from './errors';
 import { documentFonts, fontDiagnostics, type DocumentFont } from './fonts';
 import { makeIdsUnique } from './ids';
-import { applyStructure, dropTaggedFallbacks } from './structure';
+import { placeSlidePictures, slidePicture, slideSize } from './slides';
+import { applyStructure, dropTaggedFallbacks, removeEmptyTables } from './structure';
 import { listTags, normaliseTags, paragraphAtSource, type OfficeDiagnostic, type OfficeTag } from './tags';
 import { createNonce, fromTemplateOutput, placeholderPattern, toTemplateSource, type TemplateSource, type TextFlavour } from './template-text';
 import { assertWellFormed, tokenize } from './xml';
@@ -192,10 +193,10 @@ export async function renderOffice(file: Uint8Array, options: OfficeRenderOption
   const drawings = new DrawingCollector(createNonce(options.random));
   const context: RenderContext = { ...options.context, mode: 'office', drawing: drawings.register };
   // a filled document used as a template again already holds `formfeed` pictures
-  const prefix = archive.entries.some((e) => e.name.startsWith('word/media/formfeed'))
-    ? `word/media/formfeed-${drawings.nonce}-`
-    : 'word/media/formfeed';
+  const media = format === 'docx' ? 'word/media/formfeed' : 'ppt/media/formfeed';
+  const prefix = archive.entries.some((e) => e.name.startsWith(media)) ? `${media}-${drawings.nonce}-` : media;
   const resolver = new DrawingResolver(drawings.requests, options.images, prefix);
+  const slide = format === 'pptx' ? slideSize(archive.get('ppt/presentation.xml') ? readText(archive.get('ppt/presentation.xml')!) : null) : null;
   const diagnostics: OfficeDiagnostic[] = [];
   const warnings: string[] = [];
   const rewritten = new Map<string, Uint8Array>();
@@ -234,20 +235,11 @@ export async function renderOffice(file: Uint8Array, options: OfficeRenderOption
     const used = drawings.usedIn(filled.xml);
     let placed = filled.xml;
     if (used.length) {
-      if (format === 'pptx')
-        throw new OfficeTemplateError(`${entry.name}: images, codes and page breaks are not supported in PowerPoint templates yet`, [
-          {
-            severity: 'error',
-            code: 'unsupported-in-office',
-            message: 'Images, codes and page breaks are not supported in PowerPoint templates yet.',
-            part: entry.name,
-            paragraph: 1,
-            text: '',
-          },
-        ], entry.name);
-      placed = await placePictures(filled.xml, entry.name, used, drawings, resolver, archive, relationships);
+      const pictures = await placePictures(filled.xml, entry.name, used, drawings, resolver, archive, relationships, slide);
+      placed = pictures.xml;
+      warnings.push(...pictures.warnings.filter((w) => !warnings.includes(w)));
     }
-    const unique = makeIdsUnique(placed);
+    const unique = makeIdsUnique(removeEmptyTables(placed));
     try {
       assertWellFormed(tokenize(unique, entry.name), entry.name);
     } catch (e) {
@@ -287,8 +279,9 @@ export async function renderOffice(file: Uint8Array, options: OfficeRenderOption
 }
 
 /**
- * Resolves the drawings a Word part uses and puts them in place: a relationship per picture (shared
- * by every use of that picture in the part) and ids after the part's highest.
+ * Resolves the drawings a part uses and puts them in place: inline pictures in Word, picture shapes on
+ * slides; a relationship per picture (shared by every use of that picture in the part) and ids after
+ * the part's highest.
  */
 async function placePictures(
   xml: string,
@@ -298,8 +291,9 @@ async function placePictures(
   resolver: DrawingResolver,
   archive: ZipArchive,
   relationships: Map<string, Array<{ id: string; target: string }>>,
-): Promise<string> {
-  const width = textWidthEmu(xml);
+  slide: { cx: number; cy: number } | null,
+): Promise<{ xml: string; warnings: string[] }> {
+  const width = slide ? slide.cx : textWidthEmu(xml);
   const resolved = new Map(await Promise.all([...new Set(used)].map(async (i) => [i, await resolver.resolve(i, width)] as const)));
   const existing = archive.get(relsPathOf(part));
   const taken = relationshipIds(existing ? readText(existing) : null);
@@ -308,8 +302,9 @@ async function placePictures(
   const byMedia = new Map(added.map((r) => [r.target, r.id]));
   let nextId = highestDrawingId(xml);
   const relFor = (media: string): string => {
-    // targets are relative to the part's folder: `word/media/x.png` from `word/document.xml`
-    const target = media.slice(part.lastIndexOf('/') + 1);
+    // targets are relative to the part's folder: `media/x.png` from `word/document.xml`,
+    // `../media/x.png` from `ppt/slides/slide1.xml`
+    const target = relativeTarget(part, media);
     let id = byMedia.get(target);
     if (!id) {
       let n = added.length + 1;
@@ -321,10 +316,30 @@ async function placePictures(
     }
     return id;
   };
-  return placeDrawings(xml, drawings.pattern(), (index) => {
-    const drawing = resolved.get(index);
-    if (!drawing || drawing.kind === 'nothing') return '';
-    if (drawing.kind === 'page-break') return '<w:br w:type="page"/>';
-    return inlinePicture(drawing, relFor(drawing.media), ++nextId);
-  });
+  if (slide)
+    return placeSlidePictures(
+      xml,
+      drawings.pattern(),
+      (index) => resolved.get(index),
+      (picture, box) => slidePicture(picture, relFor(picture.media), ++nextId, box),
+      slide,
+    );
+  return {
+    xml: placeDrawings(xml, drawings.pattern(), (index) => {
+      const drawing = resolved.get(index);
+      if (!drawing || drawing.kind === 'nothing') return '';
+      if (drawing.kind === 'page-break') return '<w:br w:type="page"/>';
+      return inlinePicture(drawing, relFor(drawing.media), ++nextId);
+    }),
+    warnings: [],
+  };
+}
+
+/** A package path relative to the folder of `from`. */
+function relativeTarget(from: string, to: string): string {
+  const base = from.split('/').slice(0, -1);
+  const target = to.split('/');
+  let common = 0;
+  while (common < base.length && base[common] === target[common]) common++;
+  return [...base.slice(common).map(() => '..'), ...target.slice(common)].join('/');
 }

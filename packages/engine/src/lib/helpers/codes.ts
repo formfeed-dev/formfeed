@@ -94,7 +94,8 @@ export const codeHelpers: HelperDefinition[] = [
       const o = (options ?? {}) as QrOptions;
       const svg = qrSvg(String(value ?? ''), o);
       // office templates get a picture of the code's size, not a data URI as text (spec 22 §4.4)
-      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size ?? 160, height: o.size ?? 160, alt: 'QR code' });
+      // the SVG carries the default size; only a size the template asks for is fixed (slides fit the rest)
+      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size, height: o.size, alt: 'QR code' });
       return svgDataUri(svg);
     },
   },
@@ -156,7 +157,7 @@ export const codeHelpers: HelperDefinition[] = [
         (EPC_FIELDS.has(key) ? payment : qr)[key] = value;
       const o = { ecc: 'M', ...(qr as QrOptions) } as QrOptions;
       const svg = qrSvg(epcPayload(payment as Parameters<typeof epcPayload>[0]), o);
-      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size ?? 160, height: o.size ?? 160, alt: 'GiroCode' });
+      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size, height: o.size, alt: 'GiroCode' });
       return svgDataUri(svg);
     },
   },

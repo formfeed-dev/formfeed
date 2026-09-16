@@ -121,4 +121,5 @@ export {
 } from './lib/office/render';
 export type { OfficeTag } from './lib/office/tags';
 export { starterDocument } from './lib/office/starter';
+export { starterPresentation } from './lib/office/starter-pptx';
 export { officeDrawingLimits, type OfficeImageHost } from './lib/office/drawings';

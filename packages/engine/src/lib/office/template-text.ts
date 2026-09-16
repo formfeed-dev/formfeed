@@ -32,6 +32,11 @@ export interface MarkupPiece {
    * field, an alternate-content branch. Merging across it would move text out of its element.
    */
   containerBoundary: boolean;
+  /**
+   * The piece ends inside a text element, so text the template prints after it is document text.
+   * Only the last piece of a part ends outside one.
+   */
+  endsInText?: boolean;
 }
 
 export interface TemplateSource {
@@ -114,6 +119,7 @@ export function toTemplateSource(xml: string, flavour: TextFlavour, nonce: strin
   let inText = false;
   const flush = () => {
     if (!pending.raw) return;
+    pending.endsInText = inText;
     source += `${OPEN}${nonce}${markup.length}${CLOSE}`;
     markup.push(pending);
     pending = emptyPiece();
@@ -145,18 +151,26 @@ export function fromTemplateOutput(output: string, template: TemplateSource, par
   let xml = '';
   let removedCharacters = 0;
   let last = 0;
-  for (const m of output.matchAll(placeholder)) {
-    const { text, removed } = stripForbidden(output.slice(last, m.index));
+  // Whether printed text lands inside a text element: never before the first piece of markup, and
+  // after a piece only when that piece ended inside one. Anything else is refused, because Word and
+  // PowerPoint reject text between elements; text the markup itself holds is not the template's.
+  let inText = false;
+  const emit = (segment: string) => {
+    const { text, removed } = stripForbidden(segment);
     removedCharacters += removed;
+    if (!inText && text.trim() !== '')
+      throw new OfficeError('office_document_invalid', `${part ?? 'part'}: text outside a text element: "${text.trim().slice(0, 40)}"`);
     xml += escapeText(text);
+  };
+  for (const m of output.matchAll(placeholder)) {
+    emit(output.slice(last, m.index));
     const piece = template.markup[Number(m[1])];
     if (piece === undefined) throw new OfficeError('office_document_invalid', `${part ?? 'part'}: unknown placeholder`);
     xml += piece.raw;
+    inText = piece.endsInText ?? false;
     last = (m.index ?? 0) + m[0].length;
   }
-  const { text, removed } = stripForbidden(output.slice(last));
-  removedCharacters += removed;
-  xml += escapeText(text);
+  emit(output.slice(last));
   // Structural tags have done their work; their elements go (office/structure.ts).
   xml = xml.replace(STRUCTURAL_ELEMENTS, '');
   const laidOut = layoutText(xml, template.flavour, part);
@@ -164,9 +178,9 @@ export function fromTemplateOutput(output: string, template: TemplateSource, par
 }
 
 /**
- * Line breaks and tabs inside text elements become elements, text elements with leading or trailing
- * whitespace get `xml:space="preserve"`, and text that ended up outside a text element (possible only
- * when a template prints between runs) is refused, because Word rejects such a document.
+ * Line breaks and tabs inside text elements become elements, and text elements with leading or
+ * trailing whitespace get `xml:space="preserve"`. Text of other elements (field codes, a table style
+ * id) is markup and stays as it is.
  */
 export function layoutText(xml: string, flavour: TextFlavour, part?: string): string {
   const tokens = tokenize(xml, part);
@@ -192,8 +206,6 @@ export function layoutText(xml: string, flavour: TextFlavour, part?: string): st
       continue;
     }
     if (textOpenIndex === -1) {
-      if (token.raw.trim() !== '')
-        throw new OfficeError('office_document_invalid', `${part ?? 'part'}: text outside a text element: "${token.raw.trim().slice(0, 40)}"`);
       out.push(token.raw);
       continue;
     }
