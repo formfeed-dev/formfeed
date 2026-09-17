@@ -116,7 +116,7 @@ export interface ProgramContext {
   now?: () => Date;
 }
 
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 
 /** Largest file `pdf convert` uploads; the API refuses bigger ones with `file_too_large`. */
 const OFFICE_UPLOAD_LIMIT = 20 * 1024 * 1024;
