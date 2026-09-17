@@ -80,27 +80,38 @@ function setInLoop(source: string): ImportNote[] {
 
 const STYLE_BLOCK = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
 const HEAD_MARKUP = /<script\b[\s\S]*?<\/script\s*>|<!--[\s\S]*?-->|<(?:link|meta|base)\b[^>]*>/gi;
+const TEMPLATED = /\{\{|\{%/;
 
 /**
  * apitemplate.io puts its CSS field into the document head as is, so it often carries `<link>`,
  * `<script>` and `<style>` tags. Formfeed wraps CSS in a `<style>` element, where such tags break
  * the stylesheet and never load: style blocks become CSS, the rest of the markup goes to the head.
+ * apitemplate.io also fills that field with the data, while Formfeed's CSS and head are static, so
+ * blocks that use template syntax (chart scripts with `{{ data }}`) go to the end of the body instead.
  */
-export function splitApitemplateCss(source: string): { css: string; head: string } {
-  if (!/<\/?(style|link|script|meta|base)\b|<!--/i.test(source)) return { css: source, head: '' };
+export function splitApitemplateCss(source: string): { css: string; head: string; body: string } {
+  const styleElement = (rules: string) => `<style>\n${rules}\n</style>`;
+  if (!/<\/?(style|link|script|meta|base)\b|<!--/i.test(source))
+    return TEMPLATED.test(source) ? { css: '', head: '', body: styleElement(source.trim()) } : { css: source, head: '', body: '' };
   const styles: string[] = [];
   const head: string[] = [];
-  let rest = source.replace(STYLE_BLOCK, (_, body: string) => {
-    styles.push(body.replace(/^\n+|\s+$/g, ''));
+  const body: string[] = [];
+  let rest = source.replace(STYLE_BLOCK, (block: string, rules: string) => {
+    if (TEMPLATED.test(rules)) body.push(block.trim());
+    else styles.push(rules.replace(/^\n+|\s+$/g, ''));
     return '\n';
   });
   rest = rest.replace(HEAD_MARKUP, (tag) => {
-    head.push(tag.trim());
+    (TEMPLATED.test(tag) && !tag.startsWith('<!--') ? body : head).push(tag.trim());
     return '\n';
   });
   // plain rules next to the tags are CSS too
-  const loose = rest.replace(/\n{3,}/g, '\n\n').trim();
-  return { css: [loose, ...styles].filter(Boolean).join('\n\n'), head: head.join('\n') };
+  let loose = rest.replace(/\n{3,}/g, '\n\n').trim();
+  if (TEMPLATED.test(loose)) {
+    body.unshift(styleElement(loose));
+    loose = '';
+  }
+  return { css: [loose, ...styles].filter(Boolean).join('\n\n'), head: head.join('\n'), body: body.join('\n') };
 }
 
 export function importApitemplate(input: ApitemplateExport): ImportResult {
@@ -127,11 +138,12 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
   const sample = parseSample(input.sample_data);
   if (sample.error) warnings.push({ code: 'sample-json', message: `Sample data is not valid JSON (${sample.error}); the draft starts without sample data.`, docs: '/migrate/apitemplate-io#sample-data' });
 
-  const html = input.html ?? '';
   const split = splitApitemplateCss(input.css ?? '');
+  const html = split.body ? `${(input.html ?? '').trimEnd()}\n${split.body}\n` : (input.html ?? '');
   let css = split.css;
   const head = split.head;
   if (head) changes.push('<link> and <script> tags of the CSS field moved to the Head tab, <style> contents kept as CSS');
+  if (split.body) changes.push('script and style blocks of the CSS field that use template syntax moved to the end of the template, where they are filled with the data');
   // apitemplate.io's visual editor wraps each `{% for %}`/`{% endfor %}` in an element of this class
   // (table rows of empty cells, too) and hides it with its own stylesheet; without the rule every
   // loop iteration adds an empty row or block to the document

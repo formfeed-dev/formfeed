@@ -33,6 +33,7 @@ declare module 'nunjucks/browser/nunjucks.js' {
     Loader: typeof N.Loader;
     runtime: typeof N.runtime & {
       memberLookup: (obj: unknown, val: unknown, ...rest: unknown[]) => unknown;
+      suppressValue: (val: unknown, autoescape: boolean) => unknown;
     };
     /** The code generator; patched for `not` precedence and namespace attributes (engines/jinja2.ts). */
     compiler: {

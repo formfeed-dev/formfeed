@@ -16,6 +16,7 @@ import {
   previewDocument,
   readTemplate,
   renderLocal,
+  renderedSettings,
   renderOfficeLocal,
   type LocalTemplate,
 } from '@formfeed/devkit';
@@ -239,7 +240,7 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
           const rendered = await renderLocal(project, template, set.data, { mode: 'print', assetBaseUrl: assetBase });
           render = await options.client.renders.create({
             html: rendered.document,
-            settings: rendered.settings as Record<string, unknown>,
+            settings: renderedSettings(rendered),
             // the template's own format, as `formfeed render` and the API choose it
             output: body.output ?? defaultOutput(template.meta.kind, template.settings),
             meta,

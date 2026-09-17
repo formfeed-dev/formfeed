@@ -189,6 +189,27 @@ export async function renderLocal(project: Project, tpl: LocalTemplate, data: un
   );
 }
 
+/**
+ * The settings to send with a locally rendered document as a raw-HTML render. The API uses
+ * `header.html`, `footer.html` and the PDF title of such a render verbatim, so they must be the
+ * filled parts, not the template's source; the inline CSS travels with them, because Chromium loads
+ * no stylesheet in its header and footer templates.
+ */
+export function renderedSettings(rendered: RenderedDocument): Record<string, unknown> {
+  const style = rendered.inlineCss ? `<style>${rendered.inlineCss}</style>` : '';
+  const part = (settings: { html?: string } | undefined, html: string | undefined) =>
+    settings?.html ? { ...settings, html: `${style}${html ?? ''}` } : settings;
+  const { settings } = rendered;
+  return {
+    ...settings,
+    ...(settings.header ? { header: part(settings.header, rendered.headerHtml) } : {}),
+    ...(settings.footer ? { footer: part(settings.footer, rendered.footerHtml) } : {}),
+    ...(settings.pdf?.metadata?.title !== undefined
+      ? { pdf: { ...settings.pdf, metadata: { ...settings.pdf.metadata, title: rendered.title ?? '' } } }
+      : {}),
+  };
+}
+
 /** The kind of an HTML template; Word and PowerPoint templates go through `renderOfficeLocal`. */
 function htmlKind(tpl: LocalTemplate): TemplateKind {
   if (isOfficeKind(tpl.meta.kind)) throw new DevkitError(`${tpl.slug} is a ${tpl.meta.kind} template; fill it with renderOfficeLocal`, 'validation');

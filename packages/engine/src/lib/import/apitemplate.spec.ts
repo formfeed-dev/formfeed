@@ -113,7 +113,38 @@ describe('apitemplate.io importer', () => {
     expect(result.css).toBe('.loose { color: red }\n\n  body { font-family: "Chivo", sans-serif; }\n\np { margin: 0 }');
     expect(result.changes.join(' ')).toContain('Head tab');
     // plain CSS stays untouched
-    expect(splitApitemplateCss('a > b { color: red }')).toEqual({ css: 'a > b { color: red }', head: '' });
+    expect(splitApitemplateCss('a > b { color: red }')).toEqual({ css: 'a > b { color: red }', head: '', body: '' });
+  });
+
+  it('moves blocks of the CSS field that use template syntax to the end of the body', () => {
+    const css = [
+      '<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>',
+      '<script>',
+      '  var options = { "data": {{ economics.cashflow }} };',
+      '  {% if economics.paybackPeriod %}options.payback = {{ economics.paybackPeriod }};{% endif %}',
+      '</script>',
+      '<style>.bar { width: {{ share }}% }</style>',
+      '<style>p { margin: 0 }</style>',
+    ].join('\n');
+    const sample = '{"economics":{"cashflow":[1,2],"paybackPeriod":7},"share":40}';
+    const result = importApitemplate({ name: 'Charts', html: '<div id="chart"></div>\n', css, sample_data: sample });
+    expect(result.head).toBe('<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>');
+    expect(result.css).toBe('p { margin: 0 }');
+    expect(result.html).toBe(
+      [
+        '<div id="chart"></div>',
+        '<style>.bar { width: {{ share }}% }</style>',
+        '<script>',
+        '  var options = { "data": {{ economics.cashflow }} };',
+        '  {% if economics.paybackPeriod %}options.payback = {{ economics.paybackPeriod }};{% endif %}',
+        '</script>',
+        '',
+      ].join('\n'),
+    );
+    expect(result.changes.join(' ')).toContain('end of the template');
+    expect(result.errors).toEqual([]);
+    // loose rules with template syntax cannot stay in the static stylesheet either
+    expect(splitApitemplateCss('.x { color: {{ c }} }')).toEqual({ css: '', head: '', body: '<style>\n.x { color: {{ c }} }\n</style>' });
   });
 
   it('does not report every variable as missing when there is no sample data', () => {

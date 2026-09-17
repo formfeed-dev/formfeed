@@ -230,6 +230,16 @@ function installJinjaFilters(env: InstanceType<typeof nunjucks.Environment>): vo
     return (space >= 0 ? cut.slice(0, space) : cut) + end;
   });
 
+  const helperSum = lookup.getFilter('sum');
+  // sum(attribute='total', start=0); sum('total') stays the helper
+  lookup.addFilter('sum', function (this: FilterThis, value: unknown, ...args: unknown[]) {
+    const named = keywordArgs(args);
+    if (!named) return helperSum.call(this, value, ...args);
+    const p = args.slice(0, -1);
+    const total = helperSum.call(this, value, p[0] ?? named['attribute']) as number;
+    return total + Number(p[1] ?? named['start'] ?? 0);
+  });
+
   const helperMap = lookup.getFilter('map');
   // map(attribute='x', default=…) and map('upper'); map('field') on objects stays the pluck helper
   lookup.addFilter('map', function (this: FilterThis, value: unknown, ...args: unknown[]) {
@@ -284,6 +294,32 @@ function trimChars(
   return s.slice(start, end);
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  if (v === null || typeof v !== 'object') return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/** Python's `repr` for JSON-shaped values: what `str()` of a list or dict shows for its items. */
+function pythonRepr(v: unknown): string {
+  if (v === null || v === undefined) return 'None';
+  if (v === true) return 'True';
+  if (v === false) return 'False';
+  if (typeof v === 'number') return Number.isNaN(v) ? 'nan' : Number.isFinite(v) ? String(v) : v > 0 ? 'inf' : '-inf';
+  if (typeof v === 'string') {
+    const quote = v.includes("'") && !v.includes('"') ? '"' : "'";
+    const escaped = v
+      .replace(/\\/g, '\\\\')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+    return quote + (quote === "'" ? escaped.replace(/'/g, "\\'") : escaped) + quote;
+  }
+  if (Array.isArray(v)) return `[${v.map(pythonRepr).join(', ')}]`;
+  if (isPlainObject(v)) return `{${Object.entries(v).map(([k, item]) => `${pythonRepr(k)}: ${pythonRepr(item)}`).join(', ')}}`;
+  return String(v);
+}
+
 let compatInstalled = false;
 function installCompat(): void {
   if (compatInstalled) return;
@@ -314,6 +350,11 @@ function installCompat(): void {
     else this.compile(node.body, frame);
     this._emitLine(');');
   };
+  // `{{ values }}` prints a list or dict the way Python does (`[1, 2]`, `{'a': 1}`), which is what
+  // templates such as chart scripts (`"data": {{ values }}`) rely on; JavaScript would print `1,2`
+  const suppressValue = nunjucks.runtime.suppressValue;
+  nunjucks.runtime.suppressValue = (val: unknown, autoescape: boolean) =>
+    suppressValue(Array.isArray(val) || isPlainObject(val) ? pythonRepr(val) : val, autoescape);
   const original = nunjucks.runtime.memberLookup;
   nunjucks.runtime.memberLookup = (obj: unknown, val: unknown, ...rest: unknown[]) => {
     if (

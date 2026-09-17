@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadProject, writeProjectConfig } from './project-config';
-import { diagnose, previewDocument, renderLocal } from './local-render';
+import { diagnose, previewDocument, renderLocal, renderedSettings } from './local-render';
 import { contentHash, listTemplateSlugs, partialContentHash, readState, readTemplate, recordSharedPartial, versionPayload, writeTemplate } from './project';
 import { readBrand, writeBrand } from './brand';
 import { emptyBrand } from '@formfeed/engine';
@@ -136,6 +136,23 @@ describe('template folders (spec 15 §2)', () => {
     expect(rendered.document).toContain('<header>Fennlor Studio GmbH<p>Street 1</p></header>');
     expect(rendered.document).toContain('--brand-color-primary: #0f766e;');
     expect(rendered.document).toContain('--brand-font-heading: "Inter";');
+  });
+
+  it('sends the filled header, footer and title with a local render', async () => {
+    const p = project();
+    const settings = {
+      header: { html: '<p>{{ company.name }}</p>', height: '20mm' },
+      footer: { html: '<p>{{ company.zip }} <span class="pageNumber"></span></p>' },
+      pdf: { metadata: { title: 'Offer {{ number }}' } },
+    };
+    writeTemplate(p, 'offer', { name: 'Offer', kind: 'pdf', engine: 'jinja2' }, { html: '<p>{{ number }}</p>', css: '', head: '', settings, sample_data: {}, data_schema: null, i18n: null });
+    const rendered = await renderLocal(p, readTemplate(p, 'offer'), { number: 7, company: { name: 'Fennlor Studio GmbH', zip: '12345' } }, { mode: 'print' });
+    const sent = renderedSettings(rendered) as { header: { html: string; height: string }; footer: { html: string }; pdf: { metadata: { title: string } } };
+    expect(sent.header.html).toContain('<p>Fennlor Studio GmbH</p>');
+    expect(sent.header.height).toBe('20mm');
+    expect(sent.footer.html).toContain('<p>12345 <span class="pageNumber"></span></p>');
+    expect(sent.pdf.metadata.title).toBe('Offer 7');
+    expect(JSON.stringify(sent)).not.toContain('{{');
   });
 
   it('reads the pulled brand kit, or the empty kit without the file', async () => {

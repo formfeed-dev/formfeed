@@ -75,6 +75,7 @@ import {
   recordSync,
   redactData,
   renderLocal,
+  renderedSettings,
   renderOfficeLocal,
   sharedPartialPath,
   templateDir,
@@ -648,7 +649,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       } else {
         // the document leaves complete, so asset() must already point at the workspace library
         const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c), brand: readBrand(project) });
-        render = await c.renders.create({ html: rendered.document, settings: rendered.settings as Record<string, unknown>, output, meta: { source: 'formfeed render', template: slug } });
+        render = await c.renders.create({ html: rendered.document, settings: renderedSettings(rendered), output, meta: { source: 'formfeed render', template: slug } });
       }
       const finished = render.status === 'succeeded' || render.status === 'failed' ? render : await c.renders.waitFor(render.id);
       if (finished.status !== 'succeeded') throw new CliError(`render ${finished.id} failed: ${JSON.stringify(finished.error)}`, exitCodes.network, finished);
@@ -801,7 +802,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           created = await c.pdf.convert({ file: { data: filled.bytes, name: `${one}.${tpl.meta.kind}` } }, { filename: `${one}.pdf`, meta });
         } else {
           const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl, brand });
-          created = await c.renders.create({ html: rendered.document, settings: rendered.settings as Record<string, unknown>, output, meta });
+          created = await c.renders.create({ html: rendered.document, settings: renderedSettings(rendered), output, meta });
         }
         const render = created.status === 'succeeded' || created.status === 'failed' ? created : await c.renders.waitFor(created.id);
         if (render.status !== 'succeeded') {

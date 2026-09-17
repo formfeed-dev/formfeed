@@ -26,7 +26,7 @@ export type { LocalOfficeFile, LocalTemplate, ProjectState, SharedPartialState, 
 export { brandFromJson, brandPath, readBrand, writeBrand } from './lib/brand';
 export { collectPartials } from './lib/partials';
 export type { CollectedPartials } from './lib/partials';
-export { diagnose, officeSnapshot, prettyXml, previewDocument, renderContext, renderLocal, renderOfficeLocal } from './lib/local-render';
+export { diagnose, officeSnapshot, prettyXml, previewDocument, renderContext, renderLocal, renderOfficeLocal, renderedSettings } from './lib/local-render';
 export type { LocalDiagnostic, OfficeLocalOptions } from './lib/local-render';
 export { contentTypeFor, listLocalFiles, localFilePath, sha256File, writeLocalFile } from './lib/files';
 export type { LocalFile, LocalFileListing } from './lib/files';

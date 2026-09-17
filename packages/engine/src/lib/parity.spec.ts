@@ -684,6 +684,13 @@ describe('jinja2 python compatibility', () => {
     expect(await render(`{{ xs | map(attribute='a.b') | join(',') }}|{{ words | map('upper') | join(',') }}|{{ xs | map('a') | length }}`, { xs: [{ a: { b: 1 } }, { a: { b: 2 } }], words: ['x', 'y'] })).toBe(
       '1,2|X,Y|2',
     );
+    const lines = { xs: [{ net: 5000, vat: { v: 500 } }, { net: 200, vat: { v: 50 } }] };
+    expect(await render(`{{ xs | sum(attribute='net') }}|{{ xs | sum(attribute='vat.v', start=1) }}|{{ xs | sum('net') }}|{{ [1, 2] | sum }}`, lines)).toBe('5200|551|5200|3');
+    // lists and dicts print as Python shows them, so `"data": {{ values }}` in a chart script is an array
+    expect(await render(`<script>var a = {{ xs }};</script>{{ d }}`, { xs: [-1500.5, 200], d: { k: ['x', "it's"], on: true, no: null } })).toBe(
+      `<script>var a = [-1500.5, 200];</script>{&#39;k&#39;: [&#39;x&#39;, &quot;it&#39;s&quot;], &#39;on&#39;: True, &#39;no&#39;: None}`,
+    );
+    expect(await render(`{{ xs }}|{{ flag }}|{{ xs | join(',') }}`, { xs: [], flag: true })).toBe('[]|true|');
     const items = { xs: [{ c: 'ROOF', n: 1 }, { c: 'OTHER', n: 2 }, { c: 'ROOF', n: 3, on: true }] };
     expect(
       await render(
