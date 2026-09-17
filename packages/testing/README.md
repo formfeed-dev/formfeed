@@ -1,7 +1,9 @@
 # @formfeed/testing
 
-Vitest and Jest matchers for [Formfeed](https://formfeed.dev) templates kept in your repository.
-The offline matchers render with the same engine the API uses, so they need no account.
+Vitest and Jest matchers for [Formfeed](https://formfeed.dev) HTML templates kept in your repository.
+The offline matchers render with the same engine the API uses, so they need no account. Word and
+PowerPoint templates are tested with `formfeed test`, which compares their filled XML with approved
+snapshots.
 
 ```bash
 npm install -D @formfeed/testing

@@ -33,11 +33,19 @@ export function paperOf(settings: TemplateSettings): { width: string; height: st
   return paper.landscape ? { width: h, height: w } : { width: w, height: h };
 }
 
-/** Chromium's header/footer placeholders replaced for the screen. */
-export const pageNumberSpans = (html: string, page: string, total: string): string =>
-  html
-    .replace(/<span class="pageNumber"><\/span>/g, page)
-    .replace(/<span class="totalPages"><\/span>/g, total);
+/**
+ * Chromium's header/footer placeholders filled for the screen. Like Chromium, any element whose class
+ * list names the placeholder counts, whatever else it carries (the editor adds `data-ff-src`), and
+ * the element stays so its styling applies.
+ */
+export const pageNumberSpans = (html: string, page: string, total: string): string => {
+  const fill = (source: string, name: string, value: string) =>
+    source.replace(
+      new RegExp(`<([a-z][a-z0-9]*)(\\s[^>]*?\\bclass=(["'])(?:[^"']*\\s)?${name}(?:\\s[^"']*)?\\3[^>]*)>[^<]*</\\1>`, 'gi'),
+      (_match, tag: string, attrs: string) => `<${tag}${attrs}>${value}</${tag}>`,
+    );
+  return fill(fill(html, 'pageNumber', page), 'totalPages', total);
+};
 
 /**
  * Click-to-source: the frame reports what was clicked so the editor can jump to the line that

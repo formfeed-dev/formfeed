@@ -42,7 +42,8 @@ The supported surface is the `Engine` interface (`compile`, `analyze`, `render`)
 | `analysis/` | Block pairing and sample-data checks behind every `analyze()` |
 | `schema.ts` | `inferSchema(sample)` to JSON Schema 2020-12 |
 | `assemble.ts` | Template settings, print reset, `assembleDocument()` and `renderVersion()` (body, header, footer, title) |
-| `import/` | `importApitemplate()`: converts apitemplate.io templates |
+| `import/` | `importApitemplate()` and `importApitemplateFromApi()`, `importPdfmonkey()` and `importJsreport()`: convert templates of apitemplate.io, PDFMonkey and jsreport into Formfeed drafts |
+| `office/` | Word and PowerPoint templates: `renderOffice()` fills a `.docx` or `.pptx` file, `analyzeOffice()` lists its tags, variables and findings per part and paragraph, `OfficeTemplateError` carries the findings of a document that cannot be filled, and `starterDocument()` and `starterPresentation()` return example files with their sample data |
 
 ## Documentation
 

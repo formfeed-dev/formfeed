@@ -1,7 +1,7 @@
 # @formfeed/sdk
 
 The TypeScript client for the [Formfeed](https://formfeed.dev) API: generate PDFs and images from
-templates. It has no dependencies and uses only Web APIs (`fetch`, Web Crypto), so it runs in Node 22+,
+templates, and fill Word and PowerPoint templates. It has no dependencies and uses only Web APIs (`fetch`, Web Crypto), so it runs in Node 22+,
 Deno, Bun, Cloudflare Workers and browsers.
 
 - Retries `429` and `503` with the server's `Retry-After`.
@@ -59,6 +59,10 @@ await client.templates.create({
 });
 
 const filled = await client.renders.create({ template: 'offer', output: 'docx', data }); // or output: 'pdf'
+
+// a new version with a new document; without `file` the latest document is kept
+await client.templates.versions.create('offer', { file: { data: await readFile('offer-v2.docx'), name: 'offer.docx' } });
+const docx = await client.templates.versions.file('offer', 'latest'); // the document's bytes
 
 // any office document to PDF (Word, Excel, PowerPoint, OpenDocument, RTF)
 const pdf = await client.pdf.convert({ file: { data: await readFile('report.xlsx'), name: 'report.xlsx' } }, { single_page_sheets: true });

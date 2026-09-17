@@ -34,6 +34,11 @@ with open("offer.docx", "rb") as f:
     client.templates.create(name="Offer", slug="offer", kind="docx", engine="jinja2", file=f, publish=True)
 filled = client.renders.create(template="offer", output="docx", data={"customer": {"name": "Olvarest GmbH"}})
 
+# a new version with a new document; without file= the latest document is kept
+with open("offer-v2.docx", "rb") as f:
+    client.templates.create_version("offer", file=f, change_note="New terms")
+docx = client.templates.version_file("offer", "latest")   # the document's bytes
+
 # any office document to PDF (Word, Excel, PowerPoint, OpenDocument, RTF)
 with open("report.xlsx", "rb") as f:
     pdf = client.pdf.convert(file=f, single_page_sheets=True)

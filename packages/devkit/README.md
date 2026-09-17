@@ -13,7 +13,7 @@ npm install @formfeed/devkit
 ```ts
 import { defaultData, diagnose, projectAround, readTemplate, renderLocal } from '@formfeed/devkit';
 
-// a folder with template.html, template.json, styles.css, data/*.json (see the project layout docs)
+// a folder with template.html, template.json, style.css, data/*.json (see the project layout docs)
 const project = projectAround('templates/invoice-de');
 const tpl = readTemplate(project, 'invoice-de');
 const { data } = defaultData(tpl); // data/default.json, or the first data set
@@ -22,7 +22,22 @@ console.log(diagnose(tpl, data)); // the editor's diagnostics: syntax errors, un
 const { document } = await renderLocal(project, tpl, data, { mode: 'print' }); // complete HTML, no browser
 ```
 
-Errors are `DevkitError` instances with a `code`, which the CLI maps to its exit codes.
+A folder can hold a Word or PowerPoint document (`template.docx` or `template.pptx`) instead of the
+HTML files; `readTemplate` returns it as `tpl.file` and `templateFileName(kind)` names the file for
+a kind. `diagnose` lists such a template's findings by part and paragraph, `renderOfficeLocal` fills
+it (`bytes`, `warnings`) and `officeSnapshot(bytes)` turns the filled file into readable XML for
+snapshot tests:
+
+```ts
+import { officeSnapshot, readTemplate, renderOfficeLocal } from '@formfeed/devkit';
+
+const offer = readTemplate(project, 'offer');
+const filled = await renderOfficeLocal(project, offer, { customer: { name: 'Olvarest GmbH' } });
+console.log(filled.warnings, officeSnapshot(filled.bytes));
+```
+
+`renderLocal` works on HTML templates only. Errors are `DevkitError` instances with a `code`, which
+the CLI maps to its exit codes.
 
 ## Documentation
 

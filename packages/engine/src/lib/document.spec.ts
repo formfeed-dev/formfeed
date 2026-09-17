@@ -6,7 +6,7 @@ import {
   renderVersion,
 } from './assemble';
 import { defaultHelpers } from './helpers';
-import { flowDocument, pagedDocument } from './preview';
+import { flowDocument, pagedDocument, pageNumberSpans } from './preview';
 import { inferSchema, schemaPaths } from './schema';
 import type { RenderContext } from './types';
 
@@ -159,6 +159,18 @@ describe('settings and assembly', () => {
 });
 
 describe('paged preview document', () => {
+  it('fills page number placeholders that carry other attributes, as Chromium does', () => {
+    const footer = '<p>Page <span class="pageNumber" data-ff-src="footer:1:9"></span> of <span class="small totalPages"></span> <span class="pageNumbers"></span></p>';
+    expect(pageNumberSpans(footer, '2', '5')).toBe(
+      '<p>Page <span class="pageNumber" data-ff-src="footer:1:9">2</span> of <span class="small totalPages">5</span> <span class="pageNumbers"></span></p>',
+    );
+    const paged = pagedDocument(
+      { document: assembleDocument({ html: '<p>x</p>' }), footerHtml: footer, settings: {}, kind: 'pdf' },
+      { pagedScriptUrl: 'https://app.example/paged.js' },
+    );
+    expect(paged).toContain('data-ff-src="footer:1:9"><span class="ff-page-no"></span></span>');
+  });
+
   it('guards selector queries before Paged.js loads, so an unusable stylesheet cannot blank the preview', () => {
     const doc = pagedDocument(
       { document: assembleDocument({ html: '<p>x</p>' }), settings: {}, kind: 'pdf' },

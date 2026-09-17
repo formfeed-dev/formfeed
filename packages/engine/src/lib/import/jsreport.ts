@@ -289,7 +289,7 @@ function mapChrome(
   if (chrome['waitForJS'] === true || chrome['waitForJS'] === 'true')
     warnings.push({
       code: 'wait-for-js',
-      message: 'The template sets window.JSREPORT_READY_TO_START; Formfeed waits for a CSS selector instead (Settings → Wait for).',
+      message: 'The template sets window.JSREPORT_READY_TO_START; Formfeed waits for a CSS selector instead: set waitFor.selector in settings.json or in the settings of the API request.',
       docs: `${DOCS}#settings`,
     });
   if (str('mediaType') === 'screen') warnings.push({ code: 'setting-ignored', message: 'mediaType "screen" is not supported; Formfeed prints with the print media type.', docs: `${DOCS}#settings` });

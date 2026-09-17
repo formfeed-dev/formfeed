@@ -19,10 +19,29 @@ Layout of a template folder (`template.json` carries name, kind and engine):
 templates/invoice-de/
   template.json  template.html  style.css  head.html  header.html  footer.html
   settings.json  schema.json  i18n.json  data/default.json  data/*.json
+
+templates/offer/                            a Word template (template.pptx for PowerPoint)
+  template.json  template.docx  settings.json  schema.json  i18n.json  data/*.json
+```
+
+Word and PowerPoint templates are filled on your machine: `render --output docx` writes the filled
+document, `render --output pdf` converts it through the API (Starter plan and above). QR codes,
+barcodes and SVG pictures in them are drawn by `@resvg/resvg-js`, an optional dependency; without it
+they are left out with a warning.
+
+More commands:
+
+```bash
+npx formfeed pdf convert report.xlsx        # any Word, Excel, PowerPoint, OpenDocument or RTF file to PDF
+npx formfeed import apitemplate --all --key "$APITEMPLATE_API_KEY" --source-region de
+npx formfeed files push                     # the files/ folder into the workspace file library
+npx formfeed brand pull                     # the brand kit for local previews
+npx formfeed partials pull                  # shared partials into partials/
+npx formfeed workspaces delete <id> --yes   # needs the workspace:delete scope
 ```
 
 Configuration precedence: flags, then `FORMFEED_API_KEY` / `FORMFEED_BASE_URL` /
-`FORMFEED_WORKSPACE`, then `formfeed.json`, then the user config
+`FORMFEED_WORKSPACE` / `FORMFEED_REGION`, then `formfeed.json`, then the user config
 (`~/.config/formfeed/config.json`, `%APPDATA%\formfeed\config.json`). Exit codes: 0 ok,
 1 validation, 2 usage, 3 auth, 4 network or API, 5 quota.
 
