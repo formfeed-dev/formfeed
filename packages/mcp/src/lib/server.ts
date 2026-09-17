@@ -9,7 +9,10 @@ import { z } from 'zod';
  * request's bearer token. Validation runs the shared engine locally, so it is free and instant.
  */
 export interface ServerOptions {
+  /** An API key, or an OAuth access token together with `workspaceId` (spec 10 §3.1). */
   apiKey: string;
+  /** The workspace an access token acts in; sent as `X-Formfeed-Workspace`. Not for API keys, which carry theirs. */
+  workspaceId?: string;
   baseUrl?: string;
   region?: 'eu' | 'us';
   fetch?: typeof fetch;
@@ -65,6 +68,7 @@ function failure(e: unknown) {
 export function createFormfeedServer(options: ServerOptions): McpServer {
   const client = new Formfeed({
     apiKey: options.apiKey,
+    headers: { 'user-agent': `formfeed-mcp/${SERVER_INFO.version}`, ...(options.workspaceId ? { 'x-formfeed-workspace': options.workspaceId } : {}) },
     ...(options.region ? { region: options.region } : {}),
     ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
     ...(options.fetch ? { fetch: options.fetch } : {}),

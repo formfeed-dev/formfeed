@@ -12,13 +12,16 @@ const flag = (name: string): string | undefined => {
 };
 const baseUrl = process.env['FORMFEED_BASE_URL'];
 const region = process.env['FORMFEED_REGION'] as 'eu' | 'us' | undefined;
+/** Supabase Auth as the OAuth server (`https://<ref>.supabase.co/auth/v1`) opens `/mcp/<workspace id>` for signed-in members. */
+const authorizationServer = flag('--auth-server') ?? process.env['FORMFEED_AUTH_SERVER'];
+const publicOrigin = flag('--public-origin') ?? process.env['FORMFEED_PUBLIC_ORIGIN'];
 
 if (args.includes('--help') || args.includes('-h')) {
   process.stdout.write(
-    'formfeed-mcp: Model Context Protocol server for Formfeed\n\n  formfeed-mcp              stdio; needs FORMFEED_API_KEY\n  formfeed-mcp --http       Streamable HTTP on --port (8790) and --host (127.0.0.1); the key comes from Authorization: Bearer\n',
+    'formfeed-mcp: Model Context Protocol server for Formfeed\n\n  formfeed-mcp              stdio; needs FORMFEED_API_KEY\n  formfeed-mcp --http       Streamable HTTP on --port (8790) and --host (127.0.0.1); the key comes from Authorization: Bearer\n                            --auth-server <issuer> (or FORMFEED_AUTH_SERVER) also opens /mcp/<workspace id> for OAuth access tokens;\n                            --public-origin <url> (or FORMFEED_PUBLIC_ORIGIN) is the origin clients see behind a proxy\n',
   );
 } else if (args.includes('--http')) {
-  startHttp({ port: Number(flag('--port') ?? 8790), host: flag('--host') ?? '127.0.0.1', baseUrl, region }).then((h) =>
+  startHttp({ port: Number(flag('--port') ?? 8790), host: flag('--host') ?? '127.0.0.1', baseUrl, region, authorizationServer, publicOrigin }).then((h) =>
     process.stderr.write(`formfeed-mcp listening on ${h.url}\n`),
   );
 } else {

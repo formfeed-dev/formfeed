@@ -23,6 +23,12 @@ export interface FormfeedOptions {
   /** Retries on 429 and 503; 0 disables. */
   maxRetries?: number;
   timeoutMs?: number;
+  /**
+   * Headers sent with every request, after the SDK's own. The hosted MCP server uses it to act for
+   * a signed-in member: `apiKey` carries the OAuth access token and `X-Formfeed-Workspace` the
+   * workspace of the URL (spec 10 §3.1).
+   */
+  headers?: Record<string, string>;
 }
 
 export interface RenderRequest {
@@ -650,6 +656,7 @@ export class Formfeed {
   private readonly fetchImpl: typeof fetch;
   private readonly maxRetries: number;
   private readonly timeoutMs: number;
+  private readonly extraHeaders: Record<string, string>;
 
   constructor(options: FormfeedOptions) {
     if (!options.apiKey) throw new FormfeedError('invalid_request', 'apiKey is required', 0);
@@ -658,6 +665,7 @@ export class Formfeed {
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.maxRetries = options.maxRetries ?? 3;
     this.timeoutMs = options.timeoutMs ?? 120_000;
+    this.extraHeaders = Object.fromEntries(Object.entries(options.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]));
     if (!this.fetchImpl) throw new FormfeedError('invalid_request', 'fetch is not available; pass options.fetch', 0);
   }
 
@@ -1055,6 +1063,7 @@ export class Formfeed {
       authorization: `Bearer ${this.apiKey}`,
       accept: as === 'bytes' ? '*/*' : 'application/json',
       'user-agent': 'formfeed-sdk-ts/0.3',
+      ...this.extraHeaders,
     };
     // FormData brings its own multipart content type with the boundary; everything else is JSON.
     const isForm = typeof FormData !== 'undefined' && body instanceof FormData;

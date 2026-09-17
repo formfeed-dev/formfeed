@@ -518,6 +518,13 @@ describe('PDF tools', () => {
     expect(calls[3]).toMatchObject({ method: 'DELETE', url: 'https://api-eu.formfeed.dev/v1/files/fil_1' });
   });
 
+  it('sends the configured headers with every request, an OAuth token and workspace included', async () => {
+    const { calls, fetchImpl } = stub(() => json({ data: [], next_cursor: null }));
+    const client = new Formfeed({ apiKey: 'eyJ.access.token', fetch: fetchImpl, headers: { 'X-Formfeed-Workspace': 'ws-1', 'User-Agent': 'formfeed-mcp/1' } });
+    await client.templates.list();
+    expect(calls[0]!.headers).toMatchObject({ authorization: 'Bearer eyJ.access.token', 'x-formfeed-workspace': 'ws-1', 'user-agent': 'formfeed-mcp/1' });
+  });
+
   it('validates a template version with data', async () => {
     const result = { ok: false, template: { id: 'tpl_1', slug: 'invoice', version: 3 }, diagnostics: [{ severity: 'error', code: 'data-validation', path: 'data.n', message: 'data.n: is required' }] };
     const { calls, fetchImpl } = stub(() => json(result));

@@ -23,7 +23,9 @@ A test key renders free with a watermark; a live key consumes units. `FORMFEED_R
 
 ## Hosted (Streamable HTTP)
 
-`https://mcp.formfeed.dev/mcp` with `Authorization: Bearer ff_…`. Self-host the same endpoint with
-`formfeed-mcp --http --port 8790`.
+`https://mcp.formfeed.dev/mcp/<workspace id>` signs in with your Formfeed account (OAuth; the client
+opens the browser), `https://mcp.formfeed.dev/mcp` takes `Authorization: Bearer ff_…`. Self-host the
+same endpoint with `formfeed-mcp --http --port 8790`, plus `--auth-server <issuer>` for OAuth sign-in
+against your own Supabase Auth.
 
 Documentation: <https://docs.formfeed.dev/integrations/mcp>
