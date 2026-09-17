@@ -341,6 +341,10 @@ class Diagnostic(_Model):
     location: dict[str, int] | None = None
     path: str | None = None
     """Data errors only: where in the data, e.g. ``data.invoice.lines[0].qty``."""
+    part: str | None = None
+    """Word and PowerPoint templates only: the file part the tag is in, e.g. ``word/document.xml``."""
+    paragraph: int | None = None
+    """Word and PowerPoint templates only: the 1-based paragraph in ``part``."""
 
 
 class TemplateValidation(_Model):

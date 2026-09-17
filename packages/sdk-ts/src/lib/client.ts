@@ -389,6 +389,10 @@ export interface Diagnostic {
   location?: { line: number; column: number };
   /** Data errors only: where in the data, e.g. `data.invoice.lines[0].qty`. */
   path?: string;
+  /** Word and PowerPoint templates only: the file part the tag is in, e.g. `word/document.xml`. */
+  part?: string;
+  /** Word and PowerPoint templates only: the 1-based paragraph in `part`. */
+  paragraph?: number;
 }
 
 export interface TemplateValidation {
