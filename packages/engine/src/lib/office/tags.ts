@@ -102,7 +102,38 @@ export function normaliseTags(template: TemplateSource, part: string): Normalise
     }
   }
 
+  // Field codes are markup, never template text: a tag typed there stays as it is (spec 22 §4.3 step 3).
+  const reported = new Set<number>();
+  for (const p of placeholders) {
+    const raw = template.markup[p.index]?.raw ?? '';
+    for (const m of raw.matchAll(/<w:instrText\b[^>]*>([^<]*)<\/w:instrText>/g)) {
+      const code = decodeEntities(m[1] ?? '');
+      if (!/\{\{|\{%|\{#/.test(code)) continue;
+      const paragraph = paragraphOf(template, placeholders, p.at);
+      if (reported.has(paragraph)) continue;
+      reported.add(paragraph);
+      diagnostics.push({
+        severity: 'warning',
+        code: 'office-tag-in-field',
+        message: `The field code ${short(code.trim())} contains a tag, which stays as typed: fields are not filled. Put the tag in the document text instead.`,
+        part,
+        paragraph,
+        text: short(code.trim()),
+      });
+    }
+  }
+
   return { template: { ...template, source: applyEdits(template.source, edits) }, diagnostics };
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (whole, name: string) => {
+    if (name[0] !== '#') return ENTITIES[name.toLowerCase()] ?? whole;
+    const code = name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
+    return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+  });
 }
 
 interface Placeholder {

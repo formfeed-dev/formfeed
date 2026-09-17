@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
+import { defaultOutput } from '@formfeed/engine';
 import type { Formfeed, Render } from '@formfeed/sdk-ts';
 import type { Project } from './config';
 import { CliError, exitCodes } from './errors';
@@ -214,7 +215,7 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
         res.end(JSON.stringify({ error: loadError }));
         return;
       }
-      const body = JSON.parse((await readBody(req)) || '{}') as { data?: string; output?: 'pdf' | 'png' | 'jpg' };
+      const body = JSON.parse((await readBody(req)) || '{}') as { data?: string; output?: 'pdf' | 'png' | 'jpg' | 'webp' };
       const set = defaultData(template, body.data ?? options.data ?? undefined);
       // a true render leaves as a complete document, so it resolves against the remote library
       assetBase ??= await remoteAssetBase(options.client);
@@ -239,7 +240,8 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
           render = await options.client.renders.create({
             html: rendered.document,
             settings: rendered.settings as Record<string, unknown>,
-            output: body.output ?? (template.meta.kind === 'image' ? 'png' : 'pdf'),
+            // the template's own format, as `formfeed render` and the API choose it
+            output: body.output ?? defaultOutput(template.meta.kind, template.settings),
             meta,
           });
         }

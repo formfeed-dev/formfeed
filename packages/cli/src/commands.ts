@@ -61,6 +61,7 @@ import {
   defaultTypesFile,
   diagnose,
   generateTypes,
+  isIgnored,
   listLocalFiles,
   listTemplateSlugs,
   localTypeSource,
@@ -346,11 +347,14 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .action(async (slug: string | undefined, opts: { publish?: boolean; message?: string; dryRun?: boolean; force?: boolean; channel?: string; allowBreaking?: boolean }) => {
       const s = settings();
       const project = requireProject(s);
-      const slugs = slug ? [slug] : listTemplateSlugs(project);
-      if (slugs.length === 0) throw new CliError(`No templates in ${project.templatesDir}`, exitCodes.usage);
+      // `ignore` in formfeed.json leaves folders out of a push of everything; a named slug is pushed
+      const listed = slug ? [slug] : listTemplateSlugs(project);
+      const ignored = slug ? [] : listed.filter((one) => isIgnored(project, templateDir(project, one), true));
+      const slugs = listed.filter((one) => !ignored.includes(one));
+      if (listed.length === 0) throw new CliError(`No templates in ${project.templatesDir}`, exitCodes.usage);
       const state = readState(project);
       const c = opts.dryRun ? null : client(s);
-      const results: Array<Record<string, unknown>> = [];
+      const results: Array<Record<string, unknown>> = ignored.map((one) => ({ slug: one, status: 'ignored' }));
       for (const one of slugs) {
         const tpl = readTemplate(project, one);
         // the partials travel with the version, so an include without a file would fail on the
@@ -1164,7 +1168,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       if (!input.template)
         throw new CliError(`${id} rendered ${input.url ? 'a URL' : 'ad-hoc HTML'}, not a template; only template renders can become a data set`, exitCodes.usage);
       const { slug, version: renderVersion } = input.template;
-      if (!existsSync(join(templateDir(project, slug), 'template.html')))
+      if (!listTemplateSlugs(project).includes(slug))
         throw new CliError(`${id} used template "${slug}", which has no folder in ${project.templatesDir}; run formfeed templates pull ${slug} first`, exitCodes.usage);
       const file = join(templateDir(project, slug), 'data', `${name}.json`);
       if (existsSync(file) && !opts.force) throw new CliError(`${file} exists already; choose another name with --as or overwrite it with --force`, exitCodes.usage);

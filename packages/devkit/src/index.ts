@@ -1,5 +1,5 @@
 export { DevkitError } from './lib/errors';
-export { defaultProjectConfig, findProject, loadProject, projectAround, writeProjectConfig } from './lib/project-config';
+export { defaultProjectConfig, findProject, isIgnored, loadProject, projectAround, writeProjectConfig } from './lib/project-config';
 export type { Project, ProjectConfig } from './lib/project-config';
 export {
   contentHash,

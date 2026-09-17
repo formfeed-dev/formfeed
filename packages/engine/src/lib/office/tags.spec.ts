@@ -132,3 +132,20 @@ describe('undoAutocorrect', () => {
     expect(undoAutocorrect("{{ 'x' }}")).toBe("{{ 'x' }}");
   });
 });
+
+describe('tags in field codes', () => {
+  it('reports a tag in a field code once per paragraph and leaves the field as it is', async () => {
+    const field = (code: string) =>
+      `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">${code}</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+    const xml = doc(
+      `<w:p><w:r><w:t>Page </w:t></w:r>${field(' PAGE ')}</w:p>` +
+        `<w:p><w:r><w:t>{{ customer.name }}</w:t></w:r>${field(' HYPERLINK &quot;{{ offer.url }}&quot; ')}${field(' REF {{ x }} ')}</w:p>`,
+    );
+    const { xml: filled, diagnostics } = await fill(xml, { customer: { name: 'Olvarest GmbH' }, offer: { url: 'https://shop.example' } });
+    expect(diagnostics).toEqual([
+      expect.objectContaining({ severity: 'warning', code: 'office-tag-in-field', part: PART, paragraph: 2, text: 'HYPERLINK "{{ offer.url }}"' }),
+    ]);
+    expect(filled).toContain('>Olvarest GmbH<');
+    expect(filled).toContain('HYPERLINK &quot;{{ offer.url }}&quot;');
+  });
+});

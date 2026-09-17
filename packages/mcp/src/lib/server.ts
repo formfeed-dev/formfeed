@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getEngine, inferSchema, outputFormats, type Diagnostic } from '@formfeed/engine';
+import { analyzeOffice, getEngine, inferSchema, isOfficeKind, outputFormats, type Diagnostic } from '@formfeed/engine';
 import { Formfeed, FormfeedError, type Render } from '@formfeed/sdk-ts';
 import { z } from 'zod';
 
@@ -19,6 +19,7 @@ export const SERVER_INFO = { name: 'formfeed', version: '0.3.0' };
 
 const engineSchema = z.enum(['jinja2', 'liquid', 'handlebars']);
 const outputSchema = z.enum(outputFormats);
+const kindSchema = z.enum(['pdf', 'image', 'docx', 'pptx']);
 
 const templateSummary = (t: { id: string; slug: string; name: string; kind: string; engine: string; description: string | null; tags: string[]; published_version: number | null; updated_at: string }) => ({
   id: t.id,
@@ -62,16 +63,16 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   });
   const server = new McpServer(SERVER_INFO, {
     instructions:
-      'Formfeed renders PDFs and images from templates. Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user.',
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user.',
   });
 
   server.registerTool(
     'list_templates',
     {
       title: 'List templates',
-      description: 'Templates of the workspace the API key belongs to, with slug, kind (pdf or image), engine and published version.',
+      description: 'Templates of the workspace the API key belongs to, with slug, kind (pdf, image, docx for Word, pptx for PowerPoint), engine and published version.',
       inputSchema: {
-        kind: z.enum(['pdf', 'image']).optional(),
+        kind: kindSchema.optional(),
         engine: engineSchema.optional(),
         tag: z.string().optional(),
         q: z.string().optional().describe('Search in name and slug'),
@@ -114,7 +115,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     'validate_template',
     {
       title: 'Validate a template with data',
-      description: 'Compiles a template offline and reports errors (unknown filters, syntax) and warnings (variables missing from the data) without rendering. Pass a template slug, or html plus engine for ad-hoc HTML.',
+      description: 'Compiles a template offline and reports errors (unknown filters, syntax) and warnings (variables missing from the data) without rendering. Pass a template slug, or html plus engine for ad-hoc HTML. For Word and PowerPoint templates the findings name the document part and paragraph.',
       inputSchema: {
         template: z.string().optional().describe('Template slug or tpl_ id'),
         html: z.string().optional().describe('Template source when no slug is given'),
@@ -131,6 +132,21 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
         if (template) {
           const version = await client.templates.versions.get(template, 'latest');
           const meta = await client.templates.get(template);
+          if (isOfficeKind(meta.kind)) {
+            // the tags live in the document: analysed as the office template page does
+            const file = await client.templates.versions.file(template, version.number);
+            const analysis = analyzeOffice(file, { engine: meta.engine, sampleData: data ?? version.sample_data ?? {} });
+            return text({
+              ok: !analysis.diagnostics.some((d) => d.severity === 'error'),
+              diagnostics: analysis.diagnostics.map((d) => ({
+                severity: d.severity,
+                code: d.code,
+                message: d.text ? `${d.message} (${d.text})` : d.message,
+                part: d.part,
+                paragraph: d.paragraph,
+              })),
+            });
+          }
           source = version.html ?? '';
           engineId = meta.engine;
           sample = data ?? version.sample_data ?? {};
@@ -158,13 +174,17 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     'render',
     {
       title: 'Render a document',
-      description: 'Renders a template (with data) or raw HTML to a PDF or image and returns a download URL. Live keys consume units; test keys render free with a watermark.',
+      description: 'Renders a template (with data) or raw HTML to a PDF or image, or a Word or PowerPoint template to DOCX, PPTX or PDF, and returns a download URL. Live keys consume units; test keys render free with a watermark.',
       inputSchema: {
         template: z.string().optional().describe('Template slug or tpl_ id'),
         html: z.string().optional().describe('Raw HTML instead of a template'),
         engine: engineSchema.optional().describe('Engine for html that contains template syntax'),
         data: z.record(z.string(), z.unknown()).optional(),
-        output: outputSchema.optional().describe('Left out: PDF for PDF templates and html, the template\'s image format for image templates'),
+        output: outputSchema
+          .optional()
+          .describe(
+            'Left out, the template decides: PDF for PDF templates and html, its image format for image templates, its default output for Word and PowerPoint templates. Word templates render docx or pdf, PowerPoint templates pptx or pdf',
+          ),
         filename: z.string().optional(),
         locale: z.string().optional().describe('BCP 47 tag for helpers and translations, e.g. de-DE'),
         wait: z.boolean().default(true).describe('Wait for the render to finish (sync renders finish immediately)'),

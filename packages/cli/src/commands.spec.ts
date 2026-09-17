@@ -322,6 +322,25 @@ describe('formfeed CLI', () => {
     expect(await run(['templates', 'push', 'invoice', '--force'], ctx)).toBe(0);
   });
 
+  it('leaves folders matching ignore out of a push of everything, but pushes one named', async () => {
+    await run(['init'], ctx);
+    rmSync(join(dir, 'templates', 'hello'), { recursive: true });
+    await run(['templates', 'pull'], ctx);
+    const config = JSON.parse(readFileSync(join(dir, 'formfeed.json'), 'utf8'));
+    writeFileSync(join(dir, 'formfeed.json'), JSON.stringify({ ...config, ignore: ['templates/wip-*'] }));
+    mkdirSync(join(dir, 'templates', 'wip-offer'), { recursive: true });
+    writeFileSync(join(dir, 'templates', 'wip-offer', 'template.html'), '<p>not yet</p>');
+    out = [];
+    expect(await run(['templates', 'push', '--dry-run', '--json'], ctx), err.join('\n')).toBe(0);
+    expect(JSON.parse(out.at(-1)!)).toEqual([
+      { slug: 'wip-offer', status: 'ignored' },
+      { slug: 'invoice', status: 'unchanged' },
+    ]);
+    out = [];
+    expect(await run(['templates', 'push', 'wip-offer', '--dry-run', '--json'], ctx), err.join('\n')).toBe(0);
+    expect(JSON.parse(out.at(-1)!)).toEqual([{ slug: 'wip-offer', status: 'new' }]);
+  });
+
   it('pushes the partials a template includes and refuses one without a file', async () => {
     await run(['init'], ctx);
     rmSync(join(dir, 'templates', 'hello'), { recursive: true });
@@ -480,6 +499,21 @@ describe('formfeed CLI', () => {
     expect(vendor.status).toBe(200);
     const rendered = await (await fetch(base + '/api/render', { method: 'POST', body: '{}' })).json();
     expect(rendered).toMatchObject({ id: 'rnd_1', status: 'succeeded' });
+    expect(api.calls.findLast((c) => c.method === 'POST' && c.path === '/v1/renders')?.body).toMatchObject({ output: 'pdf' });
+    await server!.close();
+  });
+
+  it('true-renders an image template from the dev server in its own image format', async () => {
+    await run(['init'], ctx);
+    const hello = join(dir, 'templates', 'hello');
+    const metaFile = join(hello, 'template.json');
+    const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, 'utf8')) : {};
+    writeFileSync(metaFile, JSON.stringify({ ...meta, kind: 'image' }));
+    writeFileSync(join(hello, 'settings.json'), JSON.stringify({ image: { format: 'webp', width: 1200, height: 630 } }));
+    let server: { url: string; close(): Promise<void> } | null = null;
+    expect(await run(['dev', 'hello', '--port', '0'], { ...ctx, onServer: (s) => (server = s) })).toBe(0);
+    await fetch(server!.url + '/api/render', { method: 'POST', body: '{}' });
+    expect(api.calls.findLast((c) => c.method === 'POST' && c.path === '/v1/renders')?.body).toMatchObject({ output: 'webp' });
     await server!.close();
   });
 

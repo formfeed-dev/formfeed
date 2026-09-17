@@ -88,6 +88,17 @@ function fakeApi() {
     if (call.path === '/v1/templates/offer/versions/2/file')
       return new Response(DOCX, { status: 200, headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } });
     if (call.path === '/v1/templates/offer/versions' && call.method === 'POST') return json({ ...version, number: 3, status: 'draft', checksum: 'chk3' }, 201);
+    if (call.path === '/v1/renders/rnd_offer') return json({ ...rendered, id: 'rnd_offer', output: 'docx' });
+    if (call.path === '/v1/renders/rnd_offer/input')
+      return json({
+        render_id: 'rnd_offer',
+        environment: 'live',
+        created_at: '2026-09-16T10:00:00Z',
+        template: { id: 'tpl_offer', slug: 'offer', version: 2 },
+        data: { ...starter.sampleData, customer: { name: 'Olvarest GmbH' } },
+        locale: 'de-DE',
+        options: {},
+      });
     if (call.path === '/v1/pdf/convert' && call.method === 'POST') return json(rendered);
     if (call.path === '/v1/renders' && call.method === 'POST') return json({ ...rendered, id: 'rnd_docx', output: 'docx', download_url: 'https://cdn.test/o/offer.docx' }, 201);
     return json({ code: 'not_found', title: 'Not found', status: 404 }, 404);
@@ -135,6 +146,14 @@ describe('formfeed CLI: Word and PowerPoint templates', () => {
     out = [];
     expect(await run(['templates', 'diff', 'offer'], ctx)).toBe(0);
     expect(out.join('\n')).toContain('offer: no changes against v2');
+  });
+
+  it('pulls the data of a render of a Word template and snapshots its filled XML', async () => {
+    await run(['templates', 'pull'], ctx);
+    expect(await run(['renders', 'pull', 'rnd_offer', '--as', 'olvarest', '--no-redact', '--snapshot'], ctx), err.join('\n')).toBe(0);
+    expect(JSON.parse(readFileSync(join(tplDir(), 'data', 'olvarest.json'), 'utf8'))).toMatchObject({ customer: { name: 'Olvarest GmbH' } });
+    const snapshot = readFileSync(join(tplDir(), 'tests', '__snapshots__', 'olvarest.xml'), 'utf8');
+    expect(snapshot).toContain('Olvarest GmbH');
   });
 
   it('pushes a data change as JSON and a new document as multipart', async () => {

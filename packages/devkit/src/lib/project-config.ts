@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { EngineId } from '@formfeed/engine';
 import { DevkitError } from './errors';
 
@@ -45,6 +45,43 @@ export const defaultProjectConfig: ProjectConfig = {
   engine: 'jinja2',
   ignore: ['**/drafts/**'],
 };
+
+/**
+ * A glob of `ignore` as a regular expression: `**` spans folders, `*` and `?` stay within one, and a
+ * pattern without a slash matches a name at any depth, as in `.gitignore`.
+ */
+function globRegExp(pattern: string): RegExp {
+  let glob = pattern.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!glob.includes('/')) glob = `**/${glob}`;
+  let source = '';
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i]!;
+    if (ch === '*' && glob[i + 1] === '*') {
+      const slash = glob[i + 2] === '/';
+      source += slash ? '(?:.*/)?' : '.*';
+      i += slash ? 2 : 1;
+    } else if (ch === '*') source += '[^/]*';
+    else if (ch === '?') source += '[^/]';
+    else source += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${source.replace(/^\//, '')}$`);
+}
+
+/**
+ * Whether a path of the project matches one of `ignore`. The path is taken relative to the project
+ * root; a folder also matches as `<folder>/` and through the files in it, so `**\/drafts/**` and
+ * `templates/wip-*` both catch `templates/wip-offer`.
+ */
+export function isIgnored(project: Project, path: string, folder = false): boolean {
+  const patterns = project.config.ignore ?? [];
+  if (!patterns.length) return false;
+  const rel = relative(project.root, resolve(project.root, path)).split(sep).join('/');
+  const candidates = folder ? [rel, `${rel}/`, `${rel}/x`] : [rel];
+  return patterns.some((p) => {
+    const re = globRegExp(p);
+    return candidates.some((c) => re.test(c));
+  });
+}
 
 /** Walks up from `cwd` to the nearest `formfeed.json`. */
 export function findProject(cwd: string = process.cwd()): Project | null {
