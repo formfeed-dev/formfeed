@@ -10,12 +10,17 @@ import type {
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import {
   baseUrl,
+  convertFields,
+  downloadName,
+  formValue,
   libraryName,
+  pdfNameFor,
   mergeData,
   nestData,
   renderBody,
   schemaFields,
   type FormfeedCredentials,
+  type OutputFormat,
 } from '../../lib/api';
 
 /**
@@ -30,7 +35,7 @@ export class Formfeed implements INodeType {
     group: ['transform'],
     version: 1,
     subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-    description: 'Generate PDFs and images from templates',
+    description: 'Generate PDFs, images and Word or PowerPoint documents from templates, and convert office files to PDF',
     defaults: { name: 'Formfeed' },
     inputs: [NodeConnectionTypes.Main],
     outputs: [NodeConnectionTypes.Main],
@@ -47,6 +52,23 @@ export class Formfeed implements INodeType {
           { name: 'Template', value: 'template' },
           { name: 'Job', value: 'job' },
           { name: 'File', value: 'file' },
+          { name: 'PDF', value: 'pdf' },
+        ],
+      },
+      {
+        displayName: 'Operation',
+        name: 'operation',
+        type: 'options',
+        noDataExpression: true,
+        displayOptions: { show: { resource: ['pdf'] } },
+        default: 'convert',
+        options: [
+          {
+            name: 'Convert Office Document',
+            value: 'convert',
+            description: 'Turn a Word, Excel, PowerPoint, OpenDocument or RTF file into a PDF (Starter plan and above)',
+            action: 'Convert an office document to PDF',
+          },
         ],
       },
       {
@@ -137,6 +159,71 @@ export class Formfeed implements INodeType {
         default: '',
         required: true,
         placeholder: 'fil_…',
+      },
+
+      // --- pdf: convert ---------------------------------------------------------------------
+      {
+        displayName: 'Document',
+        name: 'convertSource',
+        type: 'options',
+        displayOptions: { show: { resource: ['pdf'], operation: ['convert'] } },
+        default: 'binary',
+        options: [
+          { name: 'Binary Field of the Item', value: 'binary', description: 'An uploaded document of up to 20 MB; it is converted and not kept' },
+          { name: 'Render of a Word or PowerPoint Template', value: 'render', description: 'A render whose output is DOCX or PPTX' },
+        ],
+      },
+      {
+        displayName: 'Input Binary Field',
+        name: 'convertBinaryPropertyName',
+        type: 'string',
+        displayOptions: { show: { resource: ['pdf'], operation: ['convert'], convertSource: ['binary'] } },
+        default: 'data',
+        required: true,
+        description: 'The binary field of the incoming item that holds the document',
+      },
+      {
+        displayName: 'Render ID',
+        name: 'convertRenderId',
+        type: 'string',
+        displayOptions: { show: { resource: ['pdf'], operation: ['convert'], convertSource: ['render'] } },
+        default: '',
+        required: true,
+        placeholder: 'rnd_…',
+      },
+      {
+        displayName: 'Download File',
+        name: 'convertDownload',
+        type: 'boolean',
+        displayOptions: { show: { resource: ['pdf'], operation: ['convert'] } },
+        default: true,
+        description: 'Whether to attach the PDF as binary data instead of returning only the URL',
+      },
+      {
+        displayName: 'Options',
+        name: 'convertOptions',
+        type: 'collection',
+        placeholder: 'Add option',
+        displayOptions: { show: { resource: ['pdf'], operation: ['convert'] } },
+        default: {},
+        options: [
+          { displayName: 'Filename', name: 'filename', type: 'string', default: '', description: 'Name of the PDF' },
+          {
+            displayName: 'Landscape',
+            name: 'landscape',
+            type: 'boolean',
+            default: false,
+            description: 'Whether spreadsheets and documents without their own page setup are converted in landscape',
+          },
+          { displayName: 'Page Ranges', name: 'pageRanges', type: 'string', default: '', placeholder: '1-3,5' },
+          {
+            displayName: 'Single Page Sheets',
+            name: 'singlePageSheets',
+            type: 'boolean',
+            default: false,
+            description: 'Whether each spreadsheet sheet is put on one page',
+          },
+        ],
       },
 
       // --- render: create -------------------------------------------------------------------
@@ -234,13 +321,16 @@ export class Formfeed implements INodeType {
         type: 'options',
         displayOptions: { show: { resource: ['render'], operation: ['create'] } },
         default: '',
-        description: 'The format of the file. As the Template renders PDF, or the image format of an image template; HTML and URLs render PDF.',
+        description:
+          'The format of the file. As the Template renders PDF, the image format of an image template, or the default output of a Word or PowerPoint template; HTML and URLs render PDF. Word templates render DOCX or PDF, PowerPoint templates PPTX or PDF.',
         options: [
           { name: 'As the Template', value: '' },
           { name: 'PDF', value: 'pdf' },
           { name: 'PNG', value: 'png' },
           { name: 'JPG', value: 'jpg' },
           { name: 'WebP', value: 'webp' },
+          { name: 'Word (DOCX)', value: 'docx' },
+          { name: 'PowerPoint (PPTX)', value: 'pptx' },
         ],
       },
       {
@@ -377,7 +467,7 @@ export class Formfeed implements INodeType {
             engine: source === 'html' ? (this.getNodeParameter('engine', i) as 'jinja2') : undefined,
             url: source === 'url' ? (this.getNodeParameter('url', i) as string) : undefined,
             data: mergeData(nestData(Object.fromEntries(mapped.map((f) => [f.path, f.value]))), json),
-            output: (this.getNodeParameter('output', i, '') as 'pdf' | '') || undefined,
+            output: (this.getNodeParameter('output', i, '') as OutputFormat | '') || undefined,
             filename: options['filename'] as string,
             locale: options['locale'] as string,
             mode: options['mode'] as 'sync' | 'async',
@@ -392,16 +482,42 @@ export class Formfeed implements INodeType {
           const item: INodeExecutionData = { json: render, pairedItem: { item: i } };
 
           if (this.getNodeParameter('download', i, true) && render.download_url) {
-            const file = (await this.helpers.httpRequest({
-              method: 'GET',
-              url: render.download_url,
-              encoding: 'arraybuffer',
-              returnFullResponse: false,
-            })) as ArrayBuffer;
-            const name = (options['filename'] as string) || `${render['id'] as string}.${render.output ?? 'pdf'}`;
             item.binary = {
-              data: await this.helpers.prepareBinaryData(Buffer.from(file), name),
+              data: await downloadBinary(this, render.download_url, downloadName(options['filename'] as string, render['id'] as string, render.output)),
             };
+          }
+          out.push(item);
+          continue;
+        }
+
+        if (resource === 'pdf' && operation === 'convert') {
+          const options = this.getNodeParameter('convertOptions', i, {}) as IDataObject;
+          const fromRender = this.getNodeParameter('convertSource', i, 'binary') === 'render';
+          const fields = convertFields({
+            renderId: fromRender ? (this.getNodeParameter('convertRenderId', i) as string) : undefined,
+            pageRanges: options['pageRanges'] as string,
+            landscape: options['landscape'] as boolean,
+            singlePageSheets: options['singlePageSheets'] as boolean,
+            filename: options['filename'] as string,
+          });
+          let body: unknown = fields;
+          if (!fromRender) {
+            const property = this.getNodeParameter('convertBinaryPropertyName', i) as string;
+            const binary = this.helpers.assertBinaryData(i, property);
+            const bytes = await this.helpers.getBinaryDataBuffer(i, property);
+            const fileName = binary.fileName || 'document';
+            // the uploaded name, as a PDF, unless one was chosen
+            fields['filename'] ??= pdfNameFor(fileName);
+            const form = new FormData();
+            form.append('file', new Blob([new Uint8Array(bytes)], { type: binary.mimeType }), fileName);
+            for (const [key, value] of Object.entries(fields)) form.append(key, formValue(value));
+            body = form;
+          }
+          const render = (await request(this, 'POST', '/pdf/convert', body)) as IDataObject & { download_url?: string };
+          const item: INodeExecutionData = { json: render, pairedItem: { item: i } };
+          if (this.getNodeParameter('convertDownload', i, true) && render.download_url) {
+            const name = (fields['filename'] as string | undefined) ?? `${render['id'] as string}.pdf`;
+            item.binary = { data: await downloadBinary(this, render.download_url, name) };
           }
           out.push(item);
           continue;
@@ -512,6 +628,17 @@ async function request(
     json: !isForm,
     ...(body === undefined ? {} : { body: body as IDataObject }),
   });
+}
+
+/** Downloads a stored output (a signed URL, no key needed) as n8n binary data. */
+async function downloadBinary(context: IExecuteFunctions, url: string, name: string) {
+  const file = (await context.helpers.httpRequest({
+    method: 'GET',
+    url,
+    encoding: 'arraybuffer',
+    returnFullResponse: false,
+  })) as ArrayBuffer;
+  return context.helpers.prepareBinaryData(Buffer.from(file), name);
 }
 
 function parseJson(

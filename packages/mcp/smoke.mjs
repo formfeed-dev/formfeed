@@ -13,8 +13,11 @@ const client = new Client({ name: 'smoke', version: '0' });
 await client.connect(transport);
 const { tools } = await client.listTools();
 const names = tools.map((t) => t.name).sort();
-const expected = ['get_render', 'get_template_schema', 'list_templates', 'render', 'validate_template'];
+const expected = ['convert_to_pdf', 'get_render', 'get_template_schema', 'list_templates', 'render', 'validate_template'];
 if (JSON.stringify(names) !== JSON.stringify(expected)) throw new Error(`unexpected tools: ${names.join(', ')}`);
+// the stdio server runs on the user's machine, so its convert tool reads local files
+const convert = tools.find((t) => t.name === 'convert_to_pdf');
+if (!convert?.inputSchema?.properties?.path) throw new Error('convert_to_pdf over stdio has no path parameter');
 const result = await client.callTool({ name: 'validate_template', arguments: { html: '<p>{{ a | money }}</p>', engine: 'jinja2', data: { a: 1 } } });
 if (result.structuredContent?.ok !== true) throw new Error(`validate_template failed: ${JSON.stringify(result)}`);
 await client.close();

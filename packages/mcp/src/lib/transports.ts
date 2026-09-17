@@ -6,7 +6,8 @@ import { createFormfeedServer, type ServerOptions } from './server';
 
 /** stdio for Claude Desktop, Cursor and friends: `FORMFEED_API_KEY=… formfeed-mcp`. */
 export async function startStdio(options: ServerOptions): Promise<void> {
-  const server = createFormfeedServer(options);
+  // runs on the user's machine, so convert_to_pdf may read the user's files
+  const server = createFormfeedServer({ localFiles: true, ...options });
   await server.connect(new StdioServerTransport());
 }
 

@@ -22,6 +22,57 @@ export function baseUrl(credentials: FormfeedCredentials): string {
   return (custom ? custom : HOSTS[credentials.region] ?? HOSTS.eu).replace(/\/$/, '');
 }
 
+/** PDF and image templates render pdf or an image; Word templates docx or pdf, PowerPoint pptx or pdf. */
+export type OutputFormat = 'pdf' | 'png' | 'jpg' | 'webp' | 'docx' | 'pptx';
+
+/**
+ * The name of a downloaded document: the one the user chose, with the extension of what was
+ * rendered (a Word template may render `docx` or `pdf`, and a name typed for one would mislead for
+ * the other), else `<render id>.<output>`.
+ */
+export function downloadName(chosen: string | undefined, renderId: string, output: string | undefined): string {
+  const extension = output || 'pdf';
+  const name = chosen?.trim();
+  if (!name) return `${renderId}.${extension}`;
+  const stem = name.replace(/\.(pdf|png|jpe?g|webp|docx|pptx)$/i, '');
+  return `${stem}.${extension}`;
+}
+
+/** The PDF's name for a converted file: `report.xlsx` becomes `report.pdf`. */
+export function pdfNameFor(fileName: string | undefined): string {
+  const stem = (fileName ?? '').trim().replace(/\.[^./\\]+$/, '');
+  return `${stem || 'document'}.pdf`;
+}
+
+export interface ConvertInput {
+  /** The render of a Word or PowerPoint template; without it, the item's binary is uploaded. */
+  renderId?: string;
+  pageRanges?: string;
+  landscape?: boolean;
+  singlePageSheets?: boolean;
+  filename?: string;
+}
+
+/**
+ * The fields of `POST /pdf/convert` besides the file: a JSON body for a render, form fields for an
+ * upload (booleans and objects as text, the way the API reads a multipart request).
+ */
+export function convertFields(input: ConvertInput): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (input.renderId?.trim()) fields['source'] = input.renderId.trim();
+  if (input.pageRanges?.trim()) fields['page_ranges'] = input.pageRanges.trim();
+  if (input.landscape) fields['landscape'] = true;
+  if (input.singlePageSheets) fields['single_page_sheets'] = true;
+  if (input.filename?.trim()) fields['filename'] = pdfNameFor(input.filename);
+  fields['meta'] = { source: 'n8n' };
+  return fields;
+}
+
+/** Form field values of a multipart request: text as is, everything else as JSON text. */
+export function formValue(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
 export interface RenderInput {
   source: 'template' | 'html' | 'url';
   template?: string;
@@ -29,7 +80,7 @@ export interface RenderInput {
   url?: string;
   engine?: 'jinja2' | 'liquid' | 'handlebars';
   data?: Record<string, unknown>;
-  output?: 'pdf' | 'png' | 'jpg' | 'webp';
+  output?: OutputFormat;
   filename?: string;
   locale?: string;
   mode?: 'sync' | 'async';

@@ -24,6 +24,8 @@ self-hosted gateway.
 | Render | Create (template, HTML or URL), Get, Get Many, Delete Outputs |
 | Template | Get Many, Get, Get Schema |
 | Job | Get |
+| File | Upload, Get Many, Delete |
+| PDF | Convert Office Document (Word, Excel, PowerPoint, OpenDocument or RTF from a binary field, or a Word or PowerPoint render) |
 
 Choosing a template loads its fields from its data schema (or its sample data), so you map named fields
 (`invoice.number`) instead of pasting JSON; the JSON field covers lists and nested objects. With

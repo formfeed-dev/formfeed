@@ -1,4 +1,4 @@
-import { baseUrl, libraryName, mergeData, nestData, renderBody, schemaFields } from './api';
+import { baseUrl, convertFields, downloadName, formValue, libraryName, mergeData, nestData, pdfNameFor, renderBody, schemaFields } from './api';
 
 describe('baseUrl', () => {
   it('maps the region to a host', () => {
@@ -101,6 +101,48 @@ describe('mergeData', () => {
 
   it('lets the override win on a leaf and replaces arrays whole', () => {
     expect(mergeData({ a: 1, list: [1, 2] }, { a: 2, list: [3] })).toEqual({ a: 2, list: [3] });
+  });
+});
+
+describe('downloadName', () => {
+  it('gives the chosen name the extension of what was rendered', () => {
+    expect(downloadName('offer', 'rnd_1', 'docx')).toBe('offer.docx');
+    expect(downloadName('offer.pdf', 'rnd_1', 'docx')).toBe('offer.docx');
+    expect(downloadName('slides.PPTX', 'rnd_1', 'pdf')).toBe('slides.pdf');
+    expect(downloadName('report.v2', 'rnd_1', 'pdf')).toBe('report.v2.pdf');
+  });
+
+  it('names the file after the render without a chosen name', () => {
+    expect(downloadName('', 'rnd_1', 'pptx')).toBe('rnd_1.pptx');
+    expect(downloadName(undefined, 'rnd_1', undefined)).toBe('rnd_1.pdf');
+  });
+});
+
+describe('convertFields', () => {
+  it('names a render as the source, or only the options for an upload', () => {
+    expect(convertFields({ renderId: ' rnd_docx ', pageRanges: '1-2' })).toEqual({
+      source: 'rnd_docx',
+      page_ranges: '1-2',
+      meta: { source: 'n8n' },
+    });
+    expect(convertFields({ landscape: true, singlePageSheets: false, filename: 'report' })).toEqual({
+      landscape: true,
+      filename: 'report.pdf',
+      meta: { source: 'n8n' },
+    });
+  });
+
+  it('names the PDF after the converted file', () => {
+    expect(pdfNameFor('report.xlsx')).toBe('report.pdf');
+    expect(pdfNameFor('Q3 plan.v2.odt')).toBe('Q3 plan.v2.pdf');
+    expect(pdfNameFor('')).toBe('document.pdf');
+    expect(convertFields({ filename: 'slides.pptx' })['filename']).toBe('slides.pdf');
+  });
+
+  it('writes form fields the way the API reads them', () => {
+    expect(formValue('1-2')).toBe('1-2');
+    expect(formValue(true)).toBe('true');
+    expect(formValue({ source: 'n8n' })).toBe('{"source":"n8n"}');
   });
 });
 

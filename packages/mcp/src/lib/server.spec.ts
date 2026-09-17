@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -29,8 +32,11 @@ function fakeApi(seenKeys: string[] = []) {
     const url = new URL(String(input));
     const headers = new Headers(init?.headers);
     seenKeys.push(headers.get('authorization') ?? '');
-    const call = { method: init?.method ?? 'GET', path: url.pathname, body: init?.body ? JSON.parse(String(init.body)) : undefined };
+    const body = init?.body instanceof FormData ? init.body : init?.body ? JSON.parse(String(init.body)) : undefined;
+    const call = { method: init?.method ?? 'GET', path: url.pathname, body };
     calls.push(call);
+    if (call.path === '/v1/pdf/convert' && call.method === 'POST')
+      return json({ id: 'rnd_pdf', status: 'succeeded', download_url: 'https://cdn.test/o/report.pdf', page_count: 2, units: 1, environment: 'live', template: null, error: null });
     if (call.path === '/v1/templates') return json({ data: [template], next_cursor: null });
     if (call.path === '/v1/templates/invoice') return json(template);
     if (call.path === '/v1/templates/offer' || call.path === '/v1/templates/broken') return json({ ...offer, slug: call.path.slice(14) });
@@ -48,8 +54,8 @@ function fakeApi(seenKeys: string[] = []) {
   return { calls, fetchImpl };
 }
 
-async function connectedClient(fetchImpl: typeof fetch) {
-  const server = createFormfeedServer({ apiKey: 'ff_test_k', fetch: fetchImpl });
+async function connectedClient(fetchImpl: typeof fetch, localFiles = false) {
+  const server = createFormfeedServer({ apiKey: 'ff_test_k', fetch: fetchImpl, localFiles });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: 'test', version: '0' });
@@ -60,12 +66,50 @@ async function connectedClient(fetchImpl: typeof fetch) {
 const structured = (r: { structuredContent?: unknown }) => r.structuredContent as Record<string, unknown>;
 
 describe('@formfeed/mcp', () => {
-  it('lists the five tools with schemas', async () => {
+  it('lists the six tools with schemas', async () => {
     const { client, close } = await connectedClient(fakeApi().fetchImpl);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['get_render', 'get_template_schema', 'list_templates', 'render', 'validate_template']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['convert_to_pdf', 'get_render', 'get_template_schema', 'list_templates', 'render', 'validate_template']);
     expect(tools.find((t) => t.name === 'render')?.inputSchema).toMatchObject({ type: 'object' });
+    // the hosted server reads no files, so its convert tool has no path
+    expect(Object.keys((tools.find((t) => t.name === 'convert_to_pdf')?.inputSchema as { properties: object }).properties)).not.toContain('path');
     await close();
+  });
+
+  it('converts a render, an uploaded document and, on the user machine, a local file', async () => {
+    const api = fakeApi();
+    const { client, close } = await connectedClient(api.fetchImpl);
+    const fromRender = structured(await client.callTool({ name: 'convert_to_pdf', arguments: { render_id: 'rnd_docx', page_ranges: '1-2' } }));
+    expect(fromRender).toMatchObject({ id: 'rnd_pdf', download_url: 'https://cdn.test/o/report.pdf' });
+    expect(api.calls.at(-1)?.body).toEqual({ source: 'rnd_docx', page_ranges: '1-2', meta: { source: 'mcp' } });
+
+    const bytes = Buffer.from('PK document');
+    await client.callTool({ name: 'convert_to_pdf', arguments: { file_base64: bytes.toString('base64'), file_name: 'report.xlsx', single_page_sheets: true } });
+    const form = api.calls.at(-1)?.body as FormData;
+    expect((form.get('file') as File).name).toBe('report.xlsx');
+    expect(Buffer.from(await (form.get('file') as File).arrayBuffer())).toEqual(bytes);
+    expect(form.get('single_page_sheets')).toBe('true');
+    expect(form.get('filename')).toBe('report.pdf');
+
+    const none = await client.callTool({ name: 'convert_to_pdf', arguments: {} });
+    expect(none.isError).toBe(true);
+    const two = await client.callTool({ name: 'convert_to_pdf', arguments: { render_id: 'rnd_docx', file_base64: 'eA==', file_name: 'x.docx' } });
+    expect(two.isError).toBe(true);
+    const unnamed = await client.callTool({ name: 'convert_to_pdf', arguments: { file_base64: 'eA==' } });
+    expect(JSON.stringify(unnamed.content)).toMatch(/file_name is required/);
+    await close();
+
+    const local = await connectedClient(api.fetchImpl, true);
+    const dir = mkdtempSync(join(tmpdir(), 'formfeed-mcp-'));
+    try {
+      writeFileSync(join(dir, 'slides.pptx'), bytes);
+      const converted = structured(await local.client.callTool({ name: 'convert_to_pdf', arguments: { path: join(dir, 'slides.pptx') } }));
+      expect(converted['id']).toBe('rnd_pdf');
+      expect(((api.calls.at(-1)?.body as FormData).get('file') as File).name).toBe('slides.pptx');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await local.close();
+    }
   });
 
   it('lists templates, infers the schema and validates offline', async () => {

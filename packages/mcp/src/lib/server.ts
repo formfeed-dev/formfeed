@@ -13,7 +13,15 @@ export interface ServerOptions {
   baseUrl?: string;
   region?: 'eu' | 'us';
   fetch?: typeof fetch;
+  /**
+   * Lets `convert_to_pdf` read a local `path`: only the stdio server, which runs on the user's own
+   * machine, sets it. The hosted server never reads files.
+   */
+  localFiles?: boolean;
 }
+
+/** The converter's upload limit; larger files are refused before they are read or sent. */
+const CONVERT_LIMIT_BYTES = 20 * 1024 * 1024;
 
 export const SERVER_INFO = { name: 'formfeed', version: '0.3.1' };
 
@@ -63,7 +71,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   });
   const server = new McpServer(SERVER_INFO, {
     instructions:
-      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user.',
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. convert_to_pdf turns office documents into PDFs.',
   });
 
   server.registerTool(
@@ -205,6 +213,72 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           meta: { source: 'mcp' },
         });
         if (wait && render.status !== 'succeeded' && render.status !== 'failed') render = await client.renders.waitFor(render.id);
+        return text(renderSummary(render));
+      } catch (e) {
+        return failure(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'convert_to_pdf',
+    {
+      title: 'Convert an office document to PDF',
+      description: [
+        'Converts a Word, Excel, PowerPoint, OpenDocument, RTF or HTML document (up to 20 MB) to a PDF and returns a download URL (Starter plan and above; units follow the PDF rule).',
+        'Pass exactly one source: render_id, the render of a Word or PowerPoint template (output docx or pptx);',
+        options.localFiles
+          ? 'path, a file on this machine; or file_base64 with file_name.'
+          : 'or file_base64 with file_name, the document itself.',
+        'The document is converted and not kept.',
+      ].join(' '),
+      inputSchema: {
+        render_id: z.string().optional().describe('rnd_ id of a render whose output is docx or pptx'),
+        ...(options.localFiles ? { path: z.string().optional().describe('Absolute path of a document on this machine') } : {}),
+        file_base64: z.string().optional().describe('The document, base64 encoded'),
+        file_name: z.string().optional().describe('Name of the document, e.g. report.xlsx; the type is read from the content'),
+        page_ranges: z.string().regex(/^\d+(-\d+)?(,\d+(-\d+)?)*$/).optional().describe('Pages to convert, e.g. 1-3,5'),
+        landscape: z.boolean().optional().describe('Landscape for spreadsheets and documents without their own page setup'),
+        single_page_sheets: z.boolean().optional().describe('Each spreadsheet sheet on one page'),
+        filename: z.string().optional().describe('Name of the PDF'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async (args) => {
+      try {
+        const { render_id, file_base64, file_name, page_ranges, landscape, single_page_sheets, filename } = args;
+        const path = (args as { path?: string }).path;
+        const sources = [render_id, file_base64, path].filter((s) => s !== undefined && s !== '');
+        if (sources.length !== 1) return failure(new Error('Pass exactly one of render_id, file_base64' + (options.localFiles ? ' or path' : '')));
+        const convert = {
+          meta: { source: 'mcp' },
+          ...(page_ranges ? { page_ranges } : {}),
+          ...(landscape !== undefined ? { landscape } : {}),
+          ...(single_page_sheets !== undefined ? { single_page_sheets } : {}),
+          ...(filename ? { filename } : {}),
+        };
+        let render: Render;
+        if (render_id) {
+          render = await client.pdf.convert(render_id, convert);
+        } else {
+          let data: Uint8Array;
+          let name: string;
+          if (path) {
+            const { readFile, stat } = await import('node:fs/promises');
+            const { basename } = await import('node:path');
+            if ((await stat(path)).size > CONVERT_LIMIT_BYTES) return failure(new Error(`${path} is larger than 20 MB, the limit for conversions`));
+            data = new Uint8Array(await readFile(path));
+            name = file_name ?? basename(path);
+          } else {
+            if (!file_name) return failure(new Error('file_name is required with file_base64'));
+            data = Uint8Array.from(Buffer.from(file_base64!, 'base64'));
+            if (data.length === 0) return failure(new Error('file_base64 is empty or not base64'));
+            if (data.length > CONVERT_LIMIT_BYTES) return failure(new Error('The document is larger than 20 MB, the limit for conversions'));
+            name = file_name;
+          }
+          render = await client.pdf.convert({ file: { data, name } }, { ...convert, ...(filename ? {} : { filename: `${name.replace(/\.[^.]+$/, '')}.pdf` }) });
+        }
+        if (render.status !== 'succeeded' && render.status !== 'failed') render = await client.renders.waitFor(render.id);
         return text(renderSummary(render));
       } catch (e) {
         return failure(e);
