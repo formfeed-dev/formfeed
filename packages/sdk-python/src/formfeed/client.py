@@ -499,6 +499,11 @@ def _guard(allow_breaking: bool) -> dict[str, Any] | None:
     return {"allow_breaking": True} if allow_breaking else None
 
 
+def _schema_path(id_or_slug: str, version: str | int | None) -> str:
+    params = httpx.QueryParams(_query(version=None if version is None else str(version)))
+    return f"/templates/{id_or_slug}/schema{'?' + str(params) if params else ''}"
+
+
 class _Channels:
     """Release channels: a render with ``version="staging"`` uses the version the channel points at.
     Moves reach renders within a minute; a breaking data schema change raises ``schema_breaking_change``
@@ -587,8 +592,9 @@ class _Templates:
         """Publishes a version; a data schema that breaks callers of the published one raises ``schema_breaking_change`` unless ``allow_breaking``."""
         return TemplateVersion.model_validate(self._c.request("POST", f"/templates/{id_or_slug}/versions/{number}/publish", _guard(allow_breaking)))
 
-    def schema(self, id_or_slug: str) -> dict[str, Any]:
-        return self._c.request("GET", f"/templates/{id_or_slug}/schema")
+    def schema(self, id_or_slug: str, *, version: str | int | None = None) -> dict[str, Any]:
+        """The JSON Schema of the template's data, stored or inferred from the sample data: of the published (else the latest) version, or of ``version`` (``published``, ``latest``, a number or a channel name)."""
+        return self._c.request("GET", _schema_path(id_or_slug, version))
 
     def validate(self, id_or_slug: str, data: dict[str, Any] | None = None, *, version: str | int = "published") -> TemplateValidation:
         """Checks a version with data without rendering. Free. Without ``data``, the version's sample data is checked."""
@@ -971,8 +977,8 @@ class _AsyncTemplates:
     async def publish(self, id_or_slug: str, number: int, *, allow_breaking: bool = False) -> TemplateVersion:
         return TemplateVersion.model_validate(await self._c.request("POST", f"/templates/{id_or_slug}/versions/{number}/publish", _guard(allow_breaking)))
 
-    async def schema(self, id_or_slug: str) -> dict[str, Any]:
-        return await self._c.request("GET", f"/templates/{id_or_slug}/schema")
+    async def schema(self, id_or_slug: str, *, version: str | int | None = None) -> dict[str, Any]:
+        return await self._c.request("GET", _schema_path(id_or_slug, version))
 
     async def validate(self, id_or_slug: str, data: dict[str, Any] | None = None, *, version: str | int = "published") -> TemplateValidation:
         body: dict[str, Any] = {"version": version}

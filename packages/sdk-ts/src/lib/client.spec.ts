@@ -524,6 +524,15 @@ describe('PDF tools', () => {
     const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
     expect(await client.templates.validate('invoice', { version: 'latest', data: { a: 1 } })).toEqual(result);
     expect(calls[0]).toMatchObject({ method: 'POST', url: 'https://api-eu.formfeed.dev/v1/templates/invoice/validate', body: { version: 'latest', data: { a: 1 } } });
+    // a channel name names its main version, on the check and on the schema
+    await client.templates.validate('invoice', { version: 'staging' });
+    expect(calls[1]!.body).toEqual({ version: 'staging' });
+    await client.templates.schema('invoice');
+    expect(calls[2]!.url).toBe('https://api-eu.formfeed.dev/v1/templates/invoice/schema');
+    await client.templates.schema('invoice', { version: 'staging' });
+    expect(calls[3]!.url).toBe('https://api-eu.formfeed.dev/v1/templates/invoice/schema?version=staging');
+    await client.templates.schema('invoice', { version: 8 });
+    expect(calls[4]!.url).toBe('https://api-eu.formfeed.dev/v1/templates/invoice/schema?version=8');
   });
 
   it('uses library files as image watermarks and merge sources', async () => {

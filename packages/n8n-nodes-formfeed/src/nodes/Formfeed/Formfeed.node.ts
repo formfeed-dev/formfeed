@@ -10,6 +10,7 @@ import type {
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import {
   baseUrl,
+  channelOptions,
   convertFields,
   downloadName,
   formValue,
@@ -19,6 +20,7 @@ import {
   nestData,
   renderBody,
   schemaFields,
+  type ChannelSummary,
   type FormfeedCredentials,
   type OutputFormat,
 } from '../../lib/api';
@@ -361,6 +363,15 @@ export class Formfeed implements INodeType {
               { name: 'Queue and Return Immediately', value: 'async' },
             ],
           },
+          {
+            displayName: 'Version Name or ID',
+            name: 'version',
+            type: 'options',
+            typeOptions: { loadOptionsMethod: 'getTemplateVersions', loadOptionsDependsOn: ['template'] },
+            default: 'published',
+            description:
+              'The release channel to render. Choose from the list, or specify a version number using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+          },
           { displayName: 'Webhook URL', name: 'webhookUrl', type: 'string', default: '' },
           { displayName: 'Settings (JSON)', name: 'settingsJson', type: 'json', default: '{}' },
         ],
@@ -426,6 +437,18 @@ export class Formfeed implements INodeType {
         }));
       },
 
+      async getTemplateVersions(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+        const template = this.getNodeParameter('template', '') as string;
+        const published = [{ name: 'published', value: 'published', description: 'The published version, the default' }];
+        if (!template) return published;
+        try {
+          const channels = (await request(this, 'GET', `/templates/${encodeURIComponent(template)}/channels`)) as { data?: ChannelSummary[] };
+          return channelOptions(channels.data ?? []);
+        } catch {
+          return published;
+        }
+      },
+
       async getTemplateFields(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
         const template = this.getNodeParameter('template', '') as string;
         if (!template) return [];
@@ -470,6 +493,7 @@ export class Formfeed implements INodeType {
             output: (this.getNodeParameter('output', i, '') as OutputFormat | '') || undefined,
             filename: options['filename'] as string,
             locale: options['locale'] as string,
+            version: source === 'template' ? (options['version'] as string) : undefined,
             mode: options['mode'] as 'sync' | 'async',
             webhookUrl: options['webhookUrl'] as string,
             settings,

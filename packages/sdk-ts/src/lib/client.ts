@@ -381,6 +381,9 @@ export interface Template {
   updated_at: string;
 }
 
+/** A version as reads name it: `published`, `latest`, a version number or a channel name (its main version). */
+export type VersionRef = string | number;
+
 /** One finding of `templates.validate`. */
 export interface Diagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -975,16 +978,24 @@ export class Formfeed {
         );
       },
     },
-    schema: (idOrSlug: string, options: RequestOptions = {}): Promise<Record<string, unknown>> =>
-      this.request<Record<string, unknown>>('GET', `/templates/${encodeURIComponent(idOrSlug)}/schema`, undefined, options),
+    /**
+     * The JSON Schema of the template's data: stored, else inferred from the sample data. Of the
+     * published (else the latest) version, or of `version`: `published`, `latest`, a number or a
+     * channel name.
+     */
+    schema: (idOrSlug: string, options: RequestOptions & { version?: VersionRef } = {}): Promise<Record<string, unknown>> => {
+      const { version, ...rest } = options;
+      const query = version === undefined ? '' : `?version=${encodeURIComponent(String(version))}`;
+      return this.request<Record<string, unknown>>('GET', `/templates/${encodeURIComponent(idOrSlug)}/schema${query}`, undefined, rest);
+    },
     /**
      * Checks a version with data without rendering: syntax, header and footer, missing partials,
      * runtime errors and the data against the stored schema. Free. Without `data`, the version's
-     * sample data is checked.
+     * sample data is checked. `version` takes a channel name too.
      */
     validate: (
       idOrSlug: string,
-      input: { version?: 'published' | 'latest' | number; data?: Record<string, unknown> } = {},
+      input: { version?: VersionRef; data?: Record<string, unknown> } = {},
       options: RequestOptions = {},
     ): Promise<TemplateValidation> =>
       this.request<TemplateValidation>('POST', `/templates/${encodeURIComponent(idOrSlug)}/validate`, input, options),

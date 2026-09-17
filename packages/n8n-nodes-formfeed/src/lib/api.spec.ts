@@ -1,4 +1,4 @@
-import { baseUrl, convertFields, downloadName, formValue, libraryName, mergeData, nestData, pdfNameFor, renderBody, schemaFields } from './api';
+import { baseUrl, channelOptions, convertFields, downloadName, formValue, libraryName, mergeData, nestData, pdfNameFor, renderBody, schemaFields } from './api';
 
 describe('baseUrl', () => {
   it('maps the region to a host', () => {
@@ -43,6 +43,30 @@ describe('renderBody', () => {
   it('leaves empty data and settings out', () => {
     const body = renderBody({ source: 'url', url: 'https://example.com', data: {}, settings: {} });
     expect(body).toEqual({ url: 'https://example.com', meta: { source: 'n8n' } });
+  });
+
+  it('names a release channel or version number, and leaves the default published out', () => {
+    expect(renderBody({ source: 'template', template: 'invoice-de', version: 'staging' })).toMatchObject({ version: 'staging' });
+    expect(renderBody({ source: 'template', template: 'invoice-de', version: '8' })).toMatchObject({ version: '8' });
+    expect(renderBody({ source: 'template', template: 'invoice-de', version: 'published' })).not.toHaveProperty('version');
+    // a version belongs to a template, never to raw HTML
+    expect(renderBody({ source: 'html', html: '<p/>', version: 'staging' })).not.toHaveProperty('version');
+  });
+});
+
+describe('channelOptions', () => {
+  it('lists published and the channels with the version each renders', () => {
+    expect(
+      channelOptions([
+        { name: 'published', version: 3, canary: { version: 4, percent: 10 } },
+        { name: 'staging', version: 4, canary: null },
+        { name: 'beta', version: null },
+      ]),
+    ).toEqual([
+      { name: 'published (v3, canary v4 at 10 %)', value: 'published', description: 'The published version, the default' },
+      { name: 'staging (v4)', value: 'staging', description: 'The release channel staging' },
+      { name: 'beta (nothing published yet)', value: 'beta', description: 'The release channel beta' },
+    ]);
   });
 });
 

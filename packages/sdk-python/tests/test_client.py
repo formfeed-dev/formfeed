@@ -313,6 +313,19 @@ def test_templates_validate_sends_version_and_data():
     assert checked.ok is False and checked.diagnostics[0].path == "data.n" and checked.template.version == 3
     assert str(rec.calls[0].url).endswith("/templates/invoice/validate")
     assert json.loads(rec.calls[0].content) == {"version": "latest", "data": {"a": 1}}
+    # a channel name names its main version, on the check and on the schema
+    client.templates.validate("invoice", version="staging")
+    assert json.loads(rec.calls[1].content) == {"version": "staging"}
+
+
+def test_templates_schema_of_a_version_or_channel():
+    client, rec = sync_client(lambda req, n: _json({"type": "object"}))
+    assert client.templates.schema("invoice") == {"type": "object"}
+    assert str(rec.calls[0].url).endswith("/templates/invoice/schema")
+    client.templates.schema("invoice", version="staging")
+    assert str(rec.calls[1].url).endswith("/templates/invoice/schema?version=staging")
+    client.templates.schema("invoice", version=8)
+    assert str(rec.calls[2].url).endswith("/templates/invoice/schema?version=8")
 
 
 def test_library_files_as_image_watermarks_and_merge_sources():

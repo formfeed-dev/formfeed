@@ -6,6 +6,7 @@ export type {
   TemplateKind,
   TemplateListOptions,
   TemplateValidation,
+  VersionRef,
   TemplateVersion,
   TemplateVersionCreate,
   TemplateFile,

@@ -76,6 +76,8 @@ export function formValue(value: unknown): string {
 export interface RenderInput {
   source: 'template' | 'html' | 'url';
   template?: string;
+  /** `published` (the default, left out), a release channel, `latest` or a version number. */
+  version?: string;
   html?: string;
   url?: string;
   engine?: 'jinja2' | 'liquid' | 'handlebars';
@@ -92,7 +94,10 @@ export interface RenderInput {
 /** Builds the `POST /renders` body, leaving out what the user did not fill in. */
 export function renderBody(input: RenderInput): Record<string, unknown> {
   const body: Record<string, unknown> = {};
-  if (input.source === 'template') body['template'] = input.template;
+  if (input.source === 'template') {
+    body['template'] = input.template;
+    if (input.version && input.version !== 'published') body['version'] = input.version;
+  }
   if (input.source === 'html') {
     body['html'] = input.html;
     body['engine'] = input.engine ?? 'jinja2';
@@ -107,6 +112,25 @@ export function renderBody(input: RenderInput): Record<string, unknown> {
   if (input.settings && Object.keys(input.settings).length > 0) body['settings'] = input.settings;
   body['meta'] = { source: 'n8n', ...(input.meta ?? {}) };
   return body;
+}
+
+/** A channel as `GET /templates/{id}/channels` lists it; what the version dropdown shows. */
+export interface ChannelSummary {
+  name: string;
+  version: number | null;
+  canary?: { version: number; percent: number } | null;
+}
+
+/** The version dropdown: `published` and the channels, each with the version it renders. */
+export function channelOptions(channels: ChannelSummary[]): Array<{ name: string; value: string; description: string }> {
+  return channels.map((channel) => {
+    const canary = channel.canary ? `, canary v${channel.canary.version} at ${channel.canary.percent} %` : '';
+    return {
+      name: channel.version === null ? `${channel.name} (nothing published yet)` : `${channel.name} (v${channel.version}${canary})`,
+      value: channel.name,
+      description: channel.name === 'published' ? 'The published version, the default' : `The release channel ${channel.name}`,
+    };
+  });
 }
 
 export interface SchemaField {
