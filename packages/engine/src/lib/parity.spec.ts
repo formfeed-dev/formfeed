@@ -324,6 +324,27 @@ const helperCases: ParityCase[] = [
     expected: '50 40 49.98 5.25',
   },
   {
+    // Jinja2's round(value, precision, method); floor and ceil used to round to nearest
+    name: 'rounding down and up',
+    data: { price: 2.349, neg: -2.341, whole: 7.5, cents: 2.3 },
+    sources: {
+      jinja2: `{{ price | round(2, 'floor') }} {{ price | round(1, method='ceil') }} {{ whole | round(0, 'floor') }} {{ neg | round(2, 'floor') }} {{ neg | round(2, 'ceil') }} {{ cents | round(2, 'floor') }} {{ whole | round }}`,
+      liquid: `{{ price | round: 2, 'floor' }} {{ price | round: 1, method: 'ceil' }} {{ whole | round: 0, 'floor' }} {{ neg | round: 2, 'floor' }} {{ neg | round: 2, 'ceil' }} {{ cents | round: 2, 'floor' }} {{ whole | round }}`,
+      handlebars: `{{round price 2 'floor'}} {{round price 1 method='ceil'}} {{round whole 0 'floor'}} {{round neg 2 'floor'}} {{round neg 2 'ceil'}} {{round cents 2 'floor'}} {{round whole}}`,
+    },
+    expected: '2.34 2.4 7 -2.35 -2.34 2.3 8',
+  },
+  {
+    name: 'number without decimals keeps at most three',
+    data: { a: 1234.5, b: 2.34567, c: 3 },
+    sources: {
+      jinja2: `{{ a | number }}|{{ b | number }}|{{ c | number }}`,
+      liquid: `{{ a | number }}|{{ b | number }}|{{ c | number }}`,
+      handlebars: `{{number a}}|{{number b}}|{{number c}}`,
+    },
+    expected: '1.234,5|2,346|3',
+  },
+  {
     name: 'upper, lower and title',
     data: ledger,
     sources: {

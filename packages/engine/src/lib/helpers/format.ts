@@ -66,6 +66,10 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/** A trailing object of named arguments: Jinja2 keywords, Liquid keyword arguments, a Handlebars hash. */
+const isNamedArgs = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date);
+
 const str = (v: unknown): string =>
   v === undefined || v === null ? '' : String(v);
 const opt = <T>(v: unknown, fallback: T): T =>
@@ -106,7 +110,7 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'number(value, decimals?, locale?)',
       description:
-        'Formats a number with grouping and a fixed number of decimals.',
+        'Formats a number with grouping. With decimals, exactly that many (rounded half away from zero); without, the decimals the number has, at most three, so 1234.5 → 1.234,5 and 2.34567 → 2,346. Use number(0) for whole numbers.',
       example: '{{ qty | number(2) }} → 1.234,00',
       category: 'format',
     },
@@ -206,19 +210,28 @@ export const formatHelpers: HelperDefinition[] = [
   {
     name: 'round',
     doc: {
-      signature: 'round(value, decimals = 0)',
-      description: 'Rounds half away from zero.',
-      example: '{{ 2.345 | round(2) }} gives 2.35',
+      signature: "round(value, decimals = 0, method = 'common')",
+      description:
+        "Rounds to the given decimals, as Jinja2's round does: 'common' rounds half away from zero, 'floor' always down and 'ceil' always up.",
+      example: "{{ 2.345 | round(2) }} gives 2.35, {{ 2.349 | round(2, 'floor') }} gives 2.34",
       category: 'format',
     },
-    fn: (_ctx, value, decimals?) => {
+    // `round(2, method='floor')` (Jinja2) and `round: 2, method: 'floor'` (Liquid) arrive as a
+    // trailing object, as does a Handlebars hash
+    fn: (_ctx, value, ...args) => {
       const n = toNumber(value);
-      const f =
-        10 **
-        (decimals === undefined || decimals === null ? 0 : Number(decimals));
-      return Number.isNaN(n)
-        ? ''
-        : (Math.round((Math.abs(n) + Number.EPSILON) * f) / f) * Math.sign(n);
+      if (Number.isNaN(n)) return '';
+      const named = (args.find(isNamedArgs) ?? {}) as Record<string, unknown>;
+      const [decimals, method] = args.filter((a) => !isNamedArgs(a));
+      const places = Number(opt(decimals, opt(named['precision'], opt(named['decimals'], 0))));
+      const how = String(opt(method, opt(named['method'], 'common')));
+      const f = 10 ** places;
+      // `2.3 * 100` is 229.99999999999997: the product is cleaned before it is cut
+      const scaled = Number((Math.abs(n) * f).toPrecision(15));
+      if (how === 'floor') return (n < 0 ? -Math.ceil(scaled) : Math.floor(scaled)) / f;
+      if (how === 'ceil') return (n < 0 ? -Math.floor(scaled) : Math.ceil(scaled)) / f;
+      if (how !== 'common') throw new Error(`round: method must be 'common', 'floor' or 'ceil', not '${how}'`);
+      return (Math.round(scaled + Number.EPSILON) / f) * Math.sign(n);
     },
   },
   {

@@ -36,6 +36,19 @@ describe('format helpers', () => {
     expect(call('date', 1788781842, 'yyyy')).toBe('2026');
   });
 
+  it('rounds as Jinja2 does, with the method as a third or a named argument', () => {
+    expect(call('round', 2.345, 2)).toBe(2.35);
+    expect(call('round', -2.5)).toBe(-3);
+    expect(call('round', 2.999, 2, 'floor')).toBe(2.99);
+    expect(call('round', 1.001, 0, 'ceil')).toBe(2);
+    // binary products that land just below the cut are not floored one step too far
+    expect(call('round', 1.15, 2, 'floor')).toBe(1.15);
+    expect(call('round', 4.35, 1, { __keywords: true, method: 'ceil' })).toBe(4.4);
+    expect(call('round', 12.7, { precision: 0, method: 'floor' })).toBe(12);
+    expect(call('round', 'n/a', 2, 'floor')).toBe('');
+    expect(() => call('round', 1.5, 0, 'down')).toThrow(/method must be 'common', 'floor' or 'ceil'/);
+  });
+
   it('adds to dates', () => {
     expect(
       call('date', call('dateAdd', '2026-01-31', 1, 'month'), 'yyyy-MM-dd'),
