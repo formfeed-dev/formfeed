@@ -13,7 +13,9 @@ export default [
         "**/build",
         "**/.wrangler",
         "**/.angular",
-        "**/vitest.config.*.timestamp*"
+        "**/vitest.config.*.timestamp*",
+        // Python virtual environments (tools/video/voice-server): site-packages ships JavaScript too
+        "**/.venv*"
       ]
     },
     {
