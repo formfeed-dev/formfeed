@@ -54,7 +54,8 @@ import {
   readSnippets,
 } from './lib/importers';
 import { defaultConnect, listenStatePath, readListenState, runListen, type Connect } from './lib/listen';
-import { emit, formatDiagnostic, printer, reportError, table, type Printer } from './lib/output';
+import { emit, formatDiagnostic, printer, reportError, startRun, table, type Printer, type Run } from './lib/output';
+import { tally } from './lib/ui';
 import {
   contentHash,
   defaultData,
@@ -116,7 +117,7 @@ export interface ProgramContext {
   now?: () => Date;
 }
 
-const VERSION = '0.3.4';
+const VERSION = '0.3.5';
 
 /** Largest file `pdf convert` uploads; the API refuses bigger ones with `file_too_large`. */
 const OFFICE_UPLOAD_LIMIT = 20 * 1024 * 1024;
@@ -139,7 +140,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     });
 
   const settings = (): Settings => resolveSettings(program.opts<GlobalFlags>(), ctx.cwd, ctx.env);
-  const p = (): Printer => printer(Boolean(program.opts<GlobalFlags>().json), { out: ctx.out, err: ctx.err });
+  const p = (): Printer => printer(Boolean(program.opts<GlobalFlags>().json), { out: ctx.out, err: ctx.err }, ctx.env ?? process.env);
   const client = (s: Settings) => createClient(s, ctx.fetch);
 
   // --- auth -----------------------------------------------------------------------------------
@@ -326,14 +327,22 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .action(async (slug: string | undefined, opts: { draft?: boolean }) => {
       const s = settings();
       const project = requireProject(s);
-      const pulled = await pullTemplates(client(s), project, slug, Boolean(opts.draft));
-      emit(p(), pulled, () =>
-        pulled.map(
-          (x) =>
-            `pulled ${x.slug} v${x.number} (${x.status}) -> ${x.dir}` +
-            (x.partials ? ` (+${x.partials} partial${x.partials === 1 ? '' : 's'} in ${project.partialsDir})` : ''),
-        ),
-      );
+      // the run starts once the list says how many templates there are
+      const live: { run?: Run<PulledTemplate> } = {};
+      try {
+        const pulled = await pullTemplates(client(s), project, slug, Boolean(opts.draft), {
+          begin: (total) => (live.run = startRun<PulledTemplate>(p(), total)),
+          step: (one) => live.run?.step(one, 'pulling'),
+          done: (x) =>
+            live.run?.done(x, [
+              `pulled ${x.slug} v${x.number} (${x.status}) -> ${x.dir}` +
+                (x.partials ? ` (+${x.partials} partial${x.partials === 1 ? '' : 's'} in ${project.partialsDir})` : ''),
+            ]),
+        });
+        live.run?.finish(pulled, `${pulled.length} templates pulled`);
+      } finally {
+        live.run?.stop();
+      }
     });
 
   templates
@@ -355,60 +364,67 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       if (listed.length === 0) throw new CliError(`No templates in ${project.templatesDir}`, exitCodes.usage);
       const state = readState(project);
       const c = opts.dryRun ? null : client(s);
-      const results: Array<Record<string, unknown>> = ignored.map((one) => ({ slug: one, status: 'ignored' }));
-      for (const one of slugs) {
-        const tpl = readTemplate(project, one);
-        // the partials travel with the version, so an include without a file would fail on the
-        // server exactly as it does locally
-        if (tpl.missingPartials.length)
-          throw new CliError(
-            `${one} includes ${tpl.missingPartials.map((n) => `"${n}"`).join(', ')}, but no such file is in ${project.partialsDir}`,
-            exitCodes.validation,
-          );
-        const known = state.templates[one];
-        const changed = !known || known.contentHash !== contentHash(tpl);
-        if (opts.dryRun) {
-          results.push({ slug: one, status: known ? (changed ? 'modified' : 'unchanged') : 'new' });
-          continue;
-        }
-        if (known && !changed && !opts.publish && !opts.channel) {
-          results.push({ slug: one, status: 'unchanged' });
-          continue;
-        }
-        // only moving a channel to what was pushed before needs no new version
-        const version =
-          known && !changed && !opts.publish
-            ? await c!.templates.versions.get(one, known.number)
-            : await schemaGuard(() =>
-                pushTemplate(c!, project, tpl, {
-                  publish: Boolean(opts.publish),
-                  message: opts.message,
-                  baseChecksum: opts.force ? undefined : known?.checksum,
-                  allowBreaking: Boolean(opts.allowBreaking),
-                  // a Word or PowerPoint document is uploaded only when it is not the one last synced
-                  sendFile: !known?.fileSha256 || known.fileSha256 !== tpl.file?.sha256,
-                }),
+      const human = (r: Record<string, unknown>) => [
+        r['number']
+          ? `${r['slug']}: v${r['number']} ${r['status']}${r['channel'] ? ` -> channel ${r['channel']}` : ''}`
+          : `${r['slug']}: ${r['status']}`,
+        ...schemaWarnings(r['schema_check'] as TemplateVersion['schema_check']),
+      ];
+      // every template is its own requests, one after the other: show each as it finishes
+      const run = startRun<Record<string, unknown>>(p(), listed.length);
+      try {
+        for (const one of ignored) run.done({ slug: one, status: 'ignored' }, human({ slug: one, status: 'ignored' }));
+        for (const one of slugs) {
+          const tpl = readTemplate(project, one);
+          // the partials travel with the version, so an include without a file would fail on the
+          // server exactly as it does locally
+          if (tpl.missingPartials.length)
+            throw new CliError(
+              `${one} includes ${tpl.missingPartials.map((n) => `"${n}"`).join(', ')}, but no such file is in ${project.partialsDir}`,
+              exitCodes.validation,
+            );
+          const known = state.templates[one];
+          const changed = !known || known.contentHash !== contentHash(tpl);
+          let result: Record<string, unknown>;
+          if (opts.dryRun) {
+            result = { slug: one, status: known ? (changed ? 'modified' : 'unchanged') : 'new' };
+          } else if (known && !changed && !opts.publish && !opts.channel) {
+            result = { slug: one, status: 'unchanged' };
+          } else {
+            run.step(one, opts.publish ? 'publishing' : known && !changed ? 'reading the version' : 'pushing');
+            // only moving a channel to what was pushed before needs no new version
+            const version =
+              known && !changed && !opts.publish
+                ? await c!.templates.versions.get(one, known.number)
+                : await schemaGuard(() =>
+                    pushTemplate(c!, project, tpl, {
+                      publish: Boolean(opts.publish),
+                      message: opts.message,
+                      baseChecksum: opts.force ? undefined : known?.checksum,
+                      allowBreaking: Boolean(opts.allowBreaking),
+                      // a Word or PowerPoint document is uploaded only when it is not the one last synced
+                      sendFile: !known?.fileSha256 || known.fileSha256 !== tpl.file?.sha256,
+                    }),
+                  );
+            result = { slug: one, status: version.status, number: version.number, checksum: version.checksum };
+            if (opts.channel) {
+              run.update(`moving channel ${opts.channel}`);
+              const channel = await schemaGuard(() =>
+                c!.templates.channels.set(one, opts.channel!, { version: version.number }, { allowBreaking: Boolean(opts.allowBreaking) }),
               );
-        const result: Record<string, unknown> = { slug: one, status: version.status, number: version.number, checksum: version.checksum };
-        if (opts.channel) {
-          const channel = await schemaGuard(() =>
-            c!.templates.channels.set(one, opts.channel!, { version: version.number }, { allowBreaking: Boolean(opts.allowBreaking) }),
-          );
-          result['channel'] = channel.name;
-          result['schema_check'] = channel.schema_check ?? null;
-        } else if (version.schema_check) {
-          result['schema_check'] = version.schema_check;
+              result['channel'] = channel.name;
+              result['schema_check'] = channel.schema_check ?? null;
+            } else if (version.schema_check) {
+              result['schema_check'] = version.schema_check;
+            }
+          }
+          run.done(result, human(result));
         }
-        results.push(result);
+      } finally {
+        run.stop();
       }
-      emit(p(), results, () =>
-        results.flatMap((r) => [
-          r['number']
-            ? `${r['slug']}: v${r['number']} ${r['status']}${r['channel'] ? ` -> channel ${r['channel']}` : ''}`
-            : `${r['slug']}: ${r['status']}`,
-          ...schemaWarnings(r['schema_check'] as TemplateVersion['schema_check']),
-        ]),
-      );
+      const results = run.results;
+      run.finish(results, `${slugs.length} templates: ${tally(results.filter((r) => r['status'] !== 'ignored').map((r) => String(r['status'])))}${opts.dryRun ? ' (dry run)' : ''}`);
     });
 
   templates
@@ -627,33 +643,46 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const output = opts.output ?? defaultOutput(tpl.meta.kind, tpl.settings);
       const target = (extension: string) => resolve(ctx.cwd ?? process.cwd(), opts.out ?? `${slug}.${extension}`);
       let warnings: string[] = [];
-      let render: Render;
-      if (opts.remote) {
-        render = await c.renders.create({ template: slug, data: data as Record<string, unknown>, ...(opts.output ? { output: opts.output } : {}) });
-      } else if (tpl.file) {
-        // No API renders a local Word or PowerPoint file: it is filled here with the render-worker's
-        // engine, and a PDF comes from the converter, as the worker would make it.
-        const filled = await fillOffice(project, tpl, data, c, ctx.fetch);
-        warnings = filled.warnings;
-        if (output !== 'pdf') {
-          const file = target(output);
-          mkdirSync(dirname(file), { recursive: true });
-          writeFileSync(file, filled.bytes);
-          emit(p(), { file, output, filled: 'locally', warnings }, () => [...warnings.map((w) => `warn   ${w}`), `filled locally -> ${file}`]);
-          return;
+      let finished: Render;
+      let bytes: Uint8Array;
+      // one item, but the slowest call the CLI makes: the live line says which stage it is in
+      const live = startRun<never>(p(), 1);
+      try {
+        let render: Render;
+        live.step(slug, tpl.file && !opts.remote ? 'filling the document' : 'rendering');
+        if (opts.remote) {
+          render = await c.renders.create({ template: slug, data: data as Record<string, unknown>, ...(opts.output ? { output: opts.output } : {}) });
+        } else if (tpl.file) {
+          // No API renders a local Word or PowerPoint file: it is filled here with the render-worker's
+          // engine, and a PDF comes from the converter, as the worker would make it.
+          const filled = await fillOffice(project, tpl, data, c, ctx.fetch);
+          warnings = filled.warnings;
+          if (output !== 'pdf') {
+            const file = target(output);
+            mkdirSync(dirname(file), { recursive: true });
+            writeFileSync(file, filled.bytes);
+            live.stop();
+            emit(p(), { file, output, filled: 'locally', warnings }, () => [...warnings.map((w) => `warn   ${w}`), `filled locally -> ${file}`]);
+            return;
+          }
+          live.update('converting to PDF');
+          render = await c.pdf.convert(
+            { file: { data: filled.bytes, name: `${slug}.${tpl.meta.kind}` } },
+            { filename: `${slug}.pdf`, meta: { source: 'formfeed render', template: slug } },
+          );
+        } else {
+          // the document leaves complete, so asset() must already point at the workspace library
+          const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c), brand: readBrand(project) });
+          render = await c.renders.create({ html: rendered.document, settings: renderedSettings(rendered), output, meta: { source: 'formfeed render', template: slug } });
         }
-        render = await c.pdf.convert(
-          { file: { data: filled.bytes, name: `${slug}.${tpl.meta.kind}` } },
-          { filename: `${slug}.pdf`, meta: { source: 'formfeed render', template: slug } },
-        );
-      } else {
-        // the document leaves complete, so asset() must already point at the workspace library
-        const rendered = await renderLocal(project, tpl, data, { mode: 'print', assetBaseUrl: await remoteAssetBase(c), brand: readBrand(project) });
-        render = await c.renders.create({ html: rendered.document, settings: renderedSettings(rendered), output, meta: { source: 'formfeed render', template: slug } });
+        if (render.status !== 'succeeded' && render.status !== 'failed') live.update('waiting for the render');
+        finished = render.status === 'succeeded' || render.status === 'failed' ? render : await c.renders.waitFor(render.id);
+        if (finished.status !== 'succeeded') throw new CliError(`render ${finished.id} failed: ${JSON.stringify(finished.error)}`, exitCodes.network, finished);
+        live.update('downloading');
+        bytes = await c.renders.download(finished);
+      } finally {
+        live.stop();
       }
-      const finished = render.status === 'succeeded' || render.status === 'failed' ? render : await c.renders.waitFor(render.id);
-      if (finished.status !== 'succeeded') throw new CliError(`render ${finished.id} failed: ${JSON.stringify(finished.error)}`, exitCodes.network, finished);
-      const bytes = await c.renders.download(finished);
       const file = target(finished.output || output);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, bytes);
@@ -783,47 +812,57 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       mkdirSync(outDir, { recursive: true });
       const assetBaseUrl = await remoteAssetBase(c);
       const brand = readBrand(project);
-      const rows: PreviewRow[] = [];
-      for (const one of slugs) {
-        const tpl = readTemplate(project, one);
-        const set = defaultData(tpl);
-        // a pull request is reviewed as PDF: Word and PowerPoint templates are filled here and converted
-        const output = tpl.file ? 'pdf' : defaultOutput(tpl.meta.kind, tpl.settings);
-        const meta = { source: 'formfeed ci preview', template: one };
-        let created: Render;
-        if (tpl.file) {
-          let filled;
-          try {
-            filled = await renderOfficeLocal(project, tpl, set.data, { assetBaseUrl, brand, images: cliImageHost(ctx.fetch) });
-          } catch (e) {
-            rows.push({ slug: one, data: set.name, status: 'failed', error: officeFailureLines(one, e).join(' ') });
-            continue;
-          }
-          created = await c.pdf.convert({ file: { data: filled.bytes, name: `${one}.${tpl.meta.kind}` } }, { filename: `${one}.pdf`, meta });
-        } else {
-          const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl, brand });
-          created = await c.renders.create({ html: rendered.document, settings: renderedSettings(rendered), output, meta });
-        }
-        const render = created.status === 'succeeded' || created.status === 'failed' ? created : await c.renders.waitFor(created.id);
-        if (render.status !== 'succeeded') {
-          rows.push({ slug: one, data: set.name, status: 'failed', error: JSON.stringify(render.error ?? null) });
-          continue;
-        }
-        const file = join(outDir, `${one}.${output}`);
-        writeFileSync(file, await c.renders.download(render));
-        rows.push({ slug: one, data: set.name, status: 'succeeded', file, pages: render.page_count ?? null, url: render.download_url ?? null });
-      }
-
-      writeFileSync(summaryFile, previewMarkdown(opts.base, rows));
-      const failed = rows.filter((r) => r.status === 'failed').length;
-      emit(p(), { base: opts.base, templates: rows, summary: summaryFile, out: outDir }, () => [
-        ...rows.map((r) =>
+      const run = startRun<PreviewRow>(p(), slugs.length);
+      const finished = (r: PreviewRow) =>
+        run.done(r, [
           r.status === 'succeeded'
             ? `${r.slug} (${r.data}): ${r.pages ?? '?'} page(s) -> ${r.file}`
             : `${r.slug} (${r.data}): failed ${r.error ?? ''}`,
-        ),
-        `Summary written to ${summaryFile}`,
-      ]);
+        ]);
+      try {
+        for (const one of slugs) {
+          const tpl = readTemplate(project, one);
+          const set = defaultData(tpl);
+          // a pull request is reviewed as PDF: Word and PowerPoint templates are filled here and converted
+          const output = tpl.file ? 'pdf' : defaultOutput(tpl.meta.kind, tpl.settings);
+          const meta = { source: 'formfeed ci preview', template: one };
+          let created: Render;
+          if (tpl.file) {
+            run.step(one, 'filling the document');
+            let filled;
+            try {
+              filled = await renderOfficeLocal(project, tpl, set.data, { assetBaseUrl, brand, images: cliImageHost(ctx.fetch) });
+            } catch (e) {
+              finished({ slug: one, data: set.name, status: 'failed', error: officeFailureLines(one, e).join(' ') });
+              continue;
+            }
+            run.update('converting to PDF');
+            created = await c.pdf.convert({ file: { data: filled.bytes, name: `${one}.${tpl.meta.kind}` } }, { filename: `${one}.pdf`, meta });
+          } else {
+            run.step(one, 'rendering');
+            const rendered = await renderLocal(project, tpl, set.data, { mode: 'print', assetBaseUrl, brand });
+            created = await c.renders.create({ html: rendered.document, settings: renderedSettings(rendered), output, meta });
+          }
+          if (created.status !== 'succeeded' && created.status !== 'failed') run.update('waiting for the render');
+          const render = created.status === 'succeeded' || created.status === 'failed' ? created : await c.renders.waitFor(created.id);
+          if (render.status !== 'succeeded') {
+            finished({ slug: one, data: set.name, status: 'failed', error: JSON.stringify(render.error ?? null) });
+            continue;
+          }
+          run.update('downloading');
+          const file = join(outDir, `${one}.${output}`);
+          writeFileSync(file, await c.renders.download(render));
+          finished({ slug: one, data: set.name, status: 'succeeded', file, pages: render.page_count ?? null, url: render.download_url ?? null });
+        }
+      } finally {
+        run.stop();
+      }
+      const rows = run.results;
+
+      writeFileSync(summaryFile, previewMarkdown(opts.base, rows));
+      const failed = rows.filter((r) => r.status === 'failed').length;
+      run.finish({ base: opts.base, templates: rows, summary: summaryFile, out: outDir });
+      if (!p().json) p().out(`Summary written to ${summaryFile}`);
       if (failed > 0) throw new CliError(`${failed} template(s) failed to render`, exitCodes.validation, { silent: true });
     });
 
@@ -920,40 +959,46 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const c = opts.dryRun ? null : client(s);
       // a name without a state entry is new here; refuse to overwrite a remote partial nobody pulled
       const remote = c && targets.some((name) => !state[name]) ? await c.partials.list() : [];
-      const results: Array<{ name: string; status: string; version?: number; engine: EngineId }> = [];
-      for (const name of targets) {
-        const source = readFileSync(sharedPartialPath(project, name), 'utf8');
-        const known = state[name];
-        const engine = opts.engine ?? known?.engine ?? project.config.engine;
-        const changed = !known || known.contentHash !== partialContentHash(source) || known.engine !== engine;
-        if (!c) {
-          results.push({ name, engine, status: known ? (changed ? 'modified' : 'unchanged') : 'new' });
-          continue;
+      type PartialResult = { name: string; status: string; version?: number; engine: EngineId };
+      const run = startRun<PartialResult>(p(), targets.length);
+      const finished = (r: PartialResult) =>
+        run.done(r, [`${r.name}: ${r.version !== undefined && r.status !== 'unchanged' ? `v${r.version} ` : ''}${r.status}${opts.dryRun && r.status !== 'unchanged' ? ' (dry run)' : ''}`]);
+      try {
+        for (const name of targets) {
+          const source = readFileSync(sharedPartialPath(project, name), 'utf8');
+          const known = state[name];
+          const engine = opts.engine ?? known?.engine ?? project.config.engine;
+          const changed = !known || known.contentHash !== partialContentHash(source) || known.engine !== engine;
+          if (!c) {
+            finished({ name, engine, status: known ? (changed ? 'modified' : 'unchanged') : 'new' });
+            continue;
+          }
+          if (!changed) {
+            finished({ name, engine, status: 'unchanged', version: known.version });
+            continue;
+          }
+          if (!known && !opts.force && remote.some((r) => r.name === name))
+            throw new CliError(`A shared partial "${name}" exists already; run formfeed partials pull ${name} first, or push with --force to replace it`, exitCodes.usage);
+          run.step(name, 'pushing');
+          let written: SharedPartialPutResult;
+          try {
+            written = await c.partials.put(name, { engine, source, ...(known && !opts.force ? { base_version: known.version } : {}) });
+          } catch (e) {
+            if ((e as FormfeedError).status === 409)
+              throw new CliError(
+                `${name} changed remotely since v${known?.version}; run formfeed partials pull ${name} and merge, or push with --force`,
+                exitCodes.usage,
+                (e as FormfeedError).problem,
+              );
+            throw e;
+          }
+          recordSharedPartial(project, name, { version: written.partial.version, engine: written.partial.engine }, source);
+          finished({ name, engine, status: written.created ? 'created' : 'updated', version: written.partial.version });
         }
-        if (!changed) {
-          results.push({ name, engine, status: 'unchanged', version: known.version });
-          continue;
-        }
-        if (!known && !opts.force && remote.some((r) => r.name === name))
-          throw new CliError(`A shared partial "${name}" exists already; run formfeed partials pull ${name} first, or push with --force to replace it`, exitCodes.usage);
-        let written: SharedPartialPutResult;
-        try {
-          written = await c.partials.put(name, { engine, source, ...(known && !opts.force ? { base_version: known.version } : {}) });
-        } catch (e) {
-          if ((e as FormfeedError).status === 409)
-            throw new CliError(
-              `${name} changed remotely since v${known?.version}; run formfeed partials pull ${name} and merge, or push with --force`,
-              exitCodes.usage,
-              (e as FormfeedError).problem,
-            );
-          throw e;
-        }
-        recordSharedPartial(project, name, { version: written.partial.version, engine: written.partial.engine }, source);
-        results.push({ name, engine, status: written.created ? 'created' : 'updated', version: written.partial.version });
+      } finally {
+        run.stop();
       }
-      emit(p(), results, () =>
-        results.map((r) => `${r.name}: ${r.version !== undefined && r.status !== 'unchanged' ? `v${r.version} ` : ''}${r.status}${opts.dryRun && r.status !== 'unchanged' ? ' (dry run)' : ''}`),
-      );
+      run.finish(run.results);
     });
 
   // --- files ---------------------------------------------------------------------------------
@@ -986,19 +1031,25 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const plan = onlyNames(planPush(local.files, await c.files.all()), names);
       if (names.length && plan.length === 0)
         throw new CliError(`None of ${names.join(', ')} is in ${project.filesDir}`, exitCodes.usage);
-      const results: Array<{ name: string; status: string; url?: string }> = [];
-      for (const row of plan) {
-        if (row.status === 'unchanged' || opts.dryRun) {
-          results.push(row);
-          continue;
+      type FileResult = { name: string; status: string; url?: string };
+      const run = startRun<FileResult>(p(), plan.length);
+      const finished = (r: FileResult) => run.done(r, [`${r.name}: ${r.status}${opts.dryRun && r.status !== 'unchanged' ? ' (dry run)' : ''}`]);
+      try {
+        for (const row of plan) {
+          if (row.status === 'unchanged' || opts.dryRun) {
+            finished(row);
+            continue;
+          }
+          const file = local.files.find((f) => f.name === row.name)!;
+          run.step(row.name, 'uploading');
+          const uploaded = await c.files.upload({ data: readFileSync(file.path), name: file.name, contentType: file.contentType ?? undefined });
+          finished({ name: row.name, status: row.status === 'new' ? 'uploaded' : 'replaced', url: uploaded.url });
         }
-        const file = local.files.find((f) => f.name === row.name)!;
-        const uploaded = await c.files.upload({ data: readFileSync(file.path), name: file.name, contentType: file.contentType ?? undefined });
-        results.push({ name: row.name, status: row.status === 'new' ? 'uploaded' : 'replaced', url: uploaded.url });
+      } finally {
+        run.stop();
       }
-      emit(p(), results, () =>
-        results.length ? results.map((r) => `${r.name}: ${r.status}${opts.dryRun && r.status !== 'unchanged' ? ' (dry run)' : ''}`) : [`No files in ${project.filesDir}`],
-      );
+      run.finish(run.results);
+      if (!run.results.length && !p().json) p().out(`No files in ${project.filesDir}`);
     });
 
   filesCmd
@@ -1010,19 +1061,27 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const c = client(s);
       const remote = await c.files.all();
       const plan = onlyNames(planPull(remote, listLocalFiles(project).files), names);
-      const results: Array<{ name: string; status: string; path?: string }> = [];
-      for (const row of plan) {
-        if (row.status === 'unchanged') {
-          results.push(row);
-          continue;
+      type FileResult = { name: string; status: string; path?: string };
+      const run = startRun<FileResult>(p(), plan.length);
+      const finished = (r: FileResult) => run.done(r, [`${r.name}: ${r.status}`]);
+      try {
+        for (const row of plan) {
+          if (row.status === 'unchanged') {
+            finished(row);
+            continue;
+          }
+          const file = remote.find((f) => f.name === row.name)!;
+          run.step(row.name, 'downloading');
+          const res = await (ctx.fetch ?? fetch)(file.url);
+          if (!res.ok) throw new CliError(`Downloading ${file.name} answered HTTP ${res.status}`, exitCodes.network);
+          const path = writeLocalFile(project, file.name, new Uint8Array(await res.arrayBuffer()));
+          finished({ name: row.name, status: 'pulled', path });
         }
-        const file = remote.find((f) => f.name === row.name)!;
-        const res = await (ctx.fetch ?? fetch)(file.url);
-        if (!res.ok) throw new CliError(`Downloading ${file.name} answered HTTP ${res.status}`, exitCodes.network);
-        const path = writeLocalFile(project, file.name, new Uint8Array(await res.arrayBuffer()));
-        results.push({ name: row.name, status: 'pulled', path });
+      } finally {
+        run.stop();
       }
-      emit(p(), results, () => (results.length ? results.map((r) => `${r.name}: ${r.status}`) : ['The workspace library is empty']));
+      run.finish(run.results);
+      if (!run.results.length && !p().json) p().out('The workspace library is empty');
     });
 
   filesCmd
@@ -1675,17 +1734,36 @@ function loadData(root: string, tpl: LocalTemplate, nameOrFile?: string): unknow
   return defaultData(tpl, nameOrFile).data;
 }
 
-async function pullTemplates(c: ReturnType<typeof createClient>, project: ReturnType<typeof requireProject>, slug: string | undefined, draft: boolean) {
+interface PulledTemplate {
+  slug: string;
+  number: number;
+  status: string;
+  dir: string;
+  partials: number;
+}
+
+/** `watch` is told how many templates there are, which one is being read and when it is on disk. */
+async function pullTemplates(
+  c: ReturnType<typeof createClient>,
+  project: ReturnType<typeof requireProject>,
+  slug: string | undefined,
+  draft: boolean,
+  watch?: { begin(total: number): void; step(slug: string): void; done(row: PulledTemplate): void },
+) {
   const list = slug ? [await c.templates.get(slug)] : await c.templates.all();
-  const pulled: Array<{ slug: string; number: number; status: string; dir: string; partials: number }> = [];
+  const pulled: PulledTemplate[] = [];
+  watch?.begin(list.length);
   for (const t of list) {
+    watch?.step(t.slug);
     const version = await c.templates.versions.get(t.slug, draft || !t.published_version ? 'latest' : 'published');
     const meta: TemplateMeta = { name: t.name, kind: t.kind, engine: t.engine, description: t.description, tags: t.tags };
     // the document of exactly this version, even when a newer one was saved meanwhile
     const file = isOfficeKind(t.kind) ? await c.templates.versions.file(t.slug, version.number) : undefined;
     const dir = writeTemplate(project, t.slug, meta, version, file);
     recordSync(project, t.slug, version, readTemplate(project, t.slug));
-    pulled.push({ slug: t.slug, number: version.number, status: version.status, dir, partials: Object.keys(version.partials ?? {}).length });
+    const row = { slug: t.slug, number: version.number, status: version.status, dir, partials: Object.keys(version.partials ?? {}).length };
+    pulled.push(row);
+    watch?.done(row);
   }
   return pulled;
 }
@@ -1851,7 +1929,7 @@ function writeStarter(project: ReturnType<typeof requireProject>, engine: Engine
 /** Runs the CLI: parses argv, maps errors to exit codes, never throws. */
 export async function run(argv: string[], ctx: ProgramContext = {}): Promise<number> {
   const program = buildProgram(ctx);
-  const p = printer(argv.includes('--json'), { out: ctx.out, err: ctx.err });
+  const p = printer(argv.includes('--json'), { out: ctx.out, err: ctx.err }, ctx.env ?? process.env);
   try {
     await program.parseAsync(argv, { from: 'user' });
     return exitCodes.ok;

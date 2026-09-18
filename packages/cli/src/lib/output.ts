@@ -1,17 +1,39 @@
 import type { Diagnostic } from '@formfeed/engine';
 import { CliError, exitCodeFor } from './errors';
+import { Progress, colorEnabled, createStyle, formatElapsed, paintLine, unicodeSupported, type Style, type Terminal } from './ui';
 
 export interface Printer {
   json: boolean;
   out: (text: string) => void;
   err: (text: string) => void;
+  /** Colours for stdout and stderr; plain unless the stream is a terminal. */
+  style: Style;
+  errStyle: Style;
+  /** stderr when it is a terminal: where the live progress line is drawn. */
+  terminal: Terminal | null;
+  unicode: boolean;
 }
 
-export function printer(json: boolean, streams: { out?: (t: string) => void; err?: (t: string) => void } = {}): Printer {
+/** Injected streams (tests, embedding) are never terminals: they get plain text and no live line. */
+export function printer(
+  json: boolean,
+  streams: { out?: (t: string) => void; err?: (t: string) => void } = {},
+  env: NodeJS.ProcessEnv = process.env,
+): Printer {
+  const style = createStyle(!json && !streams.out && colorEnabled(env, Boolean(process.stdout.isTTY)));
+  const errStyle = createStyle(!streams.err && colorEnabled(env, Boolean(process.stderr.isTTY)));
+  const terminal: Terminal | null =
+    !streams.err && process.stderr.isTTY && env['TERM'] !== 'dumb' && !env['CI']
+      ? { write: (t) => void process.stderr.write(t), get columns() { return process.stderr.columns; } }
+      : null;
   return {
     json,
-    out: streams.out ?? ((t) => process.stdout.write(t + '\n')),
-    err: streams.err ?? ((t) => process.stderr.write(t + '\n')),
+    out: streams.out ?? ((t) => process.stdout.write(paintLine(style, t) + '\n')),
+    err: streams.err ?? ((t) => process.stderr.write(paintLine(errStyle, t) + '\n')),
+    style,
+    errStyle,
+    terminal,
+    unicode: unicodeSupported(env),
   };
 }
 
@@ -19,6 +41,47 @@ export function printer(json: boolean, streams: { out?: (t: string) => void; err
 export function emit(p: Printer, data: unknown, human: () => string[]): void {
   if (p.json) p.out(JSON.stringify(data, null, 2));
   else for (const line of human()) p.out(line);
+}
+
+/**
+ * A loop over items whose results should be seen as they happen: the human line of an item is
+ * printed when the item is done, a live line on the terminal names the one in progress, and
+ * `--json` still gets one document at the end (`finish`).
+ */
+export interface Run<T> {
+  /** Starts the next item: `label` is its name, `doing` what happens to it (`publishing`). */
+  step(label: string, doing: string): void;
+  update(doing: string): void;
+  /** Records an item's result and prints its lines now. */
+  done(result: T, lines: string[]): void;
+  /** Prints the JSON document, or the closing summary line. */
+  finish(data: unknown, summary?: string): void;
+  /** Removes the live line; call in `finally`, so an error is not printed behind a spinner. */
+  stop(): void;
+  results: T[];
+}
+
+export function startRun<T>(p: Printer, total: number): Run<T> {
+  const progress = new Progress({ terminal: p.terminal, style: p.errStyle, unicode: p.unicode, total });
+  const results: T[] = [];
+  return {
+    results,
+    step: (label, doing) => progress.step(label, doing),
+    update: (doing) => progress.update(doing),
+    done(result, lines) {
+      results.push(result);
+      progress.advance();
+      if (p.json) return;
+      progress.clear();
+      for (const line of lines) p.out(line);
+    },
+    finish(data, summary) {
+      progress.stop();
+      if (p.json) p.out(JSON.stringify(data, null, 2));
+      else if (summary && total > 1) p.out(p.style.dim(`${summary} in ${formatElapsed(progress.elapsed())}`));
+    },
+    stop: () => progress.stop(),
+  };
 }
 
 export function table(rows: string[][], header?: string[]): string[] {
