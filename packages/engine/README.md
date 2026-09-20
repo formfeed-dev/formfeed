@@ -1,6 +1,6 @@
 # @formfeed/engine
 
-The template engine behind [Formfeed](https://formfeed.dev): Jinja2, Liquid and Handlebars templates
+The template engine behind [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=engine): Jinja2, Liquid and Handlebars templates
 with one set of helpers, compiled and rendered to a complete HTML document. The same package runs
 the web editor's preview, the `formfeed` CLI and Formfeed's render servers, so what it produces
 locally is what the API renders. It works in browsers and Node 22+ and uses no Node-only APIs.

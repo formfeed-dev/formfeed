@@ -1,6 +1,6 @@
 # n8n-nodes-formfeed
 
-n8n community node for [Formfeed](https://formfeed.dev): render PDFs and images from templates,
+n8n community node for [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=n8n-node): render PDFs and images from templates,
 read template schemas, and start workflows when a render or batch finishes.
 
 ## Install

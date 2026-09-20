@@ -1,6 +1,6 @@
 # @formfeed/testing
 
-Vitest and Jest matchers for [Formfeed](https://formfeed.dev) HTML templates kept in your repository.
+Vitest and Jest matchers for [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=testing) HTML templates kept in your repository.
 The offline matchers render with the same engine the API uses, so they need no account. Word and
 PowerPoint templates are tested with `formfeed test`, which compares their filled XML with approved
 snapshots.

@@ -1,6 +1,6 @@
 # @formfeed/sdk
 
-The TypeScript client for the [Formfeed](https://formfeed.dev) API: generate PDFs and images from
+The TypeScript client for the [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=sdk) API: generate PDFs and images from
 templates, and fill Word and PowerPoint templates. It has no dependencies and uses only Web APIs (`fetch`, Web Crypto), so it runs in Node 22+,
 Deno, Bun, Cloudflare Workers and browsers.
 

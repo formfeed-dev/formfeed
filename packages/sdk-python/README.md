@@ -1,8 +1,8 @@
 # formfeed (Python)
 
-Client for the Formfeed API: template-based PDF and image generation. Sync and async, built on
-httpx, pydantic models, retries on 429 and 503 with the server's `Retry-After`, an
-`Idempotency-Key` on every render, typed errors and webhook verification.
+Client for the [Formfeed](https://formfeed.dev/?utm_source=pypi) API: template-based PDF and image
+generation. Sync and async, built on httpx, pydantic models, retries on 429 and 503 with the
+server's `Retry-After`, an `Idempotency-Key` on every render, typed errors and webhook verification.
 
 ```bash
 pip install formfeed

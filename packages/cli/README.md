@@ -1,6 +1,6 @@
 # formfeed
 
-The Formfeed CLI: templates as files, offline validation and hot-reload preview with the same
+The [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=cli) CLI: templates as files, offline validation and hot-reload preview with the same
 engine the API uses, true renders through the API, push and pull against a workspace.
 
 ```bash

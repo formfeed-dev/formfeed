@@ -1,6 +1,6 @@
 # @formfeed/devkit
 
-The local half of the [Formfeed](https://formfeed.dev) development kit: template folders, project
+The local half of the [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=devkit) development kit: template folders, project
 configuration (`formfeed.json`) and offline rendering with the same engine the API uses. The
 [`formfeed` CLI](https://www.npmjs.com/package/formfeed) and
 [`@formfeed/testing`](https://www.npmjs.com/package/@formfeed/testing) are built on it; use it
