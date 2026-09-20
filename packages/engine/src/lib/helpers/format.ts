@@ -93,7 +93,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 'money(value, currency?, locale?)',
       description:
         'Formats a number as currency with Intl.NumberFormat. Defaults come from the template settings.',
-      example: "{{ line.total | money('EUR') }} → 1.234,50 €",
+      examples: {
+        jinja2: "{{ line.total | money('EUR') }} → 1.234,50 €",
+        liquid: "{{ line.total | money: 'EUR' }} → 1.234,50 €",
+        handlebars: "{{money line.total 'EUR'}} → 1.234,50 €",
+      },
       category: 'format',
     },
     fn: (ctx: HelperContext, value, currency?, locale?) => {
@@ -111,7 +115,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 'number(value, decimals?, locale?)',
       description:
         'Formats a number with grouping. With decimals, exactly that many (rounded half away from zero); without, the decimals the number has, at most three, so 1234.5 → 1.234,5 and 2.34567 → 2,346. Use number(0) for whole numbers.',
-      example: '{{ qty | number(2) }} → 1.234,00',
+      examples: {
+        jinja2: '{{ qty | number(2) }} → 1.234,00',
+        liquid: '{{ qty | number: 2 }} → 1.234,00',
+        handlebars: '{{number qty 2}} → 1.234,00',
+      },
       category: 'format',
     },
     fn: (ctx, value, decimals?, locale?) => {
@@ -133,7 +141,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 'date(value, format?, tz?, locale?)',
       description:
         "Formats a date with date-fns tokens (e.g. 'dd.MM.yyyy', 'PPP'). Accepts ISO strings, epoch numbers and 'now'.",
-      example: "{{ invoice.date | date('dd.MM.yyyy') }}",
+      examples: {
+        jinja2: "{{ invoice.date | date('dd.MM.yyyy') }}",
+        liquid: "{{ invoice.date | date: 'dd.MM.yyyy' }}",
+        handlebars: "{{date invoice.date 'dd.MM.yyyy'}}",
+      },
       category: 'format',
     },
     fn: (ctx, value, format?, tz?, locale?) => {
@@ -151,7 +163,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 'dateAdd(value, amount, unit)',
       description:
         'Adds days, weeks, months or years to a date; returns an ISO string for further formatting.',
-      example: "{{ invoice.date | dateAdd(14, 'days') | date('PP') }}",
+      examples: {
+        jinja2: "{{ invoice.date | dateAdd(14, 'days') | date('PP') }}",
+        liquid: "{{ invoice.date | dateAdd: 14, 'days' | date: 'PP' }}",
+        handlebars: "{{date (dateAdd invoice.date 14 'days') 'PP'}}",
+      },
       category: 'format',
     },
     fn: (ctx, value, amount, unit) => {
@@ -169,7 +185,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'add(a, b)',
       description: 'a + b (Handlebars has no arithmetic of its own).',
-      example: '{{add @index 1}}',
+      examples: {
+        jinja2: '{{ line.qty | add(1) }}',
+        liquid: '{{ line.qty | add: 1 }}',
+        handlebars: '{{#each invoice.lines}}{{add @index 1}}{{/each}}',
+      },
       category: 'format',
     },
     fn: (_ctx, a, b) => toNumber(a) + toNumber(b),
@@ -180,7 +200,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'subtract(a, b)',
       description: 'a minus b.',
-      example: '{{subtract total discount}}',
+      examples: {
+        jinja2: '{{ total | subtract(discount) }}',
+        liquid: '{{ total | subtract: discount }}',
+        handlebars: '{{subtract total discount}}',
+      },
       category: 'format',
     },
     fn: (_ctx, a, b) => toNumber(a) - toNumber(b),
@@ -191,7 +215,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'multiply(a, b)',
       description: 'a times b.',
-      example: '{{money (multiply line.qty line.price)}}',
+      examples: {
+        jinja2: '{{ line.qty | multiply(line.price) | money }}',
+        liquid: '{{ line.qty | multiply: line.price | money }}',
+        handlebars: '{{money (multiply line.qty line.price)}}',
+      },
       category: 'format',
     },
     fn: (_ctx, a, b) => toNumber(a) * toNumber(b),
@@ -202,7 +230,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'divide(a, b)',
       description: 'a divided by b; empty when b is 0.',
-      example: '{{divide total count}}',
+      examples: {
+        jinja2: '{{ total | divide(count) }}',
+        liquid: '{{ total | divide: count }}',
+        handlebars: '{{divide total count}}',
+      },
       category: 'format',
     },
     fn: (_ctx, a, b) => (toNumber(b) === 0 ? '' : toNumber(a) / toNumber(b)),
@@ -213,7 +245,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: "round(value, decimals = 0, method = 'common')",
       description:
         "Rounds to the given decimals, as Jinja2's round does: 'common' rounds half away from zero, 'floor' always down and 'ceil' always up.",
-      example: "{{ 2.345 | round(2) }} gives 2.35, {{ 2.349 | round(2, 'floor') }} gives 2.34",
+      examples: {
+        jinja2: "{{ 2.345 | round(2) }} gives 2.35, {{ 2.349 | round(2, 'floor') }} gives 2.34",
+        liquid: "{{ 2.345 | round: 2 }} gives 2.35, {{ 2.349 | round: 2, 'floor' }} gives 2.34",
+        handlebars: "{{round 2.345 2}} gives 2.35, {{round 2.349 2 'floor'}} gives 2.34",
+      },
       category: 'format',
     },
     // `round(2, method='floor')` (Jinja2) and `round: 2, method: 'floor'` (Liquid) arrive as a
@@ -240,7 +276,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'upper(value)',
       description: 'Upper-cases a string.',
-      example: '{{ name | upper }}',
+      examples: {
+        jinja2: '{{ name | upper }}',
+        liquid: '{{ name | upper }}',
+        handlebars: '{{upper name}}',
+      },
       category: 'text',
     },
     fn: (_ctx, value) => str(value).toUpperCase(),
@@ -251,7 +291,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'lower(value)',
       description: 'Lower-cases a string.',
-      example: '{{ name | lower }}',
+      examples: {
+        jinja2: '{{ name | lower }}',
+        liquid: '{{ name | lower }}',
+        handlebars: '{{lower name}}',
+      },
       category: 'text',
     },
     fn: (_ctx, value) => str(value).toLowerCase(),
@@ -262,7 +306,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'title(value)',
       description: 'Capitalises every word.',
-      example: "{{ 'hello world' | title }} → Hello World",
+      examples: {
+        jinja2: "{{ 'hello world' | title }} → Hello World",
+        liquid: "{{ 'hello world' | title }} → Hello World",
+        handlebars: "{{title 'hello world'}} → Hello World",
+      },
       category: 'text',
     },
     fn: (_ctx, value) =>
@@ -277,7 +325,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: "truncate(value, length = 255, suffix = '…')",
       description:
         'Cuts a string to `length` characters and appends the suffix when cut.',
-      example: '{{ description | truncate(40) }}',
+      examples: {
+        jinja2: '{{ description | truncate(40) }}',
+        liquid: '{{ description | truncate: 40 }}',
+        handlebars: '{{truncate description 40}}',
+      },
       category: 'text',
     },
     fn: (_ctx, value, length?, suffix?) => {
@@ -294,7 +346,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'replace(value, search, replacement)',
       description: 'Replaces every occurrence of `search`.',
-      example: "{{ iban | replace(' ', '') }}",
+      examples: {
+        jinja2: "{{ iban | replace(' ', '') }}",
+        liquid: "{{ iban | replace: ' ', '' }}",
+        handlebars: "{{replace iban ' ' ''}}",
+      },
       category: 'text',
     },
     fn: (_ctx, value, search, replacement?) =>
@@ -305,7 +361,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: "split(value, separator = ',')",
       description: 'Splits a string into a list.',
-      example: "{% for tag in tags | split(',') %}",
+      examples: {
+        jinja2: "{% for tag in keywords | split(',') %}{{ tag }}{% endfor %}",
+        liquid: "{% assign tags = keywords | split: ',' %}{% for tag in tags %}{{ tag }}{% endfor %}",
+        handlebars: "{{#each (split keywords ',')}}{{this}}{{/each}}",
+      },
       category: 'text',
     },
     fn: (_ctx, value, separator?) => str(value).split(str(opt(separator, ','))),
@@ -315,7 +375,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: "join(list, separator = ', ')",
       description: 'Joins a list into a string.',
-      example: "{{ tags | join(' · ') }}",
+      examples: {
+        jinja2: "{{ tags | join(' · ') }}",
+        liquid: "{{ tags | join: ' · ' }}",
+        handlebars: "{{join tags ' · '}}",
+      },
       category: 'collection',
     },
     fn: (_ctx, value, separator?) =>
@@ -330,7 +394,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 'default(value, fallback)',
       description:
         'Returns the fallback when the value is empty, null or undefined.',
-      example: "{{ customer.vat | default('—') }}",
+      examples: {
+        jinja2: "{{ customer.vat | default('—') }}",
+        liquid: "{{ customer.vat | default: '—' }}",
+        handlebars: "{{default customer.vat '—'}}",
+      },
       category: 'text',
     },
     fn: (_ctx, value, fallback?) =>
@@ -342,7 +410,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'nl2br(value)',
       description: 'Escapes the text and turns line breaks into <br>.',
-      example: '{{ address | nl2br }}',
+      examples: {
+        jinja2: '{{ address | nl2br }}',
+        liquid: '{{ address | nl2br }}',
+        handlebars: '{{nl2br address}}',
+      },
       category: 'text',
     },
     // office templates turn line breaks into breaks themselves, and escape the text once
@@ -355,7 +427,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 'markdown(value)',
       description:
         'Renders Markdown to HTML (no sanitiser: template data is trusted by the author).',
-      example: '{{ notes | markdown }}',
+      examples: {
+        jinja2: '{{ notes | markdown }}',
+        liquid: '{{ notes | markdown }}',
+        handlebars: '{{markdown notes}}',
+      },
       category: 'text',
     },
     fn: (ctx, value) => {
@@ -374,7 +450,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'safe(value)',
       description: 'Marks a string as HTML so the engine does not escape it.',
-      example: '{{ html_snippet | safe }}',
+      examples: {
+        jinja2: '{{ html_snippet | safe }}',
+        liquid: '{{ html_snippet | safe }}',
+        handlebars: '{{safe html_snippet}}',
+      },
       category: 'text',
     },
     fn: (_ctx, value) => str(value),
@@ -386,7 +466,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 'json(value, indent = 2)',
       description:
         'Serialises a value as JSON; handy while building a template.',
-      example: '<pre>{{ invoice | json }}</pre>',
+      examples: {
+        jinja2: '<pre>{{ invoice | json }}</pre>',
+        liquid: '<pre>{{ invoice | json }}</pre>',
+        handlebars: '<pre>{{json invoice}}</pre>',
+      },
       category: 'debug',
     },
     fn: (_ctx, value, indent?) =>
@@ -398,7 +482,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'numToWords(value, locale?)',
       description: 'Spells a number out in words (de, en, fr, es, it, nl).',
-      example: "{{ total | numToWords('de') }} → zweihundertdreiundvierzig",
+      examples: {
+        jinja2: "{{ total | numToWords('de') }} → zweihundertdreiundvierzig",
+        liquid: "{{ total | numToWords: 'de' }} → zweihundertdreiundvierzig",
+        handlebars: "{{numToWords total 'de'}} → zweihundertdreiundvierzig",
+      },
       category: 'format',
     },
     fn: (ctx, value, locale?) => {
@@ -415,7 +503,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 't(key, params?)',
       description:
         "Looks a key up in the template's i18n dictionary for the request locale; `{name}` placeholders come from params.",
-      example: "{{ t('invoice.title', { number: invoice.number }) }}",
+      examples: {
+        jinja2: "{{ t('invoice.title', { number: invoice.number }) }}",
+        liquid: "{{ 'invoice.title' | t: number: invoice.number }}",
+        handlebars: "{{t 'invoice.title' number=invoice.number}}",
+      },
       category: 'text',
     },
     fn: (ctx, key, params?) => {
@@ -436,7 +528,11 @@ export const formatHelpers: HelperDefinition[] = [
       signature: 'asset(name)',
       description:
         'URL of a file in the workspace library (logo, background) on the CDN. Upload it on the Files page or with `POST /files` and use the name it has there; relative image paths resolve against the same library.',
-      example: '<img src="{{ asset(\'logo.png\') }}">',
+      examples: {
+        jinja2: `<img src="{{ asset('logo.png') }}">`,
+        liquid: `<img src="{{ 'logo.png' | asset }}">`,
+        handlebars: `<img src="{{asset 'logo.png'}}">`,
+      },
       category: 'document',
     },
     fn: (ctx, name) =>
@@ -449,7 +545,11 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'pageBreak()',
       description: 'Starts a new page in PDF output.',
-      example: '{{ pageBreak() }}',
+      examples: {
+        jinja2: '{{ pageBreak() }}',
+        liquid: "{{ '' | pageBreak }}",
+        handlebars: '{{pageBreak}}',
+      },
       category: 'document',
     },
     fn: (ctx) =>

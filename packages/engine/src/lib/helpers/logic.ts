@@ -31,7 +31,12 @@ const comparison = (
   doc: {
     signature: `${name}(a, b)`,
     description,
-    example: `{{#if (${name} invoice.total 1000)}}…{{/if}}`,
+    examples: {
+      jinja2: `{% if ${name}(invoice.total, 1000) %}…{% endif %}`,
+      // Liquid takes no filter in a condition, so the comparison is assigned first
+      liquid: `{% assign hit = invoice.total | ${name}: 1000 %}{% if hit %}…{% endif %}`,
+      handlebars: `{{#if (${name} invoice.total 1000)}}…{{/if}}`,
+    },
     category: 'logic',
   },
   fn: (_ctx, a, b) => test(a, b),
@@ -49,7 +54,12 @@ export const logicHelpers: HelperDefinition[] = [
     doc: {
       signature: 'and(a, b, …)',
       description: 'True when every value is true; an empty list counts as false.',
-      example: '{{#if (and customer.vatId (eq country "DE"))}}…{{/if}}',
+      examples: {
+        jinja2: "{% if and(customer.vatId, eq(country, 'DE')) %}…{% endif %}",
+        // nesting one comparison in another needs its own assignment in Liquid
+        liquid: "{% assign german = country | eq: 'DE' %}{% assign both = customer.vatId | and: german %}{% if both %}…{% endif %}",
+        handlebars: "{{#if (and customer.vatId (eq country 'DE'))}}…{{/if}}",
+      },
       category: 'logic',
     },
     fn: (_ctx, ...values) => values.length > 0 && values.every(truthy),
@@ -59,7 +69,11 @@ export const logicHelpers: HelperDefinition[] = [
     doc: {
       signature: 'or(a, b, …)',
       description: 'True when any value is true.',
-      example: '{{#if (or invoice.paid invoice.credited)}}…{{/if}}',
+      examples: {
+        jinja2: '{% if or(invoice.paid, invoice.credited) %}…{% endif %}',
+        liquid: '{% assign any = invoice.paid | or: invoice.credited %}{% if any %}…{% endif %}',
+        handlebars: '{{#if (or invoice.paid invoice.credited)}}…{{/if}}',
+      },
       category: 'logic',
     },
     fn: (_ctx, ...values) => values.some(truthy),
@@ -69,7 +83,11 @@ export const logicHelpers: HelperDefinition[] = [
     doc: {
       signature: 'not(value)',
       description: 'The opposite truth value.',
-      example: '{{#if (not invoice.paid)}}…{{/if}}',
+      examples: {
+        jinja2: '{% if invoice.paid | not %}…{% endif %}',
+        liquid: '{% assign unpaid = invoice.paid | not %}{% if unpaid %}…{% endif %}',
+        handlebars: '{{#if (not invoice.paid)}}…{{/if}}',
+      },
       category: 'logic',
     },
     fn: (_ctx, value) => !truthy(value),

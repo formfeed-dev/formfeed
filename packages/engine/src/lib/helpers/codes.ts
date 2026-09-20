@@ -87,7 +87,11 @@ export const codeHelpers: HelperDefinition[] = [
       signature:
         "qrcode(value, { size = 160, ecc = 'M', margin = 1, color, background })",
       description: 'QR code as an SVG data URI for an <img> src.',
-      example: '<img src="{{ qrcode(order.url, { size: 120 }) }}">',
+      examples: {
+        jinja2: '<img src="{{ qrcode(order.url, { size: 120 }) }}">',
+        liquid: '<img src="{{ order.url | qrcode: size: 120 }}">',
+        handlebars: '<img src="{{qrcode order.url size=120}}">',
+      },
       category: 'code',
     },
     fn: (ctx, value, options?) => {
@@ -106,7 +110,11 @@ export const codeHelpers: HelperDefinition[] = [
         "barcode(value, { type = 'code128', height = 12, width, text = true, scale = 2 })",
       description:
         'Barcode (code128, ean13, ean8, upc, itf14, code39, datamatrix, pdf417) as an SVG data URI.',
-      example: '<img src="{{ barcode(item.sku, { type: \'code128\' }) }}">',
+      examples: {
+        jinja2: `<img src="{{ barcode(item.sku, { type: 'code128' }) }}">`,
+        liquid: `<img src="{{ item.sku | barcode: type: 'code128' }}">`,
+        handlebars: `<img src="{{barcode item.sku type='code128'}}">`,
+      },
       category: 'code',
     },
     fn: (ctx, value, options?) => {
@@ -134,8 +142,11 @@ export const codeHelpers: HelperDefinition[] = [
         'epcQr({ name, iban, bic?, amount?, reference?, text? }, { size })',
       description:
         'SEPA credit transfer QR code (EPC069-12 / GiroCode) that banking apps scan to prefill a payment.',
-      example:
-        '<img src="{{ epcQr({ name: company.name, iban: company.iban, amount: invoice.total, reference: invoice.number }) }}">',
+      examples: {
+        jinja2: '<img src="{{ epcQr({ name: company.name, iban: company.iban, amount: invoice.total, reference: invoice.number }) }}">',
+        liquid: '<img src="{{ company.iban | epcQr: name: company.name, amount: invoice.total, reference: invoice.number }}">',
+        handlebars: '<img src="{{epcQr name=company.name iban=company.iban amount=invoice.total reference=invoice.number}}">',
+      },
       category: 'code',
     },
     // Payment fields and QR options may arrive together: Jinja2 passes two objects, Handlebars one

@@ -1,4 +1,4 @@
-import type { HelperDefinition, HelperDoc } from '../types';
+import type { HelperDefinition, HelperDocEntry } from '../types';
 import { codeHelpers } from './codes';
 import { collectionHelpers } from './collections';
 import { documentHelpers } from './document';
@@ -35,12 +35,12 @@ export function defaultHelpers(): DefaultHelperRegistry {
 }
 
 /** Documentation entries that feed editor hover and completion (spec 05 §2). */
-export function helperDocs(
-  registry = defaultHelpers(),
-): Array<HelperDoc & { name: string; aliases: string[] }> {
+export function helperDocs(registry = defaultHelpers()): HelperDocEntry[] {
   return [...registry.definitions.values()].map((d) => ({
     name: d.name,
     aliases: d.aliases ?? [],
     ...d.doc,
+    // derived rather than authored, so the old field cannot drift from `examples`
+    example: d.doc.examples.jinja2,
   }));
 }

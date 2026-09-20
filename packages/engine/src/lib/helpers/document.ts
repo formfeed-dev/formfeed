@@ -150,8 +150,11 @@ export const documentHelpers: HelperDefinition[] = [
         'chart({ type, labels, values, label, color } | { type, labels, series } | { type, data, options }, { width, height })',
       description:
         'Draws a Chart.js chart (bar, line, pie, doughnut, radar, …) from plain data, `labels` with `values` or several `series` of `{ label, values, color }`, or from a full Chart.js `data` and `options`; animations are disabled so PDF and preview match.',
-      example:
-        "{{ chart({ type: 'line', labels: ['Q1', 'Q2', 'Q3'], values: sales.quarters, width: 480 }) }}",
+      examples: {
+        jinja2: "{{ chart({ type: 'line', labels: sales.labels, values: sales.quarters, width: 480 }) }}",
+        liquid: "{{ '' | chart: type: 'line', labels: sales.labels, values: sales.quarters, width: 480 }}",
+        handlebars: "{{chart type='line' labels=sales.labels values=sales.quarters width=480}}",
+      },
       category: 'document',
     },
     fn: (ctx, spec, extra?) => {
@@ -166,7 +169,11 @@ export const documentHelpers: HelperDefinition[] = [
       signature: 'image(url, { width, height, fit, alt })',
       description:
         'Places an image with fixed size and crop mode (`cover`, `contain`, `fill`); the render-worker fetches it through its cache and blocks private hosts.',
-      example: "{{ image(product.photo, { width: 120, height: 80, fit: 'cover' }) }}",
+      examples: {
+        jinja2: "{{ image(product.photo, { width: 120, height: 80, fit: 'cover' }) }}",
+        liquid: "{{ product.photo | image: width: 120, height: 80, fit: 'cover' }}",
+        handlebars: "{{image product.photo width=120 height=80 fit='cover'}}",
+      },
       category: 'document',
     },
     fn: (ctx, url, options?) => {

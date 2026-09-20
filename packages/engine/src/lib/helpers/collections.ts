@@ -25,7 +25,11 @@ export const collectionHelpers: HelperDefinition[] = [
     doc: {
       signature: 'sum(list, path?)',
       description: 'Sum of the items, or of `path` inside each item.',
-      example: "{{ invoice.lines | sum('total') | money }}",
+      examples: {
+        jinja2: "{{ invoice.lines | sum('total') | money }}",
+        liquid: "{{ invoice.lines | sum: 'total' | money }}",
+        handlebars: "{{money (sum invoice.lines 'total')}}",
+      },
       category: 'collection',
     },
     fn: (_ctx, value, path?) => numbers(value, path).reduce((a, b) => a + b, 0),
@@ -35,7 +39,11 @@ export const collectionHelpers: HelperDefinition[] = [
     doc: {
       signature: 'avg(list, path?)',
       description: 'Average of the items or of `path` inside each item.',
-      example: '{{ scores | avg | number(1) }}',
+      examples: {
+        jinja2: '{{ scores | avg | number(1) }}',
+        liquid: '{{ scores | avg | number: 1 }}',
+        handlebars: '{{number (avg scores) 1}}',
+      },
       category: 'collection',
     },
     fn: (_ctx, value, path?) => {
@@ -48,7 +56,11 @@ export const collectionHelpers: HelperDefinition[] = [
     doc: {
       signature: 'min(list, path?)',
       description: 'Smallest number.',
-      example: '{{ prices | min }}',
+      examples: {
+        jinja2: '{{ prices | min }}',
+        liquid: '{{ prices | min }}',
+        handlebars: '{{min prices}}',
+      },
       category: 'collection',
     },
     fn: (_ctx, value, path?) => Math.min(...numbers(value, path)),
@@ -58,7 +70,11 @@ export const collectionHelpers: HelperDefinition[] = [
     doc: {
       signature: 'max(list, path?)',
       description: 'Largest number.',
-      example: '{{ prices | max }}',
+      examples: {
+        jinja2: '{{ prices | max }}',
+        liquid: '{{ prices | max }}',
+        handlebars: '{{max prices}}',
+      },
       category: 'collection',
     },
     fn: (_ctx, value, path?) => Math.max(...numbers(value, path)),
@@ -70,8 +86,11 @@ export const collectionHelpers: HelperDefinition[] = [
       signature: 'groupBy(list, path)',
       description:
         'Groups items by a field; returns a list of `{ key, items }`.',
-      example:
-        "{% for group in lines | groupBy('category') %}{{ group.key }}{% endfor %}",
+      examples: {
+        jinja2: "{% for group in lines | groupBy('category') %}{{ group.key }}{% endfor %}",
+        liquid: "{% assign groups = lines | groupBy: 'category' %}{% for group in groups %}{{ group.key }}{% endfor %}",
+        handlebars: "{{#each (groupBy lines 'category')}}{{key}}{{/each}}",
+      },
       category: 'collection',
     },
     fn: (_ctx, value, path) => {
@@ -90,7 +109,11 @@ export const collectionHelpers: HelperDefinition[] = [
       signature: "sortBy(list, path?, direction = 'asc')",
       description:
         'Sorts items by a field (numbers numerically, strings by locale).',
-      example: "{% for l in lines | sortBy('position') %}",
+      examples: {
+        jinja2: "{% for l in lines | sortBy('position') %}{{ l.sku }}{% endfor %}",
+        liquid: "{% assign sorted = lines | sortBy: 'position' %}{% for l in sorted %}{{ l.sku }}{% endfor %}",
+        handlebars: "{{#each (sortBy lines 'position')}}{{sku}}{{/each}}",
+      },
       category: 'collection',
     },
     fn: (ctx, value, path?, direction?) => {
@@ -112,7 +135,11 @@ export const collectionHelpers: HelperDefinition[] = [
       signature: 'where(list, path, value?)',
       description:
         'Keeps items whose field equals `value` (or is truthy when omitted).',
-      example: "{% for l in lines | where('taxable', true) %}",
+      examples: {
+        jinja2: "{% for l in lines | where('taxable', true) %}{{ l.sku }}{% endfor %}",
+        liquid: "{% assign taxable = lines | where: 'taxable', true %}{% for l in taxable %}{{ l.sku }}{% endfor %}",
+        handlebars: "{{#each (where lines 'taxable' true)}}{{sku}}{{/each}}",
+      },
       category: 'collection',
     },
     fn: (_ctx, value, path, expected?) =>
@@ -129,7 +156,11 @@ export const collectionHelpers: HelperDefinition[] = [
     doc: {
       signature: 'pluck(list, path)',
       description: 'Extracts one field from every item.',
-      example: "{{ lines | pluck('sku') | join(', ') }}",
+      examples: {
+        jinja2: "{{ lines | pluck('sku') | join(', ') }}",
+        liquid: "{{ lines | pluck: 'sku' | join: ', ' }}",
+        handlebars: "{{join (pluck lines 'sku') ', '}}",
+      },
       category: 'collection',
     },
     fn: (_ctx, value, path) => list(value).map((item) => get(item, path)),
@@ -141,7 +172,11 @@ export const collectionHelpers: HelperDefinition[] = [
       signature: 'chunk(list, size)',
       description:
         'Splits a list into lists of `size` items (rows of labels, columns).',
-      example: '{% for row in labels | chunk(3) %}',
+      examples: {
+        jinja2: "{% for row in labels | chunk(3) %}{{ row | join(', ') }}{% endfor %}",
+        liquid: "{% assign rows = labels | chunk: 3 %}{% for row in rows %}{{ row | join: ', ' }}{% endfor %}",
+        handlebars: "{{#each (chunk labels 3)}}{{join this ', '}}{{/each}}",
+      },
       category: 'collection',
     },
     fn: (_ctx, value, size) => {
@@ -157,7 +192,11 @@ export const collectionHelpers: HelperDefinition[] = [
     doc: {
       signature: 'range(start, end?, step = 1)',
       description: 'List of numbers from start to end (exclusive).',
-      example: '{% for i in range(1, 4) %}',
+      examples: {
+        jinja2: '{% for i in range(1, 4) %}{{ i }}{% endfor %}',
+        liquid: '{% assign nums = 1 | range: 4 %}{% for i in nums %}{{ i }}{% endfor %}',
+        handlebars: '{{#each (range 1 4)}}{{this}}{{/each}}',
+      },
       category: 'collection',
     },
     fn: (_ctx, start, end?, step?) => {
@@ -175,7 +214,11 @@ export const collectionHelpers: HelperDefinition[] = [
     doc: {
       signature: 'first(list)',
       description: 'First item.',
-      example: '{{ lines | first }}',
+      examples: {
+        jinja2: '{{ tags | first }}',
+        liquid: '{{ tags | first }}',
+        handlebars: '{{first tags}}',
+      },
       category: 'collection',
     },
     fn: (_ctx, value) => list(value)[0],
@@ -185,7 +228,11 @@ export const collectionHelpers: HelperDefinition[] = [
     doc: {
       signature: 'last(list)',
       description: 'Last item.',
-      example: '{{ lines | last }}',
+      examples: {
+        jinja2: '{{ tags | last }}',
+        liquid: '{{ tags | last }}',
+        handlebars: '{{last tags}}',
+      },
       category: 'collection',
     },
     fn: (_ctx, value) => list(value).at(-1),
@@ -197,7 +244,11 @@ export const collectionHelpers: HelperDefinition[] = [
       signature: 'length(value)',
       description:
         'Number of items in a list, keys in an object or characters in a string.',
-      example: '{{ lines | length }}',
+      examples: {
+        jinja2: '{{ lines | length }}',
+        liquid: '{{ lines | length }}',
+        handlebars: '{{length lines}}',
+      },
       category: 'collection',
     },
     fn: (_ctx, value) =>

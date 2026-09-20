@@ -137,8 +137,22 @@ export type HelperCategory =
 export interface HelperDoc {
   signature: string;
   description: string;
-  example: string;
+  /**
+   * The same call written for each engine, so the reference and the editor can show the reader the
+   * one they can paste. They differ in more than punctuation — Jinja2 passes filter arguments in
+   * parentheses, Liquid after a colon, Handlebars positionally — and `helper-examples.spec.ts`
+   * renders every one of them, so none of the three can be wrong.
+   */
+  examples: Record<EngineId, string>;
   category: HelperCategory;
+}
+
+/** A helper's documentation with the name it is registered under. What `helperDocs()` returns. */
+export interface HelperDocEntry extends HelperDoc {
+  name: string;
+  aliases: string[];
+  /** The Jinja2 example, for readers written before `examples`. */
+  example: string;
 }
 
 export interface HelperDefinition {
