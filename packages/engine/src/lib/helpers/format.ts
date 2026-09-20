@@ -10,7 +10,11 @@ import { toCardinal as frWords } from 'n2words/fr';
 import { toCardinal as itWords } from 'n2words/it';
 import { toCardinal as nlWords } from 'n2words/nl';
 import type { HelperContext, HelperDefinition } from '../types';
+import { toNumber } from '../values';
 import { officeUnsupported } from './office';
+
+// `toNumber` moved to `lib/values.ts` so the browser-only code entry can have it without date-fns
+export { toNumber };
 
 const dateLocales: Record<string, DateFnsLocale> = {
   de,
@@ -25,16 +29,6 @@ const dateLocales: Record<string, DateFnsLocale> = {
 
 function dateLocale(locale: string): DateFnsLocale {
   return dateLocales[locale] ?? dateLocales[locale.split('-')[0] ?? ''] ?? enGB;
-}
-
-export function toNumber(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const n = Number(value.replace(/\s/g, '').replace(',', '.'));
-    return Number.isFinite(n) ? n : NaN;
-  }
-  if (typeof value === 'bigint') return Number(value);
-  return NaN;
 }
 
 export function toDate(value: unknown, tz: string): Date | null {

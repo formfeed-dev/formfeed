@@ -8,7 +8,8 @@ import { DefaultHelperRegistry } from './registry';
 
 export { DefaultHelperRegistry } from './registry';
 export { escapeHtml, toDate, toNumber } from './format';
-export { epcPayload, qrSvg } from './codes';
+export { EPC_MAX_BYTES, epcPayload, ibanChecksum, normaliseIban, qrSvg, svgDataUri, validateEpc } from '../codes';
+export type { EpcInput, EpcPayment, EpcProblem, QrOptions } from '../codes';
 export { chartMarkup, chartPayload, imageMarkup } from './document';
 export { officeUnsupported, officeUnsupportedHelpers } from './office';
 export type { ChartSpec, ImageOptions } from './document';

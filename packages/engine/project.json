@@ -5,5 +5,15 @@
   "projectType": "library",
   "tags": [],
   "// targets": "to see all targets run: nx show project engine --web",
-  "targets": {}
+  "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "metadata": {
+        "description": "Type-checks the engine on its own; vitest transpiles without checking, so a type error here otherwise surfaces only in publish:bundle or in a project that imports the sources"
+      },
+      "options": {
+        "command": "tsc --noEmit -p packages/engine/tsconfig.lib.json"
+      }
+    }
+  }
 }

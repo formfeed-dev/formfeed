@@ -5,6 +5,7 @@ export { EngineSyntaxError, RenderError, RenderLimitError } from './lib/errors';
 export { defaultLimits, depthGuard, enforceLimits } from './lib/limits';
 export {
   DefaultHelperRegistry,
+  EPC_MAX_BYTES,
   builtinHelpers,
   chartMarkup,
   chartPayload,
@@ -13,11 +14,16 @@ export {
   epcPayload,
   escapeHtml,
   helperDocs,
+  ibanChecksum,
   imageMarkup,
+  normaliseIban,
   qrSvg,
+  svgDataUri,
   toDate,
   toNumber,
+  validateEpc,
 } from './lib/helpers';
+export type { EpcInput, EpcPayment, EpcProblem, QrOptions } from './lib/helpers';
 export {
   analyzeHandlebars,
   analyzeJinja2,

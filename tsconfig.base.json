@@ -34,6 +34,12 @@
       "@formfeed/engine/office": [
         "./packages/engine/src/lib/office/index.ts"
       ],
+      "@formfeed/engine/codes": [
+        "./packages/engine/src/lib/codes/index.ts"
+      ],
+      "@formfeed/devkit/emit": [
+        "./packages/devkit/src/lib/types/generate.ts"
+      ],
       "@formfeed/api-types": [
         "./packages/api-types/src/index.ts"
       ],

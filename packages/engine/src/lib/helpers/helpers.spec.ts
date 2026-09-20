@@ -1,5 +1,5 @@
 import type { HelperContext } from '../types';
-import { epcPayload } from './codes';
+import { epcPayload } from '../codes';
 import { CHART_PALETTE, chartDataFromPlain, chartPayload } from './document';
 import { createHelperRegistry, helperDocs } from './index';
 

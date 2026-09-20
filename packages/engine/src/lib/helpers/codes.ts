@@ -1,16 +1,7 @@
 import { toSVG } from 'bwip-js';
-import { create as createQr } from 'qrcode';
-import { render as renderQrSvg } from 'qrcode/lib/renderer/svg-tag.js';
+import { epcPayload, qrSvg, svgDataUri, type EpcInput, type QrOptions } from '../codes';
 import type { HelperDefinition } from '../types';
-import { toNumber } from './format';
 
-type QrOptions = {
-  size?: number;
-  ecc?: 'L' | 'M' | 'Q' | 'H';
-  margin?: number;
-  color?: string;
-  background?: string;
-};
 type BarcodeOptions = {
   type?: string;
   height?: number;
@@ -18,9 +9,6 @@ type BarcodeOptions = {
   text?: boolean;
   scale?: number;
 };
-
-const svgDataUri = (svg: string) =>
-  `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 
 /** Aligns spec names with bwip-js symbology ids. */
 const barcodeTypes: Record<string, string> = {
@@ -35,49 +23,6 @@ const barcodeTypes: Record<string, string> = {
   datamatrix: 'datamatrix',
   pdf417: 'pdf417',
 };
-
-export function qrSvg(value: string, options: QrOptions = {}): string {
-  const qr = createQr(value, { errorCorrectionLevel: options.ecc ?? 'M' });
-  const svg = renderQrSvg(qr, {
-    width: options.size ?? 160,
-    margin: options.margin ?? 1,
-    color: {
-      dark: (options.color ?? '#000000').replace(/^(#?)/, '#').slice(0, 9),
-      light: (options.background ?? '#ffffff').replace(/^(#?)/, '#'),
-    },
-  });
-  return svg;
-}
-
-/** EPC QR (GiroCode) payload, version 002, UTF-8, SCT. */
-export function epcPayload(input: {
-  name: string;
-  iban: string;
-  bic?: string;
-  amount?: number | string;
-  reference?: string;
-  text?: string;
-  purpose?: string;
-}): string {
-  const amount =
-    input.amount === undefined || input.amount === ''
-      ? ''
-      : `EUR${toNumber(input.amount).toFixed(2)}`;
-  return [
-    'BCD',
-    '002',
-    '1',
-    'SCT',
-    (input.bic ?? '').replace(/\s/g, ''),
-    String(input.name ?? '').slice(0, 70),
-    String(input.iban ?? '').replace(/\s/g, ''),
-    amount,
-    (input.purpose ?? '').slice(0, 4),
-    (input.reference ?? '').slice(0, 35),
-    input.reference ? '' : (input.text ?? '').slice(0, 140),
-    '',
-  ].join('\n');
-}
 
 export const codeHelpers: HelperDefinition[] = [
   {
@@ -167,7 +112,7 @@ export const codeHelpers: HelperDefinition[] = [
       for (const [key, value] of Object.entries(fields))
         (EPC_FIELDS.has(key) ? payment : qr)[key] = value;
       const o = { ecc: 'M', ...(qr as QrOptions) } as QrOptions;
-      const svg = qrSvg(epcPayload(payment as Parameters<typeof epcPayload>[0]), o);
+      const svg = qrSvg(epcPayload(payment as EpcInput), o);
       if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size, height: o.size, alt: 'GiroCode' });
       return svgDataUri(svg);
     },
