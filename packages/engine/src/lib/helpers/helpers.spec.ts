@@ -26,6 +26,18 @@ describe('format helpers', () => {
     expect(call('money', '12,5')).toBe('12,50\u00a0€');
   });
 
+  it('stops on a calculation that is not a number instead of printing NaN', () => {
+    // `net * invoice.vat_rate / 100` with a rate of "19 %" is NaN; no document may say so
+    for (const name of ['money', 'number', 'numToWords']) {
+      expect(() => call(name, Number.NaN)).toThrow(`${name}: got NaN, the result of a calculation with a value that is missing or not a number`);
+      expect(() => call(name, Number.POSITIVE_INFINITY)).toThrow(`${name}: got Infinity`);
+    }
+    // text and missing values are not calculations: they pass through as before
+    expect(call('money', 'on request')).toBe('on request');
+    expect(call('money', undefined)).toBe('');
+    expect(call('number', null)).toBe('');
+  });
+
   it('formats numbers and dates in the render timezone', () => {
     expect(call('number', 1234.567, 2)).toBe('1.234,57');
     expect(call('date', '2026-09-07', 'dd.MM.yyyy')).toBe('07.09.2026');

@@ -1,12 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { analyzeOffice, getEngine, inferSchema, isOfficeKind, outputFormats, type Diagnostic } from '@formfeed/engine';
+import { getEngine, inferSchema, outputFormats, type Diagnostic } from '@formfeed/engine';
 import { Formfeed, FormfeedError, type Render } from '@formfeed/sdk-ts';
 import { z } from 'zod';
 
 /**
  * `@formfeed/mcp` (spec 10 §3): the tools an agent needs to produce documents. One server per API
  * key: stdio takes the key from the environment, the hosted Streamable HTTP endpoint from the
- * request's bearer token. Validation runs the shared engine locally, so it is free and instant.
+ * request's bearer token. Validation of a stored template asks the API, which checks the data against
+ * the template's schema; ad-hoc HTML is validated locally with the shared engine. Both are free.
  */
 export interface ServerOptions {
   /** An API key, or an OAuth access token together with `workspaceId` (spec 10 §3.1). */
@@ -127,7 +128,8 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     'validate_template',
     {
       title: 'Validate a template with data',
-      description: 'Compiles a template offline and reports errors (unknown filters, syntax) and warnings (variables missing from the data) without rendering. Pass a template slug, or html plus engine for ad-hoc HTML. For Word and PowerPoint templates the findings name the document part and paragraph.',
+      description:
+        'Checks a template with data without rendering; free. With a template slug the API checks the version a render uses (the published one, else the latest) as the render would: syntax, header and footer, errors that happen only with this data, and the data against the template\'s stored JSON Schema (a wrong type or a missing required field is an error). With html plus engine it compiles offline and reports syntax errors, unknown filters and variables missing from the data. Warnings leave ok true: treat each one as a question to settle before rendering. For Word and PowerPoint templates the findings name the document part and paragraph.',
       inputSchema: {
         template: z.string().optional().describe('Template slug or tpl_ id'),
         html: z.string().optional().describe('Template source when no slug is given'),
@@ -138,40 +140,37 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     },
     async ({ template, html, engine, data }) => {
       try {
-        let source = html;
-        let engineId = engine;
-        let sample: unknown = data;
         if (template) {
-          const version = await client.templates.versions.get(template, 'latest');
-          const meta = await client.templates.get(template);
-          if (isOfficeKind(meta.kind)) {
-            // the tags live in the document: analysed as the office template page does
-            const file = await client.templates.versions.file(template, version.number);
-            const analysis = analyzeOffice(file, { engine: meta.engine, sampleData: data ?? version.sample_data ?? {} });
-            return text({
-              ok: !analysis.diagnostics.some((d) => d.severity === 'error'),
-              diagnostics: analysis.diagnostics.map((d) => ({
-                severity: d.severity,
-                code: d.code,
-                message: d.text ? `${d.message} (${d.text})` : d.message,
-                part: d.part,
-                paragraph: d.paragraph,
-              })),
-            });
-          }
-          source = version.html ?? '';
-          engineId = meta.engine;
-          sample = data ?? version.sample_data ?? {};
+          // The server's check is the one a render would pass: it knows the stored schema, so a rate
+          // written as "19 %" fails here instead of printing NaN. Free, and it counts no unit. The
+          // version is the one render and get_template_schema use: published, else the latest.
+          const check = (version: string) => client.templates.validate(template, { version, ...(data ? { data } : {}) });
+          const result = await check('published').catch((e: FormfeedError) => {
+            if (e.status === 404) return check('latest');
+            throw e;
+          });
+          return text({
+            ok: result.ok,
+            template: result.template,
+            diagnostics: result.diagnostics.map((d) => ({
+              severity: d.severity,
+              code: d.code,
+              message: d.message,
+              ...(d.path ? { path: d.path } : {}),
+              ...(d.location ? { line: d.location.line, column: d.location.column } : {}),
+              ...(d.part ? { part: d.part, paragraph: d.paragraph } : {}),
+            })),
+          });
         }
-        if (!source || !engineId) return failure(new Error('Pass a template slug, or html and engine'));
-        const eng = getEngine(engineId);
+        if (!html || !engine) return failure(new Error('Pass a template slug, or html and engine'));
+        const eng = getEngine(engine);
         const diagnostics: Diagnostic[] = [];
         try {
-          eng.compile(source, { name: template ?? 'ad-hoc' });
+          eng.compile(html, { name: 'ad-hoc' });
         } catch (e) {
           diagnostics.push({ severity: 'error', code: 'syntax-error', message: e instanceof Error ? e.message : String(e), range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } } });
         }
-        diagnostics.push(...eng.analyze(source, { sampleData: sample ?? {} }).diagnostics);
+        diagnostics.push(...eng.analyze(html, { sampleData: data ?? {} }).diagnostics);
         return text({
           ok: !diagnostics.some((d) => d.severity === 'error'),
           diagnostics: diagnostics.map((d) => ({ severity: d.severity, code: d.code, message: d.message, line: d.range.start.line, column: d.range.start.column })),

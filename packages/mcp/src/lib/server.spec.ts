@@ -4,26 +4,11 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { starterDocument } from '@formfeed/engine';
-import { strToU8, zipSync } from 'fflate';
 import { createFormfeedServer } from './server';
 import { startHttp } from './transports';
 
 const template = { id: 'tpl_1', slug: 'invoice', name: 'Invoice', description: null, kind: 'pdf', engine: 'jinja2', tags: ['billing'], published_version: 2, latest_version: 2, created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-08T00:00:00Z' };
 const version = { id: 'v2', number: 2, status: 'published', checksum: 'c', change_note: null, created_at: '', published_at: '', html: '<h1>{{ invoice.number | money }}</h1>', css: '', head: '', settings: {}, sample_data: { invoice: { number: 5 } }, data_schema: null, i18n: null };
-
-const offer = { ...template, id: 'tpl_2', slug: 'offer', name: 'Offer', kind: 'docx' };
-const starter = starterDocument('jinja2');
-const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
-/** A Word document whose second paragraph uses a filter no engine knows. */
-const brokenDocx = zipSync({
-  '[Content_Types].xml': strToU8(
-    '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
-  ),
-  'word/document.xml': strToU8(
-    `<?xml version="1.0"?><w:document ${W}><w:body><w:p><w:r><w:t>Offer</w:t></w:r></w:p><w:p><w:r><w:t>{{ customer.name | nope }}</w:t></w:r></w:p></w:body></w:document>`,
-  ),
-});
 
 function fakeApi(seenKeys: string[] = []) {
   const calls: Array<{ method: string; path: string; body: unknown }> = [];
@@ -39,11 +24,22 @@ function fakeApi(seenKeys: string[] = []) {
       return json({ id: 'rnd_pdf', status: 'succeeded', download_url: 'https://cdn.test/o/report.pdf', page_count: 2, units: 1, environment: 'live', template: null, error: null });
     if (call.path === '/v1/templates') return json({ data: [template], next_cursor: null });
     if (call.path === '/v1/templates/invoice') return json(template);
-    if (call.path === '/v1/templates/offer' || call.path === '/v1/templates/broken') return json({ ...offer, slug: call.path.slice(14) });
-    if (call.path === '/v1/templates/offer/versions/latest' || call.path === '/v1/templates/broken/versions/latest')
-      return json({ ...version, html: '', sample_data: starter.sampleData, source_file: { sha256: 'x', bytes: 1, format: 'docx' } });
-    if (call.path === '/v1/templates/offer/versions/2/file') return new Response(starter.bytes, { status: 200 });
-    if (call.path === '/v1/templates/broken/versions/2/file') return new Response(brokenDocx, { status: 200 });
+    const validate = /^\/v1\/templates\/([^/]+)\/validate$/.exec(call.path);
+    if (validate && call.method === 'POST') {
+      // the API's check (POST /templates/{id}/validate): the data against the stored schema
+      const slug = validate[1];
+      const { version: which, data } = call.body as { version: string; data?: { invoice?: { vat_rate?: unknown } } };
+      if (slug === 'draft' && which === 'published') return json({ code: 'template_not_found', status: 404, detail: 'nothing published' }, 404);
+      if (slug === 'offer')
+        return json({ ok: false, template: { id: 'tpl_2', slug, version: 3 }, diagnostics: [{ severity: 'error', code: 'unknown-filter', message: 'Unknown filter or helper "nope"', part: 'word/document.xml', paragraph: 2 }] });
+      if (typeof data?.invoice?.vat_rate === 'string')
+        return json({
+          ok: false,
+          template: { id: 'tpl_1', slug, version: 2 },
+          diagnostics: [{ severity: 'error', code: 'data-validation', path: 'data.invoice.vat_rate', message: 'data.invoice.vat_rate: must be number' }],
+        });
+      return json({ ok: true, template: { id: 'tpl_1', slug, version: which === 'latest' ? 1 : 2 }, diagnostics: [] });
+    }
     if (call.path === '/v1/templates/invoice/versions/published' || call.path === '/v1/templates/invoice/versions/latest') return json(version);
     if (call.path === '/v1/templates/nope/versions/published') return json({ code: 'template_not_found', status: 404 }, 404);
     if (call.path === '/v1/templates/nope/versions/latest') return json({ code: 'template_not_found', status: 404, detail: 'no such template' }, 404);
@@ -112,7 +108,7 @@ describe('@formfeed/mcp', () => {
     }
   });
 
-  it('lists templates, infers the schema and validates offline', async () => {
+  it('lists templates, infers the schema and validates html offline', async () => {
     const api = fakeApi();
     const { client, close } = await connectedClient(api.fetchImpl);
     const list = structured(await client.callTool({ name: 'list_templates', arguments: { kind: 'pdf' } }));
@@ -122,8 +118,6 @@ describe('@formfeed/mcp', () => {
     expect(schema['schema']).toMatchObject({ type: 'object', properties: { invoice: { type: 'object' } } });
     expect(schema['sample_data']).toEqual({ invoice: { number: 5 } });
 
-    const valid = structured(await client.callTool({ name: 'validate_template', arguments: { template: 'invoice' } }));
-    expect(valid['ok']).toBe(true);
     const invalid = structured(await client.callTool({ name: 'validate_template', arguments: { html: '<p>{{ x | nope }}</p>', engine: 'liquid', data: {} } }));
     expect(invalid['ok']).toBe(false);
     expect(JSON.stringify(invalid['diagnostics'])).toMatch(/nope/);
@@ -132,16 +126,25 @@ describe('@formfeed/mcp', () => {
     await close();
   });
 
-  it('validates a Word template from its document, by part and paragraph', async () => {
+  it('validates a stored template through the API, which checks the data against its schema', async () => {
     const api = fakeApi();
     const { client, close } = await connectedClient(api.fetchImpl);
-    const valid = structured(await client.callTool({ name: 'validate_template', arguments: { template: 'offer' } }));
-    expect(valid).toMatchObject({ ok: true });
-    const broken = structured(await client.callTool({ name: 'validate_template', arguments: { template: 'broken' } }));
-    expect(broken['ok']).toBe(false);
-    expect(broken['diagnostics']).toEqual(
-      expect.arrayContaining([expect.objectContaining({ severity: 'error', part: 'word/document.xml', paragraph: 2, message: expect.stringMatching(/nope/) })]),
-    );
+    const valid = structured(await client.callTool({ name: 'validate_template', arguments: { template: 'invoice', data: { invoice: { vat_rate: 19 } } } }));
+    expect(valid).toEqual({ ok: true, template: { id: 'tpl_1', slug: 'invoice', version: 2 }, diagnostics: [] });
+    expect(api.calls.find((c) => c.path === '/v1/templates/invoice/validate')?.body).toEqual({ version: 'published', data: { invoice: { vat_rate: 19 } } });
+
+    // a rate written the way an invoice prints it passes the name check; the schema knows better
+    const typed = structured(await client.callTool({ name: 'validate_template', arguments: { template: 'invoice', data: { invoice: { vat_rate: '19 %' } } } }));
+    expect(typed).toMatchObject({ ok: false, diagnostics: [{ severity: 'error', code: 'data-validation', path: 'data.invoice.vat_rate', message: 'data.invoice.vat_rate: must be number' }] });
+
+    // nothing published yet: the latest version, as render and get_template_schema do
+    const draft = structured(await client.callTool({ name: 'validate_template', arguments: { template: 'draft' } }));
+    expect(draft).toMatchObject({ ok: true, template: { version: 1 } });
+
+    // Word and PowerPoint findings keep their part and paragraph
+    const office = structured(await client.callTool({ name: 'validate_template', arguments: { template: 'offer' } }));
+    expect(office['diagnostics']).toEqual([{ severity: 'error', code: 'unknown-filter', message: 'Unknown filter or helper "nope"', part: 'word/document.xml', paragraph: 2 }]);
+    expect(api.calls.some((c) => c.path === '/v1/renders')).toBe(false);
     await close();
   });
 

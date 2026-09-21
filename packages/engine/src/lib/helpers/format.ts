@@ -69,6 +69,16 @@ const str = (v: unknown): string =>
 const opt = <T>(v: unknown, fallback: T): T =>
   v === undefined || v === null || v === '' ? fallback : (v as T);
 
+/**
+ * A number that is not one — `NaN` or infinity, what arithmetic on text or on a missing value
+ * returns — stops the render rather than printing "NaN" on a document. Text that is not a number
+ * still passes through as text, so a price column can say "on request".
+ */
+function requireFinite(helper: string, value: unknown): void {
+  if (typeof value === 'number' && !Number.isFinite(value))
+    throw new Error(`${helper}: got ${value}, the result of a calculation with a value that is missing or not a number`);
+}
+
 const wordsByLang: Record<string, (n: number | string | bigint) => string> = {
   de: deWords,
   en: enWords,
@@ -86,7 +96,7 @@ export const formatHelpers: HelperDefinition[] = [
     doc: {
       signature: 'money(value, currency?, locale?)',
       description:
-        'Formats a number as currency with Intl.NumberFormat. Defaults come from the template settings.',
+        'Formats a number as currency with Intl.NumberFormat. Defaults come from the template settings. Text that is not a number is printed as it is; a calculation that came out as NaN stops the render.',
       examples: {
         jinja2: "{{ line.total | money('EUR') }} → 1.234,50 €",
         liquid: "{{ line.total | money: 'EUR' }} → 1.234,50 €",
@@ -95,6 +105,7 @@ export const formatHelpers: HelperDefinition[] = [
       category: 'format',
     },
     fn: (ctx: HelperContext, value, currency?, locale?) => {
+      requireFinite('money', value);
       const n = toNumber(value);
       if (Number.isNaN(n)) return str(value);
       return new Intl.NumberFormat(opt(locale, ctx.locale), {
@@ -117,6 +128,7 @@ export const formatHelpers: HelperDefinition[] = [
       category: 'format',
     },
     fn: (ctx, value, decimals?, locale?) => {
+      requireFinite('number', value);
       const n = toNumber(value);
       if (Number.isNaN(n)) return str(value);
       const d =
@@ -484,6 +496,7 @@ export const formatHelpers: HelperDefinition[] = [
       category: 'format',
     },
     fn: (ctx, value, locale?) => {
+      requireFinite('numToWords', value);
       const n = toNumber(value);
       if (Number.isNaN(n)) return str(value);
       const lang = str(opt(locale, ctx.locale)).split('-')[0] ?? 'en';

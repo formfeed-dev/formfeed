@@ -2,7 +2,7 @@
 
 Model Context Protocol server for [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=mcp).
 Gives Claude, Cursor and other agents six tools: `list_templates`, `get_template_schema`,
-`validate_template` (offline, with the shared engine), `render`, `convert_to_pdf` (Word, Excel,
+`validate_template` (free: the data against the template's schema, ad-hoc HTML offline), `render`, `convert_to_pdf` (Word, Excel,
 PowerPoint and OpenDocument to PDF) and `get_render`.
 
 ## stdio (Claude Desktop, Cursor, Claude Code)

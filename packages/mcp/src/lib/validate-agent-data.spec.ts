@@ -4,9 +4,11 @@ import { defaultHelpers, defaultLimits, renderVersion } from '@formfeed/engine';
 import { createFormfeedServer } from './server';
 
 /**
- * What `validate_template` catches in data an agent wrote, and what it does not — the blog post
- * `let-the-agent-write-the-data` quotes these results. Validation is offline: the server's fetch
- * throws, and nothing calls it. It checks names, not values, so a render is the second check.
+ * What `validate_template` catches offline in data an agent wrote, and what it does not — the blog
+ * post `let-the-agent-write-the-data` quotes these results. With html plus engine nothing leaves the
+ * process: the server's fetch throws, and nothing calls it. That check knows names, not values; a
+ * stored template is checked by the API against its schema (server.spec.ts), and `money` stops a
+ * render rather than print NaN.
  */
 const template = `<table>
   {% for line in invoice.lines %}
@@ -100,10 +102,11 @@ describe('validate_template on data an agent wrote', () => {
     await close();
   });
 
-  it('does not check values: a rate written as text passes and renders NaN', async () => {
+  it('does not check values offline: a rate written as text passes, and the render stops at money', async () => {
     const { validate, close } = await tools();
     expect(await validate(template, agentData.percentText)).toEqual({ ok: true, diagnostics: [] });
-    expect(await totalLine(agentData.percentText)).toBe('Gesamt NaN');
+    // a stored template is checked by the API instead, which runs it with the data and knows its schema
+    await expect(totalLine(agentData.percentText)).rejects.toThrow('money: got NaN, the result of a calculation with a value that is missing or not a number');
     await close();
   });
 
