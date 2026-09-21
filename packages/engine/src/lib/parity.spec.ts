@@ -23,7 +23,7 @@ interface ParityCase {
 }
 
 const data = {
-  company: { name: 'Fennlor Studio GmbH', iban: 'DE00 0000 0000 0000 0000 00' },
+  company: { name: 'Fennlor Studio GmbH', iban: 'DE36 0000 0000 0000 0000 00' },
   invoice: {
     number: '2026-0042',
     date: '2026-09-07',
@@ -88,7 +88,7 @@ const cases: ParityCase[] = [
       handlebars: `<main>x</main>{{> footer}}`,
     },
     expected:
-      '<main>x</main><footer>Fennlor Studio GmbH · DE00000000000000000000</footer>',
+      '<main>x</main><footer>Fennlor Studio GmbH · DE36000000000000000000</footer>',
   },
   {
     name: 'html helpers are not escaped',
@@ -157,7 +157,7 @@ const ledger = {
   markup: '<em>x</em>',
   obj: { a: 1, b: [true, null] },
   quote: 'Tom & "Jerry"',
-  iban: 'DE00000000000000000000',
+  iban: 'DE36000000000000000000',
 };
 
 const helperCases: ParityCase[] = [

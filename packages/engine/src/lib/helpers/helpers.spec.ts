@@ -126,7 +126,7 @@ describe('code helpers', () => {
   it('builds a valid EPC payload', () => {
     const payload = epcPayload({
       name: 'Fennlor Studio GmbH',
-      iban: 'DE00 0000 0000 0000 0000 00',
+      iban: 'DE36 0000 0000 0000 0000 00',
       bic: 'XXXXDEXXXXX',
       amount: 123.4,
       reference: 'RE-2026-0042',
@@ -138,7 +138,7 @@ describe('code helpers', () => {
       'SCT',
       'XXXXDEXXXXX',
       'Fennlor Studio GmbH',
-      'DE00000000000000000000',
+      'DE36000000000000000000',
       'EUR123.40',
       '',
       'RE-2026-0042',

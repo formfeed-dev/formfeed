@@ -181,7 +181,7 @@ describe('snippet library', () => {
       'invoice-heading': ['Invoice 2026-0042', '01/09/2026', '30/09/2026'],
       'invoice-table': ['Consulting', 'Implementation', '2,200.00'],
       totals: ['3,760.40', 'VAT 19 %'],
-      'payment-terms': ['3,760.40', '13/10/2026', 'DE00000000000000000000'],
+      'payment-terms': ['3,760.40', '13/10/2026', 'DE36000000000000000000'],
       'reverse-charge-note': ['ATU00000000'],
       'address-block': ['Beispielweg 2'],
       'page-footer': ['hello@fennlor.example', 'Page'],

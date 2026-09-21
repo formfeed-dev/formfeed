@@ -239,7 +239,7 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
       invoice: { due_date: '2026-10-13' },
       payment: {
         name: 'Fennlor Studio GmbH',
-        iban: 'DE00000000000000000000',
+        iban: 'DE36000000000000000000',
         bic: 'XXXXDEXXXXX',
         amount: 3760.4,
         reference: '2026-0042',
@@ -412,7 +412,7 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     sampleData: {
       payment: {
         name: 'Fennlor Studio GmbH',
-        iban: 'DE00000000000000000000',
+        iban: 'DE36000000000000000000',
         bic: 'XXXXDEXXXXX',
         amount: 3760.4,
         reference: '2026-0042',
