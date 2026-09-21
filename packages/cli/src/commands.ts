@@ -66,6 +66,7 @@ import {
   listLocalFiles,
   listTemplateSlugs,
   localTypeSource,
+  htmlSnapshot,
   officeSnapshot,
   officeVersionPayload,
   partialContentHash,
@@ -757,7 +758,8 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
               continue;
             }
           } else {
-            current = (await renderLocal(project, tpl, data, { mode: 'preview', brand })).document;
+            // the document plus header and footer, which Chromium prints from templates of their own
+            current = htmlSnapshot(await renderLocal(project, tpl, data, { mode: 'preview', brand }));
           }
           const file = snapshotPath(project, one, name, tpl.file ? 'xml' : 'html');
           if (opts.updateSnapshots) {
@@ -1285,7 +1287,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
               rendered = officeSnapshot((await renderOfficeLocal(project, tpl, data, { brand, random: () => 0.5 })).bytes);
             } else {
               if (opts.run && input.locale) await renderLocal(project, tpl, data, { mode: 'preview', brand, locale: input.locale });
-              rendered = (await renderLocal(project, tpl, data, { mode: 'preview', brand })).document;
+              rendered = htmlSnapshot(await renderLocal(project, tpl, data, { mode: 'preview', brand }));
             }
           } catch (e) {
             diagnostics.push(runtimeDiagnostic(e));

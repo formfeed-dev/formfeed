@@ -360,6 +360,22 @@ describe('formfeed CLI', () => {
     expect(push?.body).toMatchObject({ partials: { footer: '<footer>Fennlor</footer>' } });
   });
 
+  it('snapshots header and footer with the document, so a changed footer fails the test', async () => {
+    await run(['init'], ctx);
+    const tplDir = join(dir, 'templates', 'hello');
+    writeFileSync(join(tplDir, 'footer.html'), '<div>Fennlor Studio GmbH · IBAN DE36 0000 0000 0000 0000 00</div>');
+    expect(await run(['test', '--update-snapshots'], ctx), err.join('\n')).toBe(0);
+    const snapshot = readFileSync(join(tplDir, 'tests', '__snapshots__', 'default.html'), 'utf8');
+    expect(snapshot).toContain('<!-- formfeed:footer -->\n<div>Fennlor Studio GmbH · IBAN DE36 0000 0000 0000 0000 00</div>');
+    expect(snapshot).not.toContain('formfeed:header');
+
+    // Chromium prints the footer outside the document; the snapshot still sees it change
+    writeFileSync(join(tplDir, 'footer.html'), '<div>Fennlor Studio GmbH · IBAN DE36 0000 0000 0000 0000 00 · BIC XXXXDEXXXXX</div>');
+    out = [];
+    expect(await run(['test'], ctx)).toBe(1);
+    expect(out.join('\n')).toContain('+ <div>Fennlor Studio GmbH · IBAN DE36 0000 0000 0000 0000 00 · BIC XXXXDEXXXXX</div>');
+  });
+
   it('pulls the brand kit and renders, tests and previews with it', async () => {
     await run(['init'], ctx);
     writeFileSync(join(dir, 'templates', 'hello', 'template.html'), '<footer>{{ brand.legal_footer }}</footer>');

@@ -108,6 +108,19 @@ export async function renderOfficeLocal(project: Project, tpl: LocalTemplate, da
 }
 
 /**
+ * An HTML template's snapshot: the assembled document, then the rendered header and footer under
+ * `<!-- formfeed:header -->` and `<!-- formfeed:footer -->` lines when the template has them.
+ * Chromium prints header and footer from templates of their own, outside the document, so a
+ * snapshot of the document alone passed a changed footer unnoticed.
+ */
+export function htmlSnapshot(rendered: Pick<RenderedDocument, 'document' | 'headerHtml' | 'footerHtml'>): string {
+  let snapshot = rendered.document;
+  if (rendered.headerHtml) snapshot += `\n<!-- formfeed:header -->\n${rendered.headerHtml}`;
+  if (rendered.footerHtml) snapshot += `\n<!-- formfeed:footer -->\n${rendered.footerHtml}`;
+  return snapshot;
+}
+
+/**
  * The filled parts of a Word or PowerPoint document as readable text for snapshots: each part's XML,
  * one element per line and indented, text kept beside its element, under a `--- <part> ---` line.
  */
