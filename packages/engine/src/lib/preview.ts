@@ -110,6 +110,82 @@ const pageNavScript = `<script>
 })();
 </script>`;
 
+/** What the preview frame reports about content wider than the page, or `null` when nothing is. */
+export interface PreviewOverflow {
+  /** How far the widest element reaches past the right edge of the page's content area. */
+  overflowMm: number;
+  /**
+   * The factor Chromium shrinks every page of the PDF by to fit that element: the content width
+   * divided by the width the element needs.
+   */
+  scale: number;
+  tag: string;
+  /** `data-ff-src` of the element or its nearest annotated ancestor, as click-to-source reports it. */
+  src: string | null;
+}
+
+/**
+ * Content wider than the page (spec 06 §3). Chromium answers it by scaling the whole PDF down until
+ * the widest element fits — every page, not only the one it is on — which no preview laid out at
+ * 100 % shows. The frame measures instead and says so: `{ type: 'formfeed:overflow', overflow }`
+ * with a `PreviewOverflow` or `null`. The paged preview measures once Paged.js is done, the flow
+ * preview once its fonts are loaded. Header and footer boxes reach into the margins on purpose and
+ * are skipped, as is anything inside a box that clips it. Millimetres come from a 100 mm reference
+ * box measured in the frame, so the editor's zoom does not change them.
+ */
+function overflowScript(mode: 'paged' | 'flow'): string {
+  return `<script>
+(function () {
+  var clipped = function (el, stop) {
+    for (var p = el.parentElement; p && p !== stop; p = p.parentElement)
+      if (getComputedStyle(p).overflowX !== 'visible') return true;
+    return false;
+  };
+  var measure = function () {
+    try {
+      var boxes = ${mode === 'paged' ? "document.querySelectorAll('.pagedjs_page_content')" : '[document.body]'};
+      var worst = null;
+      for (var i = 0; i < boxes.length; i++) {
+        var box = boxes[i], rect = box.getBoundingClientRect(), style = getComputedStyle(box);
+        var left = rect.left + parseFloat(style.paddingLeft || '0') + parseFloat(style.borderLeftWidth || '0');
+        var right = rect.right - parseFloat(style.paddingRight || '0') - parseFloat(style.borderRightWidth || '0');
+        if (right - left <= 0) continue;
+        var all = box.querySelectorAll('*');
+        for (var j = 0; j < all.length; j++) {
+          var el = all[j];
+          // Paged.js wraps each page's content in a div of its own that spans its layout columns
+          if (${mode === 'paged'} && el.parentElement === box && !el.className) continue;
+          if (el.closest('.formfeed-chrome, .ff-running-header, .ff-running-footer, script, style, head')) continue;
+          var over = el.getBoundingClientRect().right - right;
+          if (over <= 1 || (worst && over <= worst.over)) continue;
+          if (getComputedStyle(el).position === 'fixed' || clipped(el, box)) continue;
+          worst = { over: over, width: right - left, el: el };
+        }
+      }
+      var overflow = null;
+      if (worst) {
+        var ref = document.createElement('div');
+        ref.style.cssText = 'position:absolute;visibility:hidden;width:100mm;height:0';
+        document.body.appendChild(ref);
+        var pxPerMm = ref.getBoundingClientRect().width / 100 || 1;
+        ref.remove();
+        var annotated = worst.el.closest('[data-ff-src]');
+        overflow = {
+          overflowMm: Math.round((worst.over / pxPerMm) * 10) / 10,
+          scale: Math.round((worst.width / (worst.width + worst.over)) * 1000) / 1000,
+          tag: worst.el.tagName.toLowerCase(),
+          src: annotated ? annotated.getAttribute('data-ff-src') : null,
+        };
+      }
+      parent.postMessage({ type: 'formfeed:overflow', overflow: overflow }, '*');
+    } catch (e) {}
+  };
+  window.formfeedCheckOverflow = measure;
+  ${mode === 'flow' ? "window.addEventListener('load', function () { (document.fonts ? document.fonts.ready : Promise.resolve()).then(measure); });" : ''}
+})();
+</script>`;
+}
+
 /**
  * Zoom gestures inside a preview frame: Ctrl+wheel (a touchpad pinch arrives as one too) and
  * Ctrl+plus/minus/0 would zoom the whole app, and the sandboxed frame's events never reach the app,
@@ -188,7 +264,7 @@ body.formfeed-preview { position: relative; box-sizing: border-box; width: ${pap
   const footer = footerHtml
     ? `<div class="formfeed-chrome" style="${pdf ? flowChromeStyle(settings, 'footer') : `${chromeBoxStyle(settings, 'footer')}margin-top:8px`}">${pageNumberSpans(footerHtml, '1', '1')}</div>`
     : '';
-  return intoHead(draft.document, `${chrome}${inspectScript}${zoomGestureScript}`)
+  return intoHead(draft.document, `${chrome}${inspectScript}${zoomGestureScript}${pdf ? overflowScript('flow') : ''}`)
     .replace(/(<body[^>]*>)/, `$1${header}`)
     .replace('</body>', `${footer}</body>`);
 }
@@ -233,7 +309,7 @@ html { background: #e5e7eb; }
   // it). The stylesheet is rewritten as it is inserted, before any layout, so the rule keeps to
   // Paged.js's own boxes.
   const boxSizingGuard = `<script>(function(){var rule='.pagedjs_pagebox *';var o=new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeName==='STYLE'&&n.textContent&&n.textContent.indexOf(rule)>=0){n.textContent=n.textContent.split(rule).join('.pagedjs_pagebox [class*="pagedjs_"]');o.disconnect();}});});});o.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;
-  const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} } };</script>`;
+  const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); } };</script>`;
   const script = `<script src="${options.pagedScriptUrl}"></script>`;
   const header = headerHtml
     ? `<div class="ff-running-header">${pageNumberSpans(headerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
@@ -243,6 +319,6 @@ html { background: #e5e7eb; }
     : '';
   return intoHead(
     draft.document,
-    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${config}${script}${inspectScript}${pageNavScript}${zoomGestureScript}`,
+    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${overflowScript('paged')}${config}${script}${inspectScript}${pageNavScript}${zoomGestureScript}`,
   ).replace(/(<body[^>]*>)/, `$1${header}${footer}`);
 }

@@ -395,6 +395,7 @@ export function analyzeLiquid(
         severity: 'warning',
         code: 'deprecated-filter',
         message: `"${f.name}" is a compatibility alias; use "${preferred}"`,
+        args: { name: f.name, preferred },
         range: f.range,
         fix: { title: `Rename to ${preferred}`, replacement: preferred },
       });
@@ -410,6 +411,7 @@ export function analyzeLiquid(
         severity: 'error',
         code: 'unknown-filter',
         message: `Unknown filter "${f.name}"`,
+        args: { name: f.name, kind: 'filter' },
         range: f.range,
       });
     }

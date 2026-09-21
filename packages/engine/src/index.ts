@@ -91,7 +91,7 @@ export {
 } from './lib/assemble';
 export type { ChartSpec, ImageOptions } from './lib/helpers';
 export { flowDocument, pagedDocument, pageNumberSpans, paperOf, zoomGestureScript } from './lib/preview';
-export type { PagedOptions, RenderedDraft } from './lib/preview';
+export type { PagedOptions, PreviewOverflow, RenderedDraft } from './lib/preview';
 export {
   annotateSourcePositions,
   parseSourceAttribute,

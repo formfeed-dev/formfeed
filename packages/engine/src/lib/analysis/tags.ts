@@ -140,6 +140,7 @@ export function scanBlocks(
           severity: 'error',
           code: 'unexpected-end-tag',
           message: `Unexpected {% ${keyword} %} without an open block`,
+          args: { keyword },
           range,
         });
       } else if (top.keyword !== expected) {
@@ -147,6 +148,7 @@ export function scanBlocks(
           severity: 'error',
           code: 'mismatched-end-tag',
           message: `Expected {% end${top.keyword} %} to close the {% ${top.keyword} %} at line ${top.block.open.start.line}, found {% ${keyword} %}`,
+          args: { open: top.keyword, line: top.block.open.start.line, found: keyword },
           range,
         });
         // recover: close the nearest matching opener if there is one
@@ -164,6 +166,7 @@ export function scanBlocks(
         severity: 'error',
         code: 'unexpected-tag',
         message: `{% ${keyword} %} outside of a block`,
+        args: { keyword },
         range,
       });
     }
@@ -173,6 +176,7 @@ export function scanBlocks(
       severity: 'error',
       code: 'unclosed-block',
       message: `{% ${open.keyword} %} is never closed; add {% end${open.keyword} %}`,
+      args: { keyword: open.keyword },
       range: open.block.open,
     });
   }
@@ -249,6 +253,7 @@ export function missingPathDiagnostics(
         severity: 'warning',
         code: 'unknown-variable',
         message: `"${v.path.join('.')}" is not present in the sample data`,
+        args: { name: v.path.join('.') },
         range: v.range,
       });
     }

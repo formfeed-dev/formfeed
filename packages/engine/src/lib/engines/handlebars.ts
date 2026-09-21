@@ -339,6 +339,7 @@ export function analyzeHandlebars(
         severity: 'warning',
         code: 'deprecated-filter',
         message: `"${f.name}" is a compatibility alias; use "${preferred}"`,
+        args: { name: f.name, preferred },
         range: f.range,
         fix: { title: `Rename to ${preferred}`, replacement: preferred },
       });
@@ -354,6 +355,7 @@ export function analyzeHandlebars(
         severity: 'error',
         code: 'unknown-filter',
         message: `Unknown helper "${f.name}"`,
+        args: { name: f.name, kind: 'helper' },
         range: f.range,
       });
     }

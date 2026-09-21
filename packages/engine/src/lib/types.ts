@@ -25,6 +25,11 @@ export interface Diagnostic {
   code: string;
   /** Optional quick-fix: replace the range with `replacement`. */
   fix?: { title: string; replacement: string };
+  /**
+   * The values `message` was built from (a variable path, a helper name, a block keyword), so the
+   * editor can say the same in the reader's language; `message` stays the English text.
+   */
+  args?: Record<string, string | number>;
 }
 
 export interface VariableRef {

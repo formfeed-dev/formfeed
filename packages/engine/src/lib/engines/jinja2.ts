@@ -744,6 +744,7 @@ export function analyzeJinja2(
         severity: 'warning',
         code: 'deprecated-filter',
         message: `"${f.name}" is an apitemplate.io compatibility alias; use "${preferred}"`,
+        args: { name: f.name, preferred },
         range: f.range,
         fix: { title: `Rename to ${preferred}`, replacement: preferred },
       });
@@ -759,6 +760,7 @@ export function analyzeJinja2(
         severity: 'error',
         code: 'unknown-filter',
         message: `Unknown filter or helper "${f.name}"`,
+        args: { name: f.name, kind: 'filter-or-helper' },
         range: f.range,
       });
     }
