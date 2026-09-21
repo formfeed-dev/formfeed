@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "formfeed"
-version = "0.3.6"
+version = "0.3.7"
 description = "Formfeed API client: template-based PDF and image generation (sync and async, httpx)."
 readme = "README.md"
 # PEP 639: the SPDX expression replaces the licence classifier, the two must not be combined
