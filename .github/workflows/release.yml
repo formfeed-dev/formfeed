@@ -110,6 +110,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          # the root's packageManager is pnpm, which this job never installs; build.mjs needs only bun
+          package-manager-cache: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
