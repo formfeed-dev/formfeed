@@ -8,7 +8,7 @@ The piece is published on npm as `@formfeed/activepieces-piece`. On a platform t
 
 ## Connect
 
-Create an API key at [app.formfeed.dev](https://app.formfeed.dev/keys?utm_source=activepieces) under **API keys**, with the scopes `render:create`, `template:read`, `file:write` and `webhook:manage`, and paste it into the connection. A key starting with `ff_test_` renders for free (with a watermark on the Free plan), which is what you want while building a flow.
+Create an API key at [app.formfeed.dev](https://app.formfeed.dev/keys?utm_source=activepieces) under **API keys**, with the default scopes (`render:create`, `render:read`, `template:read`, `account:read`; the connection test reads `/account`) plus `file:write` and `webhook:manage`, and paste it into the connection. A key starting with `ff_test_` renders for free (with a watermark on the Free plan), which is what you want while building a flow.
 
 ## Actions
 
