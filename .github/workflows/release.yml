@@ -55,6 +55,11 @@ jobs:
             version=$(node -p "require('./$dir/package.json').version")
             [ "$version" = "$tag" ] || fail "$dir" "$version"
           done
+          # the MCP registry entry names the npm version it installs, and the registry refuses a mismatch
+          for field in version 'packages[0].version'; do
+            value=$(node -p "require('./packages/mcp/server.json').$field")
+            [ "$value" = "$tag" ] || fail "packages/mcp/server.json $field" "$value"
+          done
           generated=$(node --input-type=module -e "console.log((await import('./tools/publish/packages.mjs')).VERSION)")
           [ "$generated" = "$tag" ] || fail tools/publish/packages.mjs "$generated"
           python_version=$(grep -m1 '^version = ' packages/sdk-python/pyproject.toml | cut -d'"' -f2)
@@ -107,6 +112,33 @@ jobs:
         with:
           packages-dir: packages/sdk-python/dist
           skip-existing: true
+
+  # The official MCP registry lists the server under io.github.formfeed-dev: the registry trusts this
+  # repository's OIDC token for its owner's namespace, and checks that the npm package it names carries
+  # the same `mcpName`, so it runs after npm. A version the registry already has is left alone.
+  mcp-registry:
+    needs: [npm]
+    if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install mcp-publisher
+        run: curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - run: ./mcp-publisher validate packages/mcp/server.json
+      - run: ./mcp-publisher login github-oidc
+      - name: Publish to the MCP registry
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./packages/mcp/server.json').version")
+          if curl -sf -o /dev/null "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.formfeed-dev%2Fformfeed/versions/$version"; then
+            echo "io.github.formfeed-dev/formfeed $version is already in the registry"
+            exit 0
+          fi
+          ./mcp-publisher publish packages/mcp/server.json
 
   github-release:
     needs: [npm, pypi]

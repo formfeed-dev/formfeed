@@ -1,0 +1,63 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.formfeed-dev/formfeed",
+  "title": "Formfeed",
+  "description": "Render PDFs and images from templates, validate data and convert Office files to PDF.",
+  "version": "0.3.7",
+  "websiteUrl": "https://docs.formfeed.dev/integrations/mcp",
+  "repository": {
+    "url": "https://github.com/formfeed-dev/formfeed",
+    "source": "github",
+    "subfolder": "packages/mcp"
+  },
+  "icons": [
+    { "src": "https://formfeed.dev/favicon.svg", "mimeType": "image/svg+xml" },
+    { "src": "https://formfeed.dev/brand/formfeed-512.png", "mimeType": "image/png", "sizes": ["512x512"] }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@formfeed/mcp",
+      "version": "0.3.7",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "FORMFEED_API_KEY",
+          "description": "Formfeed API key: ff_test_… renders free with a watermark, ff_live_… consumes units",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "FORMFEED_REGION",
+          "description": "API region of the workspace",
+          "choices": ["eu", "us"],
+          "default": "eu"
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.formfeed.dev/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer followed by a Formfeed API key (ff_test_… or ff_live_…)",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    },
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.formfeed.dev/mcp/{workspace_id}",
+      "variables": {
+        "workspace_id": {
+          "description": "Workspace id from the Formfeed app; the client signs in with your Formfeed account (OAuth)",
+          "isRequired": true
+        }
+      }
+    }
+  ]
+}
