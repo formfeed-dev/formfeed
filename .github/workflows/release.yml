@@ -90,6 +90,42 @@ jobs:
             npm publish "${flags[@]}" "./$dir"
           done
 
+  # The Activepieces piece is built in a checkout of their repository at the release its build.mjs pins,
+  # because their framework is no longer published to npm; the bundle carries the tag's version from
+  # tools/publish/packages.mjs, which the npm job checks against the tag.
+  activepieces:
+    # after the npm job, whose check stops a tag that does not match the versions
+    needs: [npm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: node packages/activepieces-piece/build.mjs
+      - name: Publish to npm
+        run: |
+          set -euo pipefail
+          dir=dist/packages/activepieces-piece
+          name=$(node -p "require('./$dir/package.json').name")
+          version=$(node -p "require('./$dir/package.json').version")
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --provenance --dry-run "./$dir"
+          elif npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already published"
+          else
+            npm publish --access public --provenance "./$dir"
+          fi
+
   pypi:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -141,7 +177,7 @@ jobs:
           ./mcp-publisher publish packages/mcp/server.json
 
   github-release:
-    needs: [npm, pypi]
+    needs: [npm, pypi, activepieces]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

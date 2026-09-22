@@ -1,0 +1,17 @@
+{
+  "name": "activepieces-piece",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/activepieces-piece/piece/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["{projectRoot}/piece/src/**/*", "{projectRoot}/support/**/*", "{projectRoot}/src/**/*", "{projectRoot}/tsconfig.json"],
+      "options": {
+        "command": "tsc -p packages/activepieces-piece/tsconfig.json"
+      }
+    }
+  }
+}
