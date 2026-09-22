@@ -1,6 +1,6 @@
 {
   "name": "formfeed",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Formfeed CLI: templates as files, offline validation and preview, true renders through the API.",
   "license": "MIT",
   "author": {
