@@ -179,6 +179,13 @@ jobs:
             echo "io.github.formfeed-dev/formfeed $version is already in the registry"
             exit 0
           fi
+          # the registry looks the version up on npm, which shows a new release only after a while
+          # (v0.3.8 failed with a 404 seconds after the npm job); wait up to five minutes for it
+          for attempt in $(seq 1 30); do
+            if curl -sf -o /dev/null "https://registry.npmjs.org/@formfeed%2Fmcp/$version"; then break; fi
+            [ "$attempt" = 30 ] && { echo "@formfeed/mcp@$version did not appear on npm" >&2; exit 1; }
+            sleep 10
+          done
           ./mcp-publisher publish packages/mcp/server.json
 
   github-release:
