@@ -82,9 +82,11 @@ jobs:
                      dist/packages/cli dist/packages/mcp dist/packages/n8n-nodes-formfeed; do
             name=$(node -p "require('./$dir/package.json').name")
             version=$(node -p "require('./$dir/package.json').version")
-            # a re-run after a partial failure skips what already went out
-            if [ "$DRY_RUN" != "true" ] && npm view "$name@$version" version >/dev/null 2>&1; then
+            # a re-run after a partial failure skips what already went out; a dry run between two
+            # releases packs instead, because npm refuses even a dry-run publish over an existing version
+            if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version is already published"
+              if [ "$DRY_RUN" = "true" ]; then npm pack --dry-run "./$dir"; fi
               continue
             fi
             npm publish "${flags[@]}" "./$dir"
@@ -118,10 +120,11 @@ jobs:
           dir=dist/packages/activepieces-piece
           name=$(node -p "require('./$dir/package.json').name")
           version=$(node -p "require('./$dir/package.json').version")
-          if [ "$DRY_RUN" = "true" ]; then
-            npm publish --access public --provenance --dry-run "./$dir"
-          elif npm view "$name@$version" version >/dev/null 2>&1; then
+          if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version is already published"
+            if [ "$DRY_RUN" = "true" ]; then npm pack --dry-run "./$dir"; fi
+          elif [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --provenance --dry-run "./$dir"
           else
             npm publish --access public --provenance "./$dir"
           fi
