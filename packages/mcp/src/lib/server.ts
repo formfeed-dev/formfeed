@@ -29,6 +29,16 @@ const CONVERT_LIMIT_BYTES = 20 * 1024 * 1024;
 
 export const SERVER_INFO = { name: 'formfeed', version: '0.3.8' };
 
+/**
+ * Tool annotations, spelled out in full because directories read them literally: ChatGPT's wants
+ * `readOnlyHint`, `destructiveHint` and `openWorldHint` on every tool, Claude's a title plus one of
+ * the first two (docs/marketing/listings.md). No tool deletes or overwrites anything, and none acts
+ * outside the key's workspace and the user's own files: a render's output is reachable only through
+ * its signed link.
+ */
+const READS = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+const CREATES = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
+
 const engineSchema = z.enum(['jinja2', 'liquid', 'handlebars']);
 const outputSchema = z.enum(outputFormats);
 const kindSchema = z.enum(['pdf', 'image', 'docx', 'pptx']);
@@ -90,7 +100,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
         tag: z.string().optional(),
         q: z.string().optional().describe('Search in name and slug'),
       },
-      annotations: { readOnlyHint: true },
+      annotations: READS,
     },
     async (args) => {
       try {
@@ -108,7 +118,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       title: 'Get the data schema of a template',
       description: 'JSON Schema of the `data` object a template expects, plus the sample data it was designed with. Use it to build the data for render.',
       inputSchema: { template: z.string().describe('Template slug or tpl_ id') },
-      annotations: { readOnlyHint: true },
+      annotations: READS,
     },
     async ({ template }) => {
       try {
@@ -136,7 +146,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
         engine: engineSchema.optional().describe('Required with html'),
         data: z.record(z.string(), z.unknown()).optional(),
       },
-      annotations: { readOnlyHint: true },
+      annotations: READS,
     },
     async ({ template, html, engine, data }) => {
       try {
@@ -200,7 +210,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
         locale: z.string().optional().describe('BCP 47 tag for helpers and translations, e.g. de-DE'),
         wait: z.boolean().default(true).describe('Wait for the render to finish (sync renders finish immediately)'),
       },
-      annotations: { readOnlyHint: false, idempotentHint: false },
+      annotations: CREATES,
     },
     async ({ template, html, engine, data, output, filename, locale, wait }) => {
       try {
@@ -245,7 +255,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
         single_page_sheets: z.boolean().optional().describe('Each spreadsheet sheet on one page'),
         filename: z.string().optional().describe('Name of the PDF'),
       },
-      annotations: { readOnlyHint: false, idempotentHint: false },
+      annotations: CREATES,
     },
     async (args) => {
       try {
@@ -295,7 +305,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       title: 'Get a render',
       description: 'Status, download URL and error of a render by id (rnd_…).',
       inputSchema: { id: z.string() },
-      annotations: { readOnlyHint: true },
+      annotations: READS,
     },
     async ({ id }) => {
       try {

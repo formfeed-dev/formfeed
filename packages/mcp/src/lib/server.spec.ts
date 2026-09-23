@@ -69,6 +69,12 @@ describe('@formfeed/mcp', () => {
     expect(tools.find((t) => t.name === 'render')?.inputSchema).toMatchObject({ type: 'object' });
     // the hosted server reads no files, so its convert tool has no path
     expect(Object.keys((tools.find((t) => t.name === 'convert_to_pdf')?.inputSchema as { properties: object }).properties)).not.toContain('path');
+    // directories read the hints literally: ChatGPT's wants all three on every tool, Claude's a title too
+    for (const tool of tools) {
+      expect(tool.title, tool.name).toBeTruthy();
+      expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: expect.any(Boolean), destructiveHint: false, openWorldHint: false });
+    }
+    expect(tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name).sort()).toEqual(['convert_to_pdf', 'render']);
     await close();
   });
 
