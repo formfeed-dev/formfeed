@@ -27,7 +27,7 @@ export interface ServerOptions {
 /** The converter's upload limit; larger files are refused before they are read or sent. */
 const CONVERT_LIMIT_BYTES = 20 * 1024 * 1024;
 
-export const SERVER_INFO = { name: 'formfeed', version: '0.3.8' };
+export const SERVER_INFO = { name: 'formfeed', version: '0.3.9' };
 
 /**
  * Tool annotations, spelled out in full because directories read them literally: ChatGPT's wants

@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-formfeed",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "n8n community node for Formfeed: render PDFs and images from templates, wait for async renders and react to render webhooks.",
   "license": "MIT",
   "author": {
