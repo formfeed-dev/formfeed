@@ -248,6 +248,38 @@ describe('formfeed CLI', () => {
     expect(await run(['whoami'], { ...ctx, env: { FORMFEED_CONFIG_DIR: join(dir, 'user') } })).toBe(3);
   });
 
+  it('init names what it made relatively and with forward slashes, and the cd the next step needs', async () => {
+    expect(await run(['init', 'my-templates'], ctx)).toBe(0);
+    expect(out).toEqual(['Created my-templates/formfeed.json', '  templates/hello', 'Next: cd my-templates, then formfeed dev <slug>']);
+    out = [];
+    expect(await run(['init'], { ...ctx, cwd: join(dir, 'here') })).toBe(0);
+    expect(out).toEqual(['Created formfeed.json', '  templates/hello', 'Next: formfeed dev <slug>']);
+  });
+
+  it('init --from-workspace brings the shared partials along, which the templates cannot validate without', async () => {
+    expect(await run(['init', 'site', '--from-workspace'], ctx), err.join('\n')).toBe(0);
+    expect(readFileSync(join(dir, 'site', 'partials', 'letterhead.html'), 'utf8')).toBe(sharedPartial.source);
+    expect(out).toEqual(['Created site/formfeed.json', '  templates/invoice', '  partials/letterhead.html', 'Next: cd site, then formfeed dev <slug>']);
+    const state = JSON.parse(readFileSync(join(dir, 'site', '.formfeed', 'state.json'), 'utf8'));
+    expect(state.sharedPartials.letterhead).toMatchObject({ version: sharedPartial.version });
+  });
+
+  it('templates diff compares values, not the order the two sides wrote their keys in', async () => {
+    // the API answers in jsonb's key order, and a pulled folder puts the footer's html back last
+    const remote = { ...version, settings: { paper: { format: 'A4' }, footer: { html: '<span class="pageNumber"></span>', height: '12mm' } } };
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) =>
+      /\/v1\/templates\/invoice\/versions\/(published|latest)$/.test(new URL(String(input)).pathname)
+        ? new Response(JSON.stringify(remote), { status: 200, headers: { 'content-type': 'application/json' } })
+        : api.fetchImpl(input, init)) as typeof fetch;
+    const pulled = { ...ctx, fetch: fetchImpl };
+    await run(['init'], pulled);
+    rmSync(join(dir, 'templates', 'hello'), { recursive: true });
+    expect(await run(['templates', 'pull'], pulled), err.join('\n')).toBe(0);
+    out = [];
+    expect(await run(['templates', 'diff'], pulled)).toBe(0);
+    expect(out).toEqual(['invoice: no changes against v2']);
+  });
+
   it('init scaffolds a starter that validates; a bad filter fails validation with exit 1', async () => {
     expect(await run(['init', '--engine', 'liquid'], ctx)).toBe(0);
     expect(existsSync(join(dir, 'formfeed.json'))).toBe(true);
@@ -489,10 +521,13 @@ describe('formfeed CLI', () => {
     const create = api.calls.find((c) => c.path === '/v1/templates' && c.method === 'POST');
     expect(create?.body).toMatchObject({ slug: 'new-one', name: 'New one', engine: 'jinja2', kind: 'pdf' });
 
+    out = [];
     expect(await run(['render', 'new-one', '--out', 'out/new-one.pdf'], ctx), err.join('\n')).toBe(0);
     const render = api.calls.find((c) => c.path === '/v1/renders');
     expect((render?.body as { html: string }).html).toContain('<h1>1</h1>');
     expect(readFileSync(join(dir, 'out', 'new-one.pdf')).length).toBe(4);
+    // the file as it was asked for, not the absolute path with this platform's separators
+    expect(out.at(-1)).toMatch(/ -> out\/new-one\.pdf$/);
   });
 
   it('serves the preview and state from the dev server and closes cleanly', async () => {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import {
   defaultOutput,
@@ -141,6 +141,8 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     });
 
   const settings = (): Settings => resolveSettings(program.opts<GlobalFlags>(), ctx.cwd, ctx.env);
+  /** A file the command wrote, as the person who ran it would type it; `--json` keeps the absolute path. */
+  const shown = (path: string): string => displayPath(ctx.cwd ?? process.cwd(), path);
   const p = (): Printer => printer(Boolean(program.opts<GlobalFlags>().json), { out: ctx.out, err: ctx.err }, ctx.env ?? process.env);
   const client = (s: Settings) => createClient(s, ctx.fetch);
 
@@ -298,11 +300,21 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         const project = requireProject(s);
         const pulled = await pullTemplates(client(s), project, undefined, false);
         created.push(...pulled.map((x) => x.dir));
+        // the templates' shared partials too, or the project fails `validate` on its first run
+        created.push(...(await pullSharedPartials(client(s), project)).map((x) => x.path));
       } else {
         const project = requireProject(resolveSettings(program.opts<GlobalFlags>(), root, ctx.env));
         created.push(writeStarter(project, engine));
       }
-      emit(p(), { ok: true, root, created }, () => [`Created ${configPath}`, ...created.slice(1).map((c) => `  ${c}`), 'Next: formfeed dev <slug>']);
+      // what was made, as the person who ran it would type it: relative and with forward slashes, so
+      // twenty-five templates are twenty-five short lines and not the same absolute prefix again
+      const here = shown(root);
+      const inProject = (path: string) => relativeName(root, path);
+      emit(p(), { ok: true, root, created }, () => [
+        `Created ${shown(configPath)}`,
+        ...created.slice(1).map((c) => `  ${inProject(c)}`),
+        here === '.' ? 'Next: formfeed dev <slug>' : `Next: cd ${here}, then formfeed dev <slug>`,
+      ]);
     });
 
   // --- templates ------------------------------------------------------------------------------
@@ -470,8 +482,8 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         }
         const local = tpl.file ? officeVersionPayload(tpl) : versionPayload(tpl);
         files.push(
-          ['settings.json', JSON.stringify(remote.settings ?? {}, null, 2), JSON.stringify(local.settings, null, 2)],
-          ['data/default.json', JSON.stringify(remote.sample_data ?? {}, null, 2), JSON.stringify(local.sample_data, null, 2)],
+          ['settings.json', stableJson(remote.settings ?? {}), stableJson(local.settings)],
+          ['data/default.json', stableJson(remote.sample_data ?? {}), stableJson(local.sample_data)],
         );
         for (const [file, a, b] of files) {
           const lines = formatDiff(`${one}/${file}`, a, b);
@@ -663,7 +675,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
             mkdirSync(dirname(file), { recursive: true });
             writeFileSync(file, filled.bytes);
             live.stop();
-            emit(p(), { file, output, filled: 'locally', warnings }, () => [...warnings.map((w) => `warn   ${w}`), `filled locally -> ${file}`]);
+            emit(p(), { file, output, filled: 'locally', warnings }, () => [...warnings.map((w) => `warn   ${w}`), `filled locally -> ${shown(file)}`]);
             return;
           }
           live.update('converting to PDF');
@@ -689,7 +701,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       writeFileSync(file, bytes);
       emit(p(), { ...finished, file, warnings }, () => [
         ...warnings.map((w) => `warn   ${w}`),
-        `${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s) -> ${file}`,
+        `${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s) -> ${shown(file)}`,
       ]);
     });
 
@@ -880,7 +892,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const file = writeBrand(project, brand);
       const colors = Object.keys(brand.colors ?? {});
       emit(p(), { ...brand, file }, () => [
-        `brand v${brand.version}${brand.name ? ` (${brand.name})` : ''} -> ${file}`,
+        `brand v${brand.version}${brand.name ? ` (${brand.name})` : ''} -> ${shown(file)}`,
         `  colors: ${colors.length ? colors.join(', ') : 'none'}; logos: ${Object.entries(brand.logo ?? {}).filter(([, url]) => url).map(([variant]) => variant).join(', ') || 'none'}`,
       ]);
     });
@@ -917,26 +929,9 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .description('Download shared partials (all when no name is given) and record their versions in .formfeed/state.json')
     .action(async (names: string[]) => {
       const s = settings();
-      const project = requireProject(s);
-      const c = client(s);
-      const remote = await c.partials.list();
-      const unknown = names.filter((name) => !remote.some((r) => r.name === name));
-      if (unknown.length) throw new CliError(`No shared partial ${unknown.map((n) => `"${n}"`).join(', ')} in the organisation`, exitCodes.usage);
-      const results: Array<{ name: string; engine: string; version: number; status: 'pulled' | 'unchanged'; path: string }> = [];
-      for (const row of remote.filter((r) => !names.length || names.includes(r.name))) {
-        const partial = await c.partials.get(row.name);
-        const source = partial.source ?? '';
-        const path = sharedPartialPath(project, partial.name);
-        const unchanged = existsSync(path) && readFileSync(path, 'utf8') === source;
-        if (!unchanged) {
-          mkdirSync(dirname(path), { recursive: true });
-          writeFileSync(path, source);
-        }
-        recordSharedPartial(project, partial.name, { version: partial.version, engine: partial.engine }, source);
-        results.push({ name: partial.name, engine: partial.engine, version: partial.version, status: unchanged ? 'unchanged' : 'pulled', path });
-      }
+      const results = await pullSharedPartials(client(s), requireProject(s), names);
       emit(p(), results, () =>
-        results.length ? results.map((r) => `${r.name}: v${r.version} ${r.status}${r.status === 'pulled' ? ` -> ${r.path}` : ''}`) : ['The organisation has no shared partials'],
+        results.length ? results.map((r) => `${r.name}: v${r.version} ${r.status}${r.status === 'pulled' ? ` -> ${shown(r.path)}` : ''}`) : ['The organisation has no shared partials'],
       );
     });
 
@@ -1142,7 +1137,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       const file = resolve(cwd, opts.out ?? `${stem}.pdf`);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, await c.renders.download(finished));
-      emit(p(), { ...finished, file, warnings }, () => [...warnings.map((w) => `warn   ${w}`), `${summary} -> ${file}`]);
+      emit(p(), { ...finished, file, warnings }, () => [...warnings.map((w) => `warn   ${w}`), `${summary} -> ${shown(file)}`]);
     });
 
   const rendersCmd = program.command('renders').description('Inspect renders');
@@ -1271,7 +1266,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         file,
         redacted: paths === null ? false : paths,
       };
-      const lines = [`${id} -> ${file}${paths === null ? '' : ` (redacted: ${paths === 'all' ? 'all strings' : paths.join(', ')})`}`];
+      const lines = [`${id} -> ${shown(file)}${paths === null ? '' : ` (redacted: ${paths === 'all' ? 'all strings' : paths.join(', ')})`}`];
       let errors = 0;
       if (opts.run || opts.snapshot) {
         const tpl = readTemplate(project, slug);
@@ -1745,6 +1740,36 @@ interface PulledTemplate {
 }
 
 /** `watch` is told how many templates there are, which one is being read and when it is on disk. */
+/**
+ * Downloads the organisation's shared partials (all of them, or the ones named) into the partials
+ * folder and records their versions in the project state. `partials pull` is this, and so is the
+ * second half of `init --from-workspace`: templates that include a shared partial do not validate
+ * without it.
+ */
+async function pullSharedPartials(
+  c: ReturnType<typeof createClient>,
+  project: ReturnType<typeof requireProject>,
+  names: readonly string[] = [],
+): Promise<Array<{ name: string; engine: string; version: number; status: 'pulled' | 'unchanged'; path: string }>> {
+  const remote = await c.partials.list();
+  const unknown = names.filter((name) => !remote.some((r) => r.name === name));
+  if (unknown.length) throw new CliError(`No shared partial ${unknown.map((n) => `"${n}"`).join(', ')} in the organisation`, exitCodes.usage);
+  const results: Array<{ name: string; engine: string; version: number; status: 'pulled' | 'unchanged'; path: string }> = [];
+  for (const row of remote.filter((r) => !names.length || names.includes(r.name))) {
+    const partial = await c.partials.get(row.name);
+    const source = partial.source ?? '';
+    const path = sharedPartialPath(project, partial.name);
+    const unchanged = existsSync(path) && readFileSync(path, 'utf8') === source;
+    if (!unchanged) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, source);
+    }
+    recordSharedPartial(project, partial.name, { version: partial.version, engine: partial.engine }, source);
+    results.push({ name: partial.name, engine: partial.engine, version: partial.version, status: unchanged ? 'unchanged' : 'pulled', path });
+  }
+  return results;
+}
+
 async function pullTemplates(
   c: ReturnType<typeof createClient>,
   project: ReturnType<typeof requireProject>,
@@ -1993,6 +2018,31 @@ export function changedTemplates(
     if (slug && all.includes(slug)) changed.add(slug);
   }
   return all.filter((slug) => changed.has(slug));
+}
+
+/**
+ * JSON with every object's keys in one order, for comparing two sides that were written by different
+ * hands: the API answers with Postgres's jsonb order (shorter keys first), and a pulled folder puts
+ * the footer's `html` back after its other keys, so a fresh pull looked edited in `templates diff`.
+ */
+function stableJson(value: unknown): string {
+  const sorted = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(sorted)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(Object.keys(v).sort().map((key) => [key, sorted((v as Record<string, unknown>)[key])]))
+        : v;
+  return JSON.stringify(sorted(value), null, 2);
+}
+
+/**
+ * A path relative to `cwd` with forward slashes, the way people type paths on every platform; a path
+ * outside `cwd` stays absolute, since `../../..` says less than the path itself.
+ */
+function displayPath(cwd: string, path: string): string {
+  const rel = relative(cwd, path);
+  if (rel === '') return '.';
+  return rel.startsWith('..') || isAbsolute(rel) ? path : rel.split(sep).join('/');
 }
 
 function relativeName(root: string, dir: string): string {

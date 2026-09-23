@@ -61,7 +61,8 @@ export function diagnose(tpl: LocalTemplate, sampleData: unknown): LocalDiagnost
     diagnostics.push({
       severity: 'error',
       code: 'missing-partial',
-      message: `No partial "${name}" in the project's partials folder`,
+      // the likeliest cause in a project pulled from a workspace is a shared partial of the organisation
+      message: `No partial "${name}" in the project's partials folder; if it is shared by the organisation, formfeed partials pull brings it`,
       range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
     });
   return diagnostics;
