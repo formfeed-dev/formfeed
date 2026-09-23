@@ -61,6 +61,75 @@ export interface RenderRequest {
   post?: PostProcessing | null;
   /** Check `data` against the template's stored schema first; a mismatch throws `data_validation_error`. */
   validate_data?: boolean;
+  /** The copy for the workspace's own bucket (bring your own storage); see `StorageOption`. */
+  storage?: StorageOption | null;
+}
+
+/**
+ * The copy for the workspace's own bucket (bring your own storage, Pro and above). Left out, the
+ * output is copied under the connection's key template. `false` leaves this document out; `key` names
+ * its object below the connection's prefix (relative, no `..`, at most 1024 bytes, overwritten if it
+ * exists). A render with its own key is never deduplicated; without a connection it throws
+ * `storage_not_configured`.
+ */
+export type StorageOption = false | { key?: string };
+
+/** The provider's answer to a failed copy: its code, the HTTP status and the first line of its message. */
+export interface StorageError {
+  code: string;
+  http_status: number | null;
+  message: string;
+}
+
+/**
+ * `storage` of a render or job: where the copy for the workspace's own bucket goes and how far it got.
+ * A synchronous render answers `pending`; `storage.delivered` or `storage.failed` follow as events.
+ */
+export interface StorageDelivery {
+  status: 'pending' | 'delivered' | 'failed';
+  bucket: string;
+  key: string;
+  /** The object below the connection's `public_base_url`; null without one. */
+  url: string | null;
+  reason:
+    | 'permanent'
+    | 'rejected'
+    | 'exhausted'
+    | 'source_gone'
+    | 'connection_deleted'
+    | 'connection_paused'
+    | 'plan'
+    | 'workspace_deleted'
+    | null;
+  error: StorageError | null;
+}
+
+/** Event types a webhook endpoint can subscribe to; the two storage events only when listed. */
+export type WebhookEventType =
+  | 'render.completed'
+  | 'render.failed'
+  | 'job.completed'
+  | 'job.failed'
+  | 'quota.warning'
+  | 'quota.exceeded'
+  | 'storage.delivered'
+  | 'storage.failed';
+
+/** `data` of a `storage.delivered` or `storage.failed` event. */
+export interface StorageDeliveryEvent extends StorageDelivery {
+  /** The delivery, `dlv_…`. */
+  id: string;
+  render_id: string | null;
+  /** Set for a batch's items and its zip. */
+  job_id: string | null;
+  output: string;
+  content_type: string;
+  bytes: number;
+  sha256: string | null;
+  etag: string | null;
+  attempts: number;
+  created_at: string;
+  delivered_at: string | null;
 }
 
 /**
@@ -110,6 +179,8 @@ export interface PdfOutputOptions {
   expires_in?: number | null;
   access?: 'public' | 'signed';
   meta?: Record<string, unknown>;
+  /** The copy for the workspace's own bucket, as on a render. */
+  storage?: StorageOption | null;
 }
 
 export interface ProtectOptions extends PdfOutputOptions {
@@ -146,6 +217,8 @@ export interface Render {
   template_checksum: string | null;
   output_sha256: string | null;
   deduplicated: boolean;
+  /** The copy in the workspace's own bucket; null when none applies. */
+  storage: StorageDelivery | null;
   timings: Record<string, number> | null;
   error: { code?: string; message?: string; [key: string]: unknown } | null;
   meta: Record<string, unknown>;
@@ -176,6 +249,8 @@ export interface Job {
   failed: number;
   zip_url: string | null;
   zip_expires_at: string | null;
+  /** The zip's copy in the workspace's own bucket; each item carries its own. */
+  storage?: StorageDelivery | null;
   items: Render[];
   meta: Record<string, unknown>;
   created_at: string;

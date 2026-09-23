@@ -600,3 +600,29 @@ def test_async_office_calls_mirror_the_sync_client():
     assert rec.calls[0].headers["content-type"].startswith("multipart/form-data")
     assert str(rec.calls[1].url).endswith("/templates/offer/versions/published/file")
     assert rec.calls[2].headers["idempotency-key"]
+
+
+def test_storage_option_travels_and_the_delivery_comes_back():
+    delivery = {"status": "pending", "bucket": "fennlor-docs", "key": "formfeed/invoices/RE-1001.pdf", "url": None, "reason": None, "error": None}
+    client, rec = sync_client(lambda req, n: _json({**RENDER, "storage": delivery}))
+    render = client.renders.create(template="invoice", storage={"key": "invoices/RE-1001.pdf"})
+    assert json.loads(rec.calls[0].content)["storage"] == {"key": "invoices/RE-1001.pdf"}
+    assert render.storage is not None and render.storage.status == "pending" and render.storage.key.endswith("RE-1001.pdf")
+    client.renders.create(html="<p>draft</p>", storage=False)
+    assert json.loads(rec.calls[1].content)["storage"] is False
+    client.pdf.convert(file=b"PK\x03\x04", file_name="offer.docx", storage=False)
+    assert b'name="storage"\r\n\r\nfalse' in rec.calls[2].content
+
+
+def test_storage_events_and_a_missing_connection():
+    from formfeed import StorageDeliveryEvent
+
+    event = StorageDeliveryEvent.model_validate(
+        {"id": "dlv_1", "status": "failed", "bucket": "b", "key": "k", "reason": "permanent", "attempts": 1,
+         "error": {"code": "AccessDenied", "http_status": 403, "message": "Access Denied"}}
+    )
+    assert event.error is not None and event.error.code == "AccessDenied"
+    client, _ = sync_client(lambda req, n: _json({"code": "storage_not_configured", "status": 409, "detail": "no connection"}, 409))
+    with pytest.raises(FormfeedError) as err:
+        client.renders.create(html="<p>x</p>", storage={"key": "x.pdf"})
+    assert err.value.code == "storage_not_configured" and err.value.status == 409

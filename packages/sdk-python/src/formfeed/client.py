@@ -354,7 +354,10 @@ class _Renders:
         idempotency_key: str | None = None,
         **options: Any,
     ) -> Render:
-        """Renders a template, HTML or URL. Sync by default; ``mode="async"`` returns a queued render."""
+        """Renders a template, HTML or URL. Sync by default; ``mode="async"`` returns a queued render.
+
+        ``storage`` controls the copy for the workspace's own bucket: ``False`` leaves this document out,
+        ``{"key": "invoices/RE-1001.pdf"}`` names its object below the connection's prefix."""
         body = _render_body(template, html, url, data, options)
         return Render.model_validate(self._c.request("POST", "/renders", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 

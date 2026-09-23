@@ -560,3 +560,28 @@ describe('PDF tools', () => {
     expect(calls[0]!.body).toMatchObject({ post: { merge_after: ['rnd_terms'], password: { user: 'pw' } } });
   });
 });
+
+describe('bring your own storage', () => {
+  it('sends the storage option with renders and PDF tools and reads the delivery back', async () => {
+    const delivery = { status: 'pending', bucket: 'fennlor-docs', key: 'formfeed/invoices/RE-1001.pdf', url: null, reason: null, error: null };
+    const { calls, fetchImpl } = stub((call) =>
+      call.url.endsWith('/renders') ? json({ ...render, storage: delivery }) : json({ ...render, id: 'rnd_pdf', storage: null }),
+    );
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    const result = await client.renders.create({ template: 'invoice', storage: { key: 'invoices/RE-1001.pdf' } });
+    expect(calls[0]!.body).toEqual({ template: 'invoice', storage: { key: 'invoices/RE-1001.pdf' } });
+    expect(result.storage?.status).toBe('pending');
+
+    await client.pdf.convert({ file: { data: new Uint8Array([80, 75, 3, 4]), name: 'offer.docx' } }, { storage: false });
+    expect((calls[1]!.body as FormData).get('storage')).toBe('false');
+  });
+
+  it('surfaces a key without a connection as a typed error', async () => {
+    const { fetchImpl } = stub(() => json({ code: 'storage_not_configured', status: 409, detail: 'no connection' }, 409));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    await expect(client.renders.create({ html: '<p>x</p>', storage: { key: 'x.pdf' } })).rejects.toMatchObject({
+      code: 'storage_not_configured',
+      status: 409,
+    });
+  });
+});

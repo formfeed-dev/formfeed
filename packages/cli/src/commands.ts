@@ -1318,7 +1318,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .command('listen')
     .description("Forward the workspace's webhook events to a local server, signed with a session secret")
     .option('--forward-to <url>', 'local URL that receives the deliveries', 'http://localhost:3000/webhooks')
-    .option('--events <types>', 'comma-separated event types, e.g. render.completed,job.failed (default: all)')
+    .option('--events <types>', 'comma-separated event types, e.g. render.completed,job.failed (default: all but the opt-in storage.delivered and storage.failed)')
     .option('--live', 'include live-environment events (needs the webhook:manage scope)')
     .option('--print-secret', 'start a session, print only its signing secret and end it again')
     .option('--skip-verify', 'accept a self-signed certificate of an https:// forward URL')

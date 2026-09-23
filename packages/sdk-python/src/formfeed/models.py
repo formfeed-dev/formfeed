@@ -28,6 +28,47 @@ class RenderTemplateRef(_Model):
     canary: bool = False
 
 
+class StorageError(_Model):
+    """The provider's answer to a failed copy: its code, the HTTP status and the first line of its message."""
+
+    code: str
+    http_status: int | None = None
+    message: str = ""
+
+
+class StorageDelivery(_Model):
+    """``storage`` of a render or job: the copy for the workspace's own bucket (bring your own storage).
+    A synchronous render answers ``pending``; ``storage.delivered`` or ``storage.failed`` follow as events."""
+
+    status: Literal["pending", "delivered", "failed"]
+    bucket: str
+    key: str
+    #: The object below the connection's ``public_base_url``; ``None`` without one.
+    url: str | None = None
+    #: Why a delivery failed: ``permanent`` (credentials or bucket), ``rejected`` (the object), ``exhausted``
+    #: (retries used up), ``source_gone``, ``connection_deleted``, ``connection_paused``, ``plan``, ``workspace_deleted``.
+    reason: str | None = None
+    error: StorageError | None = None
+
+
+class StorageDeliveryEvent(StorageDelivery):
+    """``data`` of a ``storage.delivered`` or ``storage.failed`` webhook event (opt-in per endpoint)."""
+
+    #: The delivery, ``dlv_…``.
+    id: str
+    render_id: str | None = None
+    #: Set for a batch's items and its zip.
+    job_id: str | None = None
+    output: str | None = None
+    content_type: str | None = None
+    bytes: int | None = None
+    sha256: str | None = None
+    etag: str | None = None
+    attempts: int = 0
+    created_at: str | None = None
+    delivered_at: str | None = None
+
+
 class Render(_Model):
     id: str
     status: RenderStatus
@@ -44,6 +85,8 @@ class Render(_Model):
     template_checksum: str | None = None
     output_sha256: str | None = None
     deduplicated: bool = False
+    #: The copy in the workspace's own bucket; ``None`` when none applies.
+    storage: StorageDelivery | None = None
     timings: dict[str, float] | None = None
     error: dict[str, Any] | None = None
     meta: dict[str, Any] = {}
@@ -64,6 +107,8 @@ class Job(_Model):
     failed: int = 0
     zip_url: str | None = None
     zip_expires_at: str | None = None
+    #: The zip's copy in the workspace's own bucket; each item carries its own.
+    storage: StorageDelivery | None = None
     items: list[Render] = []
     meta: dict[str, Any] = {}
     created_at: str | None = None
