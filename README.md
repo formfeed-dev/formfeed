@@ -12,7 +12,7 @@ for generating PDFs and images from templates. Documentation lives at
 | [`@formfeed/engine`](packages/engine) | [npm](https://www.npmjs.com/package/@formfeed/engine) | The template engine (Jinja2, Liquid, Handlebars) the API and the editor use |
 | [`@formfeed/devkit`](packages/devkit) | [npm](https://www.npmjs.com/package/@formfeed/devkit) | Template folders, project config and local rendering |
 | [`@formfeed/testing`](packages/testing) | [npm](https://www.npmjs.com/package/@formfeed/testing) | Vitest and Jest matchers for templates |
-| [`@formfeed/mcp`](packages/mcp) | [npm](https://www.npmjs.com/package/@formfeed/mcp) | Model Context Protocol server for AI agents |
+| [`@formfeed/mcp`](packages/mcp) | [npm](https://www.npmjs.com/package/@formfeed/mcp) | Model Context Protocol server for AI agents [![formfeed MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/formfeed-dev/formfeed/badges/score.svg)](https://glama.ai/mcp/servers/formfeed-dev/formfeed) |
 | [`n8n-nodes-formfeed`](packages/n8n-nodes-formfeed) | [npm](https://www.npmjs.com/package/n8n-nodes-formfeed) | n8n community node |
 
 Every npm package is built and published from this repository by

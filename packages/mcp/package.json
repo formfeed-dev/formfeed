@@ -1,6 +1,6 @@
 {
   "name": "@formfeed/mcp",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "mcpName": "io.github.formfeed-dev/formfeed",
   "description": "Model Context Protocol server for Formfeed: list templates, read data schemas, validate and render documents from AI agents.",
   "license": "MIT",

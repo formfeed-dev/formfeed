@@ -27,7 +27,7 @@ export interface ServerOptions {
 /** The converter's upload limit; larger files are refused before they are read or sent. */
 const CONVERT_LIMIT_BYTES = 20 * 1024 * 1024;
 
-export const SERVER_INFO = { name: 'formfeed', version: '0.3.9' };
+export const SERVER_INFO = { name: 'formfeed', version: '0.3.10' };
 
 /**
  * Tool annotations, spelled out in full because directories read them literally: ChatGPT's wants
@@ -93,12 +93,13 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     'list_templates',
     {
       title: 'List templates',
-      description: 'Templates of the workspace the API key belongs to, with slug, kind (pdf, image, docx for Word, pptx for PowerPoint), engine and published version.',
+      description:
+        'Lists the templates of the workspace the API key belongs to, most recently changed first: id, slug, name, kind (pdf, image, docx for Word, pptx for PowerPoint), engine, tags and published_version. Call it first to find the slug that get_template_schema, validate_template and render take; skip it when the user already named the template. Returns every match in one answer, without archived templates, and an empty list when nothing matches. A template whose published_version is null has never been published, so render cannot use it yet. Read-only and free.',
       inputSchema: {
-        kind: kindSchema.optional(),
-        engine: engineSchema.optional(),
-        tag: z.string().optional(),
-        q: z.string().optional().describe('Search in name and slug'),
+        kind: kindSchema.optional().describe('Only templates that produce this kind of document'),
+        engine: engineSchema.optional().describe('Only templates written in this template language'),
+        tag: z.string().optional().describe('Only templates with this tag; exact match, tags are lowercase with dashes (e.g. billing)'),
+        q: z.string().optional().describe('Text to find in the name or slug, case-insensitive (e.g. invoice)'),
       },
       annotations: READS,
     },
@@ -116,8 +117,9 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     'get_template_schema',
     {
       title: 'Get the data schema of a template',
-      description: 'JSON Schema of the `data` object a template expects, plus the sample data it was designed with. Use it to build the data for render.',
-      inputSchema: { template: z.string().describe('Template slug or tpl_ id') },
+      description:
+        'Returns the JSON Schema of the `data` object a template expects and the sample data it was designed with, from its published version, else its latest draft. Call it after list_templates and before render or validate_template, to build data that fits; ad-hoc html has no stored schema to read. When the template stores no schema, one is inferred from the sample data: treat that as a guide, not a contract. Read-only and free; an unknown slug returns an error.',
+      inputSchema: { template: z.string().describe('Slug (e.g. invoice) or tpl_ id, as list_templates returns them') },
       annotations: READS,
     },
     async ({ template }) => {
@@ -139,12 +141,15 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     {
       title: 'Validate a template with data',
       description:
-        'Checks a template with data without rendering; free. With a template slug the API checks the version a render uses (the published one, else the latest) as the render would: syntax, header and footer, errors that happen only with this data, and the data against the template\'s stored JSON Schema (a wrong type or a missing required field is an error). With html plus engine it compiles offline and reports syntax errors, unknown filters and variables missing from the data. Warnings leave ok true: treat each one as a question to settle before rendering. For Word and PowerPoint templates the findings name the document part and paragraph.',
+        'Checks a template and its data without rendering: free, no units, nothing stored, no document produced. Call it before render when you assembled the data yourself, or after writing ad-hoc html. With template, the API checks the published version (else the latest) as a render would: syntax, header and footer, errors only this data triggers, and the data against the stored JSON Schema (a wrong type or a missing required field is an error). With html and engine it compiles offline and reports syntax errors, unknown filters and variables missing from data. Returns ok and diagnostics (severity, code, message, plus path, line and column, or part and paragraph for Word and PowerPoint). Warnings leave ok true: settle each before rendering.',
       inputSchema: {
-        template: z.string().optional().describe('Template slug or tpl_ id'),
-        html: z.string().optional().describe('Template source when no slug is given'),
-        engine: engineSchema.optional().describe('Required with html'),
-        data: z.record(z.string(), z.unknown()).optional(),
+        template: z.string().optional().describe('Slug or tpl_ id of a stored template; pass this or html'),
+        html: z.string().optional().describe('Template source to check offline, when there is no stored template; pass this or template'),
+        engine: engineSchema.optional().describe('Template language of html; required with html'),
+        data: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe('The data the document will be rendered with, shaped as get_template_schema describes. Left out, a stored template is checked with its sample data'),
       },
       annotations: READS,
     },
@@ -195,20 +200,27 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     'render',
     {
       title: 'Render a document',
-      description: 'Renders a template (with data) or raw HTML to a PDF or image, or a Word or PowerPoint template to DOCX, PPTX or PDF, and returns a download URL. Live keys consume units; test keys render free with a watermark.',
+      description:
+        'Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url. Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. The link expires at expires_at; get_render issues a fresh one.',
       inputSchema: {
-        template: z.string().optional().describe('Template slug or tpl_ id'),
-        html: z.string().optional().describe('Raw HTML instead of a template'),
-        engine: engineSchema.optional().describe('Engine for html that contains template syntax'),
-        data: z.record(z.string(), z.unknown()).optional(),
+        template: z.string().optional().describe('Slug or tpl_ id of a stored template; pass this or html'),
+        html: z.string().optional().describe('A complete HTML document to render instead of a stored template, up to 5 MB'),
+        engine: engineSchema.optional().describe('Template language of html, when it contains expressions to fill from data'),
+        data: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe('Values for the template, shaped as get_template_schema describes; leave out when it needs none'),
         output: outputSchema
           .optional()
           .describe(
             'Left out, the template decides: PDF for PDF templates and html, its image format for image templates, its default output for Word and PowerPoint templates. Word templates render docx or pdf, PowerPoint templates pptx or pdf',
           ),
-        filename: z.string().optional(),
+        filename: z.string().optional().describe('Name of the file behind download_url, e.g. invoice-2026-0042.pdf'),
         locale: z.string().optional().describe('BCP 47 tag for helpers and translations, e.g. de-DE'),
-        wait: z.boolean().default(true).describe('Wait for the render to finish (sync renders finish immediately)'),
+        wait: z
+          .boolean()
+          .default(true)
+          .describe('Most renders are finished when the call returns; true also waits for one that continues in the background, false returns it as it is (queued or rendering) to check later with get_render'),
       },
       annotations: CREATES,
     },
@@ -238,22 +250,23 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     {
       title: 'Convert an office document to PDF',
       description: [
-        'Converts a Word, Excel, PowerPoint, OpenDocument, RTF or HTML document (up to 20 MB) to a PDF and returns a download URL (Starter plan and above; units follow the PDF rule).',
+        'Converts an existing Word, Excel, PowerPoint, OpenDocument, RTF or HTML document (up to 20 MB) to a PDF as it is, without filling in data, and returns the render with status and download_url.',
+        'To make a document from a template and data, use render instead.',
         'Pass exactly one source: render_id, the render of a Word or PowerPoint template (output docx or pptx);',
         options.localFiles
           ? 'path, a file on this machine; or file_base64 with file_name.'
           : 'or file_base64 with file_name, the document itself.',
-        'The document is converted and not kept.',
+        'Every call is a new render that counts units like a PDF; the Free plan cannot convert (Starter and above). The document is converted and not kept.',
       ].join(' '),
       inputSchema: {
-        render_id: z.string().optional().describe('rnd_ id of a render whose output is docx or pptx'),
-        ...(options.localFiles ? { path: z.string().optional().describe('Absolute path of a document on this machine') } : {}),
-        file_base64: z.string().optional().describe('The document, base64 encoded'),
+        render_id: z.string().optional().describe('rnd_ id of a render whose output is docx or pptx, to get that document as a PDF'),
+        ...(options.localFiles ? { path: z.string().optional().describe('Absolute path of the document on this machine') } : {}),
+        file_base64: z.string().optional().describe('The document to convert, base64 encoded; needs file_name'),
         file_name: z.string().optional().describe('Name of the document, e.g. report.xlsx; the type is read from the content'),
-        page_ranges: z.string().regex(/^\d+(-\d+)?(,\d+(-\d+)?)*$/).optional().describe('Pages to convert, e.g. 1-3,5'),
+        page_ranges: z.string().regex(/^\d+(-\d+)?(,\d+(-\d+)?)*$/).optional().describe('Pages to convert, e.g. 1-3,5; all pages when left out'),
         landscape: z.boolean().optional().describe('Landscape for spreadsheets and documents without their own page setup'),
         single_page_sheets: z.boolean().optional().describe('Each spreadsheet sheet on one page'),
-        filename: z.string().optional().describe('Name of the PDF'),
+        filename: z.string().optional().describe('Name of the PDF behind download_url, e.g. report.pdf'),
       },
       annotations: CREATES,
     },
@@ -303,8 +316,9 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     'get_render',
     {
       title: 'Get a render',
-      description: 'Status, download URL and error of a render by id (rnd_…).',
-      inputSchema: { id: z.string() },
+      description:
+        'Returns the current state of a render: status (queued, rendering, succeeded or failed), download_url with expires_at, page_count, units and error. Use it to follow a render started with wait false, or to get a fresh link once the old one has expired; render and convert_to_pdf already return this for the render they just made. Read-only and free; an unknown id returns an error.',
+      inputSchema: { id: z.string().describe('rnd_ id of the render, as render or convert_to_pdf returned it') },
       annotations: READS,
     },
     async ({ id }) => {

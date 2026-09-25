@@ -78,6 +78,22 @@ describe('@formfeed/mcp', () => {
     await close();
   });
 
+  it('describes every parameter and names a sibling tool in every description', async () => {
+    // What agents and the directories' graders read (Glama scores each tool on it): a parameter with a
+    // type but no description, or a tool that never says when another one fits better, scored lowest.
+    for (const localFiles of [false, true]) {
+      const { client, close } = await connectedClient(fakeApi().fetchImpl, localFiles);
+      const { tools } = await client.listTools();
+      const names = tools.map((t) => t.name);
+      for (const tool of tools) {
+        expect(names.filter((n) => n !== tool.name && tool.description?.includes(n)), tool.name).not.toEqual([]);
+        const properties = (tool.inputSchema as { properties: Record<string, { description?: string }> }).properties;
+        for (const [name, property] of Object.entries(properties)) expect(property.description, `${tool.name}.${name}`).toBeTruthy();
+      }
+      await close();
+    }
+  });
+
   it('converts a render, an uploaded document and, on the user machine, a local file', async () => {
     const api = fakeApi();
     const { client, close } = await connectedClient(api.fetchImpl);
