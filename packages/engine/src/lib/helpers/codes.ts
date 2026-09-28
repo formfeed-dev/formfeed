@@ -24,6 +24,12 @@ const barcodeTypes: Record<string, string> = {
   pdf417: 'pdf417',
 };
 
+/**
+ * EAN and UPC print their digits in groups beside the long guard bars, and bwip-js does that by
+ * itself; centring the whole number under the symbol drew the guard bars through the digits.
+ */
+const ownTextLayout = new Set(['ean13', 'ean8', 'upca']);
+
 export const codeHelpers: HelperDefinition[] = [
   {
     name: 'qrcode',
@@ -73,7 +79,7 @@ export const codeHelpers: HelperDefinition[] = [
         ...(o.width === undefined ? {} : { width: o.width }),
         scale: o.scale ?? 2,
         includetext: o.text !== false,
-        textxalign: 'center',
+        ...(ownTextLayout.has(bcid) ? {} : { textxalign: 'center' }),
       });
       if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, alt: `Barcode ${String(value ?? '')}` });
       return svgDataUri(svg);

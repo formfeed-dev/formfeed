@@ -1,5 +1,6 @@
+import { toSVG } from 'bwip-js';
 import type { HelperContext } from '../types';
-import { epcPayload } from '../codes';
+import { epcPayload, svgDataUri } from '../codes';
 import { CHART_PALETTE, chartDataFromPlain, chartPayload } from './document';
 import { createHelperRegistry, helperDocs } from './index';
 
@@ -133,6 +134,17 @@ describe('code helpers', () => {
     expect(decodeURIComponent(qr)).toContain('<svg');
     const bc = call('barcode', '4006381333931', { type: 'ean13' }) as string;
     expect(decodeURIComponent(bc)).toContain('<svg');
+  });
+
+  it('leaves EAN and UPC digits where the symbology puts them', () => {
+    // centring the whole number under an EAN-13 drew its long guard bars through the digits
+    const bwip = (bcid: string, text: string, extra: Partial<Parameters<typeof toSVG>[0]> = {}) =>
+      svgDataUri(toSVG({ bcid, text, height: 12, scale: 2, includetext: true, ...extra }));
+    expect(call('barcode', '2000000010014', { type: 'ean13' })).toBe(bwip('ean13', '2000000010014'));
+    expect(call('barcode', '20000004', { type: 'ean8' })).toBe(bwip('ean8', '20000004'));
+    expect(call('barcode', '000000000000', { type: 'upc' })).toBe(bwip('upca', '000000000000'));
+    // everything else centres its text under the bars
+    expect(call('barcode', 'R-2026-0001', {})).toBe(bwip('code128', 'R-2026-0001', { textxalign: 'center' }));
   });
 
   it('builds a valid EPC payload', () => {
