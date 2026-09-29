@@ -191,6 +191,21 @@ describe('starterDocument', () => {
       assertWellFormed(tokenize(xml));
     }
   });
+
+  it('says which helper had nothing to encode when a render leaves the QR code field out', async () => {
+    // an API render gets the request's data, not the sample data; a Make scenario without the offer's
+    // URL failed with the QR library's bare "No input text"
+    for (const engine of ['jinja2', 'liquid', 'handlebars'] as EngineId[]) {
+      const starter = starterDocument(engine);
+      const data = structuredClone(starter.sampleData) as { offer: { url?: string } };
+      delete data.offer.url;
+      await expect(renderOffice(starter.bytes, { engine, data, context }), engine).rejects.toMatchObject({
+        part: 'word/document.xml',
+        code: 'template_runtime_error',
+        message: expect.stringContaining('qrcode: nothing to encode, the value is empty or missing from the data'),
+      });
+    }
+  });
 });
 
 describe('makeIdsUnique', () => {

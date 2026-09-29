@@ -136,6 +136,17 @@ describe('code helpers', () => {
     expect(decodeURIComponent(bc)).toContain('<svg');
   });
 
+  it('names the helper when there is nothing to encode', () => {
+    // the libraries said only "No input text" and "bar code text not specified"
+    for (const value of [undefined, null, '']) {
+      expect(() => call('qrcode', value)).toThrow('qrcode: nothing to encode, the value is empty or missing from the data');
+      expect(() => call('qr', value, { size: 96 })).toThrow('qrcode: nothing to encode');
+      expect(() => call('barcode', value, { type: 'ean13' })).toThrow('barcode: nothing to encode, the value is empty or missing from the data');
+    }
+    // a zero is a value
+    expect(decodeURIComponent(call('barcode', 0) as string)).toContain('<svg');
+  });
+
   it('leaves EAN and UPC digits where the symbology puts them', () => {
     // centring the whole number under an EAN-13 drew its long guard bars through the digits
     const bwip = (bcid: string, text: string, extra: Partial<Parameters<typeof toSVG>[0]> = {}) =>

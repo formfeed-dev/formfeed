@@ -30,6 +30,17 @@ const barcodeTypes: Record<string, string> = {
  */
 const ownTextLayout = new Set(['ean13', 'ean8', 'upca']);
 
+/**
+ * A code of nothing stops the render with a sentence that names the helper: the libraries' own
+ * "No input text" and "bar code text not specified" reached API callers without saying which tag
+ * or what was missing (a Make scenario that left the field for a QR code's URL empty).
+ */
+function codeText(helper: string, value: unknown): string {
+  const text = value === undefined || value === null ? '' : String(value);
+  if (text === '') throw new Error(`${helper}: nothing to encode, the value is empty or missing from the data`);
+  return text;
+}
+
 export const codeHelpers: HelperDefinition[] = [
   {
     name: 'qrcode',
@@ -47,7 +58,7 @@ export const codeHelpers: HelperDefinition[] = [
     },
     fn: (ctx, value, options?) => {
       const o = (options ?? {}) as QrOptions;
-      const svg = qrSvg(String(value ?? ''), o);
+      const svg = qrSvg(codeText('qrcode', value), o);
       // office templates get a picture of the code's size, not a data URI as text (spec 22 §4.4)
       // the SVG carries the default size; only a size the template asks for is fixed (slides fit the rest)
       if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size, height: o.size, alt: 'QR code' });
@@ -72,16 +83,17 @@ export const codeHelpers: HelperDefinition[] = [
       const o = (options ?? {}) as BarcodeOptions;
       const bcid =
         barcodeTypes[String(o.type ?? 'code128').toLowerCase()] ?? 'code128';
+      const text = codeText('barcode', value);
       const svg = toSVG({
         bcid,
-        text: String(value ?? ''),
+        text,
         height: o.height ?? 12,
         ...(o.width === undefined ? {} : { width: o.width }),
         scale: o.scale ?? 2,
         includetext: o.text !== false,
         ...(ownTextLayout.has(bcid) ? {} : { textxalign: 'center' }),
       });
-      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, alt: `Barcode ${String(value ?? '')}` });
+      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, alt: `Barcode ${text}` });
       return svgDataUri(svg);
     },
   },
