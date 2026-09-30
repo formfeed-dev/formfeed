@@ -9,6 +9,7 @@ import { toCardinal as esWords } from 'n2words/es';
 import { toCardinal as frWords } from 'n2words/fr';
 import { toCardinal as itWords } from 'n2words/it';
 import { toCardinal as nlWords } from 'n2words/nl';
+import { resolveTranslation } from '../translation';
 import type { HelperContext, HelperDefinition } from '../types';
 import { toNumber } from '../values';
 import { officeUnsupported } from './office';
@@ -76,7 +77,9 @@ const opt = <T>(v: unknown, fallback: T): T =>
  */
 function requireFinite(helper: string, value: unknown): void {
   if (typeof value === 'number' && !Number.isFinite(value))
-    throw new Error(`${helper}: got ${value}, the result of a calculation with a value that is missing or not a number`);
+    throw new Error(
+      `${helper}: got ${value}, the result of a calculation with a value that is missing or not a number`,
+    );
 }
 
 const wordsByLang: Record<string, (n: number | string | bigint) => string> = {
@@ -252,9 +255,12 @@ export const formatHelpers: HelperDefinition[] = [
       description:
         "Rounds to the given decimals, as Jinja2's round does: 'common' rounds half away from zero, 'floor' always down and 'ceil' always up.",
       examples: {
-        jinja2: "{{ 2.345 | round(2) }} gives 2.35, {{ 2.349 | round(2, 'floor') }} gives 2.34",
-        liquid: "{{ 2.345 | round: 2 }} gives 2.35, {{ 2.349 | round: 2, 'floor' }} gives 2.34",
-        handlebars: "{{round 2.345 2}} gives 2.35, {{round 2.349 2 'floor'}} gives 2.34",
+        jinja2:
+          "{{ 2.345 | round(2) }} gives 2.35, {{ 2.349 | round(2, 'floor') }} gives 2.34",
+        liquid:
+          "{{ 2.345 | round: 2 }} gives 2.35, {{ 2.349 | round: 2, 'floor' }} gives 2.34",
+        handlebars:
+          "{{round 2.345 2}} gives 2.35, {{round 2.349 2 'floor'}} gives 2.34",
       },
       category: 'format',
     },
@@ -265,14 +271,21 @@ export const formatHelpers: HelperDefinition[] = [
       if (Number.isNaN(n)) return '';
       const named = (args.find(isNamedArgs) ?? {}) as Record<string, unknown>;
       const [decimals, method] = args.filter((a) => !isNamedArgs(a));
-      const places = Number(opt(decimals, opt(named['precision'], opt(named['decimals'], 0))));
+      const places = Number(
+        opt(decimals, opt(named['precision'], opt(named['decimals'], 0))),
+      );
       const how = String(opt(method, opt(named['method'], 'common')));
       const f = 10 ** places;
       // `2.3 * 100` is 229.99999999999997: the product is cleaned before it is cut
       const scaled = Number((Math.abs(n) * f).toPrecision(15));
-      if (how === 'floor') return (n < 0 ? -Math.ceil(scaled) : Math.floor(scaled)) / f;
-      if (how === 'ceil') return (n < 0 ? -Math.floor(scaled) : Math.ceil(scaled)) / f;
-      if (how !== 'common') throw new Error(`round: method must be 'common', 'floor' or 'ceil', not '${how}'`);
+      if (how === 'floor')
+        return (n < 0 ? -Math.ceil(scaled) : Math.floor(scaled)) / f;
+      if (how === 'ceil')
+        return (n < 0 ? -Math.floor(scaled) : Math.ceil(scaled)) / f;
+      if (how !== 'common')
+        throw new Error(
+          `round: method must be 'common', 'floor' or 'ceil', not '${how}'`,
+        );
       return (Math.round(scaled + Number.EPSILON) / f) * Math.sign(n);
     },
   },
@@ -369,7 +382,8 @@ export const formatHelpers: HelperDefinition[] = [
       description: 'Splits a string into a list.',
       examples: {
         jinja2: "{% for tag in keywords | split(',') %}{{ tag }}{% endfor %}",
-        liquid: "{% assign tags = keywords | split: ',' %}{% for tag in tags %}{{ tag }}{% endfor %}",
+        liquid:
+          "{% assign tags = keywords | split: ',' %}{% for tag in tags %}{{ tag }}{% endfor %}",
         handlebars: "{{#each (split keywords ',')}}{{this}}{{/each}}",
       },
       category: 'text',
@@ -424,7 +438,10 @@ export const formatHelpers: HelperDefinition[] = [
       category: 'text',
     },
     // office templates turn line breaks into breaks themselves, and escape the text once
-    fn: (ctx, value) => (ctx.mode === 'office' ? str(value) : escapeHtml(str(value)).replace(/\r?\n/g, '<br>\n')),
+    fn: (ctx, value) =>
+      ctx.mode === 'office'
+        ? str(value)
+        : escapeHtml(str(value)).replace(/\r?\n/g, '<br>\n'),
   },
   {
     name: 'markdown',
@@ -518,13 +535,7 @@ export const formatHelpers: HelperDefinition[] = [
       category: 'text',
     },
     fn: (ctx, key, params?) => {
-      const dictionaries = ctx.i18n ?? {};
-      const lang = ctx.locale.split('-')[0] ?? ctx.locale;
-      const text =
-        dictionaries[ctx.locale]?.[str(key)] ??
-        dictionaries[lang]?.[str(key)] ??
-        dictionaries['en']?.[str(key)] ??
-        str(key);
+      const { text } = resolveTranslation(ctx.i18n, ctx.locale, str(key));
       const p = (params ?? {}) as Record<string, unknown>;
       return text.replace(/\{(\w+)\}/g, (_, name: string) => str(p[name]));
     },
@@ -560,6 +571,8 @@ export const formatHelpers: HelperDefinition[] = [
       category: 'document',
     },
     fn: (ctx) =>
-      ctx.drawing ? ctx.drawing({ kind: 'page-break' }) : '<div class="page-break" style="break-after:page"></div>',
+      ctx.drawing
+        ? ctx.drawing({ kind: 'page-break' })
+        : '<div class="page-break" style="break-after:page"></div>',
   },
 ];

@@ -1,0 +1,88 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`emitDesign > handlebars: writes the fixture as it always did > css 1`] = `
+"@import url("https://fonts.googleapis.com/css2?family=Inter:wght@800&display=block");
+.ff-design { position: relative; width: 1200px; height: 630px; overflow: hidden; background: var(--brand-color-primary, #0f172a); }
+.ff-layer { position: absolute; box-sizing: border-box; margin: 0; }
+.l-title { left: 80px; top: 120px; width: 1040px; height: 240px; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+.l-title .ff-text { margin: 0; width: 100%; font-family: "Inter", sans-serif; font-weight: 800; font-size: 72px; line-height: 1.1; letter-spacing: -1px; color: #ffffff; text-align: left; overflow-wrap: break-word; }
+.l-total { left: 80px; top: 400px; width: 500px; height: 60px; opacity: 0.9; transform: rotate(-4deg); display: flex; flex-direction: column; justify-content: flex-start; overflow: hidden; padding: 8px; background: #00000033; }
+.l-total .ff-text { margin: 0; width: 100%; font-family: var(--brand-font-heading, sans-serif); font-weight: 600; font-size: 36px; line-height: 1.2; color: var(--brand-color-accent, #38bdf8); text-align: right; font-style: italic; text-transform: uppercase; text-shadow: 0 2px 4px #00000080; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.l-logo { left: 960px; top: 40px; width: 200px; height: 80px; border-radius: 8px; display: block; object-fit: contain; }
+.l-photo { left: 700px; top: 400px; width: 200px; height: 200px; border: 4px solid #ffffff; display: block; object-fit: cover; object-position: 50% 20%; }
+.l-badge { left: 20px; top: 20px; width: 60px; height: 60px; border-radius: 50%; background: #fbbf24; }
+.l-qr { left: 1000px; top: 460px; width: 140px; height: 140px; display: block; object-fit: contain; }
+.l-ean { left: 80px; top: 520px; width: 300px; height: 90px; display: block; object-fit: contain; }
+"
+`;
+
+exports[`emitDesign > handlebars: writes the fixture as it always did > html 1`] = `
+"<div class="ff-design">
+  <div class="ff-layer l-title" data-ff-layer="title" data-ff-fit="shrink" data-ff-fit-min="36"><p class="ff-text">Invoice {{ invoice.number }}<br>for {{upper customer.name}}</p></div>
+  {{#if invoice.total}}<div class="ff-layer l-total" data-ff-layer="total"><p class="ff-text">{{money invoice.total}} due {{date invoice.due 'd MMMM yyyy'}}</p></div>{{/if}}
+  <img class="ff-layer l-logo" data-ff-layer="logo" src="{{ brand.logo.primary }}" alt="">
+  <img class="ff-layer l-photo" data-ff-layer="photo" src="{{asset 'team\\'s photo.png'}}" alt="">
+  <div class="ff-layer l-badge" data-ff-layer="badge"></div>
+  <img class="ff-layer l-qr" data-ff-layer="qr" src="{{qrcode invoice.url ecc='M' margin=0 color='#111111' background='#ffffff00'}}" alt="">
+  <img class="ff-layer l-ean" data-ff-layer="ean" src="{{barcode '4006381333931' type='ean13' text=true}}" alt="">
+</div>
+"
+`;
+
+exports[`emitDesign > jinja2: writes the fixture as it always did > css 1`] = `
+"@import url("https://fonts.googleapis.com/css2?family=Inter:wght@800&display=block");
+.ff-design { position: relative; width: 1200px; height: 630px; overflow: hidden; background: var(--brand-color-primary, #0f172a); }
+.ff-layer { position: absolute; box-sizing: border-box; margin: 0; }
+.l-title { left: 80px; top: 120px; width: 1040px; height: 240px; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+.l-title .ff-text { margin: 0; width: 100%; font-family: "Inter", sans-serif; font-weight: 800; font-size: 72px; line-height: 1.1; letter-spacing: -1px; color: #ffffff; text-align: left; overflow-wrap: break-word; }
+.l-total { left: 80px; top: 400px; width: 500px; height: 60px; opacity: 0.9; transform: rotate(-4deg); display: flex; flex-direction: column; justify-content: flex-start; overflow: hidden; padding: 8px; background: #00000033; }
+.l-total .ff-text { margin: 0; width: 100%; font-family: var(--brand-font-heading, sans-serif); font-weight: 600; font-size: 36px; line-height: 1.2; color: var(--brand-color-accent, #38bdf8); text-align: right; font-style: italic; text-transform: uppercase; text-shadow: 0 2px 4px #00000080; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.l-logo { left: 960px; top: 40px; width: 200px; height: 80px; border-radius: 8px; display: block; object-fit: contain; }
+.l-photo { left: 700px; top: 400px; width: 200px; height: 200px; border: 4px solid #ffffff; display: block; object-fit: cover; object-position: 50% 20%; }
+.l-badge { left: 20px; top: 20px; width: 60px; height: 60px; border-radius: 50%; background: #fbbf24; }
+.l-qr { left: 1000px; top: 460px; width: 140px; height: 140px; display: block; object-fit: contain; }
+.l-ean { left: 80px; top: 520px; width: 300px; height: 90px; display: block; object-fit: contain; }
+"
+`;
+
+exports[`emitDesign > jinja2: writes the fixture as it always did > html 1`] = `
+"<div class="ff-design">
+  <div class="ff-layer l-title" data-ff-layer="title" data-ff-fit="shrink" data-ff-fit-min="36"><p class="ff-text">Invoice {{ invoice.number }}<br>for {{ customer.name | upper }}</p></div>
+  {% if invoice.total %}<div class="ff-layer l-total" data-ff-layer="total"><p class="ff-text">{{ invoice.total | money }} due {{ invoice.due | date('d MMMM yyyy') }}</p></div>{% endif %}
+  <img class="ff-layer l-logo" data-ff-layer="logo" src="{{ brand.logo.primary }}" alt="">
+  <img class="ff-layer l-photo" data-ff-layer="photo" src="{{ asset('team\\'s photo.png') }}" alt="">
+  <div class="ff-layer l-badge" data-ff-layer="badge"></div>
+  <img class="ff-layer l-qr" data-ff-layer="qr" src="{{ qrcode(invoice.url, { ecc: 'M', margin: 0, color: '#111111', background: '#ffffff00' }) }}" alt="">
+  <img class="ff-layer l-ean" data-ff-layer="ean" src="{{ barcode('4006381333931', { type: 'ean13', text: true }) }}" alt="">
+</div>
+"
+`;
+
+exports[`emitDesign > liquid: writes the fixture as it always did > css 1`] = `
+"@import url("https://fonts.googleapis.com/css2?family=Inter:wght@800&display=block");
+.ff-design { position: relative; width: 1200px; height: 630px; overflow: hidden; background: var(--brand-color-primary, #0f172a); }
+.ff-layer { position: absolute; box-sizing: border-box; margin: 0; }
+.l-title { left: 80px; top: 120px; width: 1040px; height: 240px; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+.l-title .ff-text { margin: 0; width: 100%; font-family: "Inter", sans-serif; font-weight: 800; font-size: 72px; line-height: 1.1; letter-spacing: -1px; color: #ffffff; text-align: left; overflow-wrap: break-word; }
+.l-total { left: 80px; top: 400px; width: 500px; height: 60px; opacity: 0.9; transform: rotate(-4deg); display: flex; flex-direction: column; justify-content: flex-start; overflow: hidden; padding: 8px; background: #00000033; }
+.l-total .ff-text { margin: 0; width: 100%; font-family: var(--brand-font-heading, sans-serif); font-weight: 600; font-size: 36px; line-height: 1.2; color: var(--brand-color-accent, #38bdf8); text-align: right; font-style: italic; text-transform: uppercase; text-shadow: 0 2px 4px #00000080; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.l-logo { left: 960px; top: 40px; width: 200px; height: 80px; border-radius: 8px; display: block; object-fit: contain; }
+.l-photo { left: 700px; top: 400px; width: 200px; height: 200px; border: 4px solid #ffffff; display: block; object-fit: cover; object-position: 50% 20%; }
+.l-badge { left: 20px; top: 20px; width: 60px; height: 60px; border-radius: 50%; background: #fbbf24; }
+.l-qr { left: 1000px; top: 460px; width: 140px; height: 140px; display: block; object-fit: contain; }
+.l-ean { left: 80px; top: 520px; width: 300px; height: 90px; display: block; object-fit: contain; }
+"
+`;
+
+exports[`emitDesign > liquid: writes the fixture as it always did > html 1`] = `
+"<div class="ff-design">
+  <div class="ff-layer l-title" data-ff-layer="title" data-ff-fit="shrink" data-ff-fit-min="36"><p class="ff-text">Invoice {{ invoice.number }}<br>for {{ customer.name | upper }}</p></div>
+  {% if invoice.total %}<div class="ff-layer l-total" data-ff-layer="total"><p class="ff-text">{{ invoice.total | money }} due {{ invoice.due | date: 'd MMMM yyyy' }}</p></div>{% endif %}
+  <img class="ff-layer l-logo" data-ff-layer="logo" src="{{ brand.logo.primary }}" alt="">
+  <img class="ff-layer l-photo" data-ff-layer="photo" src="{{ "team's photo.png" | asset }}" alt="">
+  <div class="ff-layer l-badge" data-ff-layer="badge"></div>
+  <img class="ff-layer l-qr" data-ff-layer="qr" src="{{ invoice.url | qrcode: ecc: 'M', margin: 0, color: '#111111', background: '#ffffff00' }}" alt="">
+  <img class="ff-layer l-ean" data-ff-layer="ean" src="{{ '4006381333931' | barcode: type: 'ean13', text: true }}" alt="">
+</div>
+"
+`;

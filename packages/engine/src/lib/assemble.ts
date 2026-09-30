@@ -1,6 +1,7 @@
 import { brandCss, brandFontFamilies } from './brand';
 import type { BrandContext } from './brand';
 import { getEngine } from './engines';
+import { fitRuntime } from './generated/frames';
 import { escapeHtml } from './helpers';
 import type { EngineId, RenderContext } from './types';
 
@@ -66,6 +67,11 @@ export interface TemplateSettings {
   currency?: string;
   tailwind?: boolean;
   watermark?: { text?: string; opacity?: number } | null;
+  /**
+   * The visual editor's document (plan 16 §4.1, `DesignDocument` once `parseDesign` accepted it). It
+   * is authoring data: nothing renders it, the version's HTML and CSS are what it emitted.
+   */
+  design?: unknown;
 }
 
 export type TemplateKind = 'pdf' | 'image';
@@ -158,7 +164,8 @@ export function pageSize(settings: TemplateSettings): string {
  * templates in a page of their own that gets none of the reset, so the reset leaves them alone: a
  * header table's `padding` was ignored under `border-collapse: collapse` and its logo moved left.
  */
-const outsideChrome = ':not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)';
+const outsideChrome =
+  ':not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)';
 
 /**
  * Default print reset of spec 05 §5. Its element rules sit in `:where()`, so any rule of the template
@@ -254,9 +261,12 @@ function chartScripts(
     'inline' in vendor.chartJs
       ? `<script>${vendor.chartJs.inline}</script>`
       : `<script src="${escapeHtml(vendor.chartJs.src)}"></script>`;
-  return { head: `${lib}
-`, body: `${chartInitScript()}
-` };
+  return {
+    head: `${lib}
+`,
+    body: `${chartInitScript()}
+`,
+  };
 }
 
 export interface AssembleInput extends AssembleExtras {
@@ -290,9 +300,13 @@ export function assembleDocument(input: AssembleInput): string {
     input.fonts,
     `${input.css ?? ''}\n${input.head ?? ''}\n${input.html}\n${brandFontFamilies(input.brand)}`,
   );
-  const fontStyle = fonts ? `<style data-formfeed="fonts">${fonts}</style>\n` : '';
+  const fontStyle = fonts
+    ? `<style data-formfeed="fonts">${fonts}</style>\n`
+    : '';
   const brand = brandCss(input.brand);
-  const brandStyle = brand ? `<style data-formfeed="brand">${brand}</style>\n` : '';
+  const brandStyle = brand
+    ? `<style data-formfeed="brand">${brand}</style>\n`
+    : '';
   const tailwind = settings.tailwind
     ? input.extraCss
       ? `<style data-formfeed="tailwind">${input.extraCss}</style>\n`
@@ -303,6 +317,10 @@ export function assembleDocument(input: AssembleInput): string {
       ? `<style data-formfeed="extra">${input.extraCss}</style>\n`
       : '';
   const charts = chartScripts(input.html, input.vendor);
+  // text that shrinks to fit its box (plan 16 §4.3); the render-worker calls it again before capturing
+  const fit = input.html.includes('data-ff-fit')
+    ? `<script>${fitRuntime.replace(/<\/script/gi, '<\\/script')}</script>\n`
+    : '';
   return `<!doctype html>
 <html lang="${escapeHtml(locale.split('_')[0] ?? locale)}">
 <head>
@@ -314,7 +332,7 @@ ${tailwind}<style data-formfeed="template">${input.css ?? ''}</style>
 ${charts.head}</head>
 <body class="formfeed-body formfeed-${kind}${input.mode === 'preview' ? ' formfeed-preview' : ''}">
 ${input.html}
-${charts.body}</body>
+${charts.body}${fit}</body>
 </html>
 `;
 }

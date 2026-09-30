@@ -1,4 +1,9 @@
-import { DEFAULT_CHROME_PADDING, type TemplateKind, type TemplateSettings } from './assemble';
+import {
+  DEFAULT_CHROME_PADDING,
+  type TemplateKind,
+  type TemplateSettings,
+} from './assemble';
+import { stageRuntime, textEditRuntime } from './generated/frames';
 
 /**
  * Preview documents shared by the web editor and `formfeed dev` (spec 06 §3, spec 15 §4): the
@@ -22,7 +27,10 @@ const paperSizes: Record<string, [string, string]> = {
   Legal: ['8.5in', '14in'],
 };
 
-export function paperOf(settings: TemplateSettings): { width: string; height: string } {
+export function paperOf(settings: TemplateSettings): {
+  width: string;
+  height: string;
+} {
   const paper = settings.paper ?? {};
   const size =
     paper.width && paper.height
@@ -38,11 +46,19 @@ export function paperOf(settings: TemplateSettings): { width: string; height: st
  * list names the placeholder counts, whatever else it carries (the editor adds `data-ff-src`), and
  * the element stays so its styling applies.
  */
-export const pageNumberSpans = (html: string, page: string, total: string): string => {
+export const pageNumberSpans = (
+  html: string,
+  page: string,
+  total: string,
+): string => {
   const fill = (source: string, name: string, value: string) =>
     source.replace(
-      new RegExp(`<([a-z][a-z0-9]*)(\\s[^>]*?\\bclass=(["'])(?:[^"']*\\s)?${name}(?:\\s[^"']*)?\\3[^>]*)>[^<]*</\\1>`, 'gi'),
-      (_match, tag: string, attrs: string) => `<${tag}${attrs}>${value}</${tag}>`,
+      new RegExp(
+        `<([a-z][a-z0-9]*)(\\s[^>]*?\\bclass=(["'])(?:[^"']*\\s)?${name}(?:\\s[^"']*)?\\3[^>]*)>[^<]*</\\1>`,
+        'gi',
+      ),
+      (_match, tag: string, attrs: string) =>
+        `<${tag}${attrs}>${value}</${tag}>`,
     );
   return fill(fill(html, 'pageNumber', page), 'totalPages', total);
 };
@@ -72,6 +88,21 @@ document.addEventListener('click', function (event) {
   } catch (e) {}
 }, true);
 </script>`;
+
+/**
+ * Edit mode (plan 16 §3.3): the session runtime from `src/frame/text-edit.ts`. It goes before the
+ * click-to-source script, so a click on editable text reaches it first and goes no further.
+ */
+const textEditScript = `<script>${textEditRuntime.replace(/<\/script/gi, '<\\/script')}</script>`;
+
+/** Options of the flow and paged previews. */
+export interface PreviewOptions {
+  /**
+   * The editor's edit mode: text in elements marked `data-ff-edit` (`annotateSourcePositions` with
+   * `editable`) can be edited in place, and the frame talks to the editor about it by message.
+   */
+  editing?: boolean;
+}
 
 /**
  * Page navigation for the paged preview (spec 06 §3): the editor asks for a page by index and the
@@ -218,7 +249,10 @@ export const zoomGestureScript = `<script>
  * laid the running header out as ordinary content, on the first page only.
  */
 function intoHead(document: string, markup: string): string {
-  return document.replace(/<head[^>]*>(?:\s*<meta\b[^>]*>)*/i, (head) => `${head}\n${markup}`);
+  return document.replace(
+    /<head[^>]*>(?:\s*<meta\b[^>]*>)*/i,
+    (head) => `${head}\n${markup}`,
+  );
 }
 
 /**
@@ -226,7 +260,10 @@ function intoHead(document: string, markup: string): string {
  * with the template's padding (default `0 10mm`) inside. The preview's box sits within the margins,
  * so it reaches out by them.
  */
-function chromeBoxStyle(settings: RenderedDraft['settings'], which: 'header' | 'footer'): string {
+function chromeBoxStyle(
+  settings: RenderedDraft['settings'],
+  which: 'header' | 'footer',
+): string {
   const margin = settings.margin ?? {};
   const left = margin.left ?? '0px';
   const right = margin.right ?? '0px';
@@ -240,13 +277,19 @@ function chromeBoxStyle(settings: RenderedDraft['settings'], which: 'header' | '
  * as Chromium prints them and the paged preview shows them. The page is one tall sheet, so the
  * footer stands at the end of the content.
  */
-function flowChromeStyle(settings: RenderedDraft['settings'], which: 'header' | 'footer'): string {
+function flowChromeStyle(
+  settings: RenderedDraft['settings'],
+  which: 'header' | 'footer',
+): string {
   const padding = settings[which]?.padding ?? DEFAULT_CHROME_PADDING;
   const height = settings[which]?.height;
   return `position:absolute;${which === 'header' ? 'top' : 'bottom'}:0;left:0;width:100%;box-sizing:border-box;padding:${padding};${height ? `height:${height};` : ''}`;
 }
 
-export function flowDocument(draft: RenderedDraft): string {
+export function flowDocument(
+  draft: RenderedDraft,
+  options: PreviewOptions = {},
+): string {
   const { settings, kind, headerHtml, footerHtml } = draft;
   const margin = settings.margin ?? {};
   const paper = paperOf(settings);
@@ -264,12 +307,26 @@ body.formfeed-preview { position: relative; box-sizing: border-box; width: ${pap
   const footer = footerHtml
     ? `<div class="formfeed-chrome" style="${pdf ? flowChromeStyle(settings, 'footer') : `${chromeBoxStyle(settings, 'footer')}margin-top:8px`}">${pageNumberSpans(footerHtml, '1', '1')}</div>`
     : '';
-  return intoHead(draft.document, `${chrome}${inspectScript}${zoomGestureScript}${pdf ? overflowScript('flow') : ''}`)
+  return intoHead(
+    draft.document,
+    `${chrome}${options.editing ? textEditScript : ''}${inspectScript}${zoomGestureScript}${pdf ? overflowScript('flow') : ''}`,
+  )
     .replace(/(<body[^>]*>)/, `$1${header}`)
     .replace('</body>', `${footer}</body>`);
 }
 
-export interface PagedOptions {
+/**
+ * The design stage's document (plan 16 §4.6): the assembled image template exactly as rendered, with
+ * no preview chrome around it (the stage draws its own background), and the stage runtime, which
+ * measures layers and takes drag styles and stylesheet patches by message.
+ */
+export function canvasDocument(draft: RenderedDraft): string {
+  const chrome = `<style data-formfeed="stage">html, body { background: transparent !important; margin: 0 !important; }</style>`;
+  const runtime = `<script>${stageRuntime.replace(/<\/script/gi, '<\\/script')}</script>`;
+  return intoHead(draft.document, `${chrome}${runtime}${zoomGestureScript}`);
+}
+
+export interface PagedOptions extends PreviewOptions {
   /** URL of the Paged.js polyfill the frame can load. */
   pagedScriptUrl: string;
 }
@@ -278,7 +335,10 @@ export interface PagedOptions {
  * Charts are drawn after pagination (Paged.js clones the content into pages and a cloned canvas is
  * blank) and the page count is posted to the parent as `{ type: 'formfeed:pages', pages }`.
  */
-export function pagedDocument(draft: RenderedDraft, options: PagedOptions): string {
+export function pagedDocument(
+  draft: RenderedDraft,
+  options: PagedOptions,
+): string {
   const { headerHtml, footerHtml, settings } = draft;
   const runningCss = `
 @page { ${headerHtml ? '@top-center { content: element(ffHeader); }' : ''} ${footerHtml ? '@bottom-center { content: element(ffFooter); }' : ''} }
@@ -309,7 +369,7 @@ html { background: #e5e7eb; }
   // it). The stylesheet is rewritten as it is inserted, before any layout, so the rule keeps to
   // Paged.js's own boxes.
   const boxSizingGuard = `<script>(function(){var rule='.pagedjs_pagebox *';var o=new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeName==='STYLE'&&n.textContent&&n.textContent.indexOf(rule)>=0){n.textContent=n.textContent.split(rule).join('.pagedjs_pagebox [class*="pagedjs_"]');o.disconnect();}});});});o.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;
-  const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); } };</script>`;
+  const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { if (window.formfeedFit) window.formfeedFit(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); } };</script>`;
   const script = `<script src="${options.pagedScriptUrl}"></script>`;
   const header = headerHtml
     ? `<div class="ff-running-header">${pageNumberSpans(headerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
@@ -319,6 +379,6 @@ html { background: #e5e7eb; }
     : '';
   return intoHead(
     draft.document,
-    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${overflowScript('paged')}${config}${script}${inspectScript}${pageNavScript}${zoomGestureScript}`,
+    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${overflowScript('paged')}${config}${script}${options.editing ? textEditScript : ''}${inspectScript}${pageNavScript}${zoomGestureScript}`,
   ).replace(/(<body[^>]*>)/, `$1${header}${footer}`);
 }

@@ -3,12 +3,14 @@ import {
   analyzeOffice,
   defaultHelpers,
   defaultLimits,
+  designOutputHash,
   flowDocument,
   getEngine,
   isOfficeKind,
   mergeSettings,
   officeTextParts,
   pagedDocument,
+  parseDesign,
   renderOffice,
   renderVersion,
   type AssembleVendor,
@@ -29,10 +31,16 @@ import { partialResolver, type LocalTemplate } from './project';
  * A finding of `diagnose`. Word and PowerPoint findings name the part and paragraph instead of a line
  * (their `range` is 1:1), because a line of the extracted text means nothing in the document.
  */
-export type LocalDiagnostic = Diagnostic & { part?: string; paragraph?: number };
+export type LocalDiagnostic = Diagnostic & {
+  part?: string;
+  paragraph?: number;
+};
 
 /** The same diagnostics the editor shows: analysis of the body against the sample data plus compile errors. */
-export function diagnose(tpl: LocalTemplate, sampleData: unknown): LocalDiagnostic[] {
+export function diagnose(
+  tpl: LocalTemplate,
+  sampleData: unknown,
+): LocalDiagnostic[] {
   if (tpl.file) return diagnoseOffice(tpl, tpl.file.bytes, sampleData);
   const engine = getEngine(tpl.meta.engine);
   const diagnostics: Diagnostic[] = [];
@@ -44,7 +52,10 @@ export function diagnose(tpl: LocalTemplate, sampleData: unknown): LocalDiagnost
         severity: 'error',
         code: 'syntax-error',
         message: e.message,
-        range: { start: { line: e.line ?? 1, column: e.column ?? 1 }, end: { line: e.line ?? 1, column: (e.column ?? 1) + 1 } },
+        range: {
+          start: { line: e.line ?? 1, column: e.column ?? 1 },
+          end: { line: e.line ?? 1, column: (e.column ?? 1) + 1 },
+        },
       });
     } else throw e;
   }
@@ -54,7 +65,8 @@ export function diagnose(tpl: LocalTemplate, sampleData: unknown): LocalDiagnost
     ['footer', tpl.settings.footer?.html],
   ] as const) {
     if (!source) continue;
-    for (const d of engine.analyze(source, { sampleData }).diagnostics) diagnostics.push({ ...d, message: `${part}: ${d.message}` });
+    for (const d of engine.analyze(source, { sampleData }).diagnostics)
+      diagnostics.push({ ...d, message: `${part}: ${d.message}` });
   }
   // an include without a file fails at render time, locally and after `push`
   for (const name of tpl.missingPartials)
@@ -65,19 +77,56 @@ export function diagnose(tpl: LocalTemplate, sampleData: unknown): LocalDiagnost
       message: `No partial "${name}" in the project's partials folder; if it is shared by the organisation, formfeed partials pull brings it`,
       range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
     });
+  const design = designDiagnostic(tpl);
+  if (design) diagnostics.push(design);
   return diagnostics;
+}
+
+/**
+ * A `design.json` the app would not open as a design (plan 16 §4.5): the code no longer is what the
+ * design emitted, or the file is not a design. Warnings, since the template renders either way.
+ */
+function designDiagnostic(tpl: LocalTemplate): LocalDiagnostic | null {
+  if (tpl.settings.design === undefined) return null;
+  const parsed = parseDesign(tpl.settings.design);
+  if (!parsed.design)
+    return {
+      severity: 'warning',
+      code: 'design-invalid',
+      message: `design.json is not a design the app can open (${parsed.problems.slice(0, 3).join('; ')}); the template opens as code`,
+      range: nowhere,
+    };
+  if (parsed.design.output === designOutputHash(tpl.html, tpl.css)) return null;
+  return {
+    severity: 'warning',
+    code: 'design-stale',
+    message:
+      'template.html or style.css was edited after design.json was written; the app opens the template as code until you choose to keep the code or apply the design again',
+    range: nowhere,
+  };
 }
 
 const nowhere = { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } };
 
 /** What the office template page lists: tag, structure and engine findings per part and paragraph. */
-function diagnoseOffice(tpl: LocalTemplate, file: Uint8Array, sampleData: unknown): LocalDiagnostic[] {
+function diagnoseOffice(
+  tpl: LocalTemplate,
+  file: Uint8Array,
+  sampleData: unknown,
+): LocalDiagnostic[] {
   let analysis;
   try {
     analysis = analyzeOffice(file, { engine: tpl.meta.engine, sampleData });
   } catch (e) {
     const code = (e as { code?: unknown }).code;
-    return [{ severity: 'error', code: typeof code === 'string' ? code : 'office-document-invalid', message: e instanceof Error ? e.message : String(e), range: nowhere }];
+    return [
+      {
+        severity: 'error',
+        code: typeof code === 'string' ? code : 'office-document-invalid',
+        message: e instanceof Error ? e.message : String(e),
+        range: nowhere,
+      },
+    ];
   }
   return analysis.diagnostics.map((d) => ({
     severity: d.severity,
@@ -101,11 +150,31 @@ export interface OfficeLocalOptions {
 }
 
 /** Fills a Word or PowerPoint template with the shared engine, as the render-worker does. */
-export async function renderOfficeLocal(project: Project, tpl: LocalTemplate, data: unknown, options: OfficeLocalOptions = {}): Promise<OfficeRenderResult> {
-  if (!tpl.file) throw new DevkitError(`${tpl.slug} is not a Word or PowerPoint template`, 'validation');
-  const context = renderContext(project, tpl, options.assetBaseUrl, options.brand);
+export async function renderOfficeLocal(
+  project: Project,
+  tpl: LocalTemplate,
+  data: unknown,
+  options: OfficeLocalOptions = {},
+): Promise<OfficeRenderResult> {
+  if (!tpl.file)
+    throw new DevkitError(
+      `${tpl.slug} is not a Word or PowerPoint template`,
+      'validation',
+    );
+  const context = renderContext(
+    project,
+    tpl,
+    options.assetBaseUrl,
+    options.brand,
+  );
   if (options.locale) context.locale = options.locale;
-  return renderOffice(tpl.file.bytes, { engine: tpl.meta.engine, data, context, images: options.images, random: options.random });
+  return renderOffice(tpl.file.bytes, {
+    engine: tpl.meta.engine,
+    data,
+    context,
+    images: options.images,
+    random: options.random,
+  });
 }
 
 /**
@@ -114,10 +183,14 @@ export async function renderOfficeLocal(project: Project, tpl: LocalTemplate, da
  * Chromium prints header and footer from templates of their own, outside the document, so a
  * snapshot of the document alone passed a changed footer unnoticed.
  */
-export function htmlSnapshot(rendered: Pick<RenderedDocument, 'document' | 'headerHtml' | 'footerHtml'>): string {
+export function htmlSnapshot(
+  rendered: Pick<RenderedDocument, 'document' | 'headerHtml' | 'footerHtml'>,
+): string {
   let snapshot = rendered.document;
-  if (rendered.headerHtml) snapshot += `\n<!-- formfeed:header -->\n${rendered.headerHtml}`;
-  if (rendered.footerHtml) snapshot += `\n<!-- formfeed:footer -->\n${rendered.footerHtml}`;
+  if (rendered.headerHtml)
+    snapshot += `\n<!-- formfeed:header -->\n${rendered.headerHtml}`;
+  if (rendered.footerHtml)
+    snapshot += `\n<!-- formfeed:footer -->\n${rendered.footerHtml}`;
   return snapshot;
 }
 
@@ -163,7 +236,12 @@ export function prettyXml(xml: string): string {
  * locally, the workspace library's CDN base when the document goes to the API. Without it the
  * references stay relative, which keeps snapshots independent of any host.
  */
-export function renderContext(project: Project, tpl: LocalTemplate, assetBaseUrl?: string, brand?: BrandContext): RenderContext {
+export function renderContext(
+  project: Project,
+  tpl: LocalTemplate,
+  assetBaseUrl?: string,
+  brand?: BrandContext,
+): RenderContext {
   const settings = mergeSettings(tpl.settings);
   return {
     locale: settings.locale ?? 'en',
@@ -190,12 +268,24 @@ export interface LocalRenderOptions {
 }
 
 /** Assembles the complete document with the shared engine; no browser involved. */
-export async function renderLocal(project: Project, tpl: LocalTemplate, data: unknown, options: LocalRenderOptions): Promise<RenderedDocument> {
+export async function renderLocal(
+  project: Project,
+  tpl: LocalTemplate,
+  data: unknown,
+  options: LocalRenderOptions,
+): Promise<RenderedDocument> {
   const kind = htmlKind(tpl);
   const ctx = renderContext(project, tpl, options.assetBaseUrl, options.brand);
   if (options.locale) ctx.locale = options.locale;
   return renderVersion(
-    { engine: tpl.meta.engine, html: tpl.html, css: tpl.css, head: tpl.head, settings: mergeSettings(tpl.settings), kind },
+    {
+      engine: tpl.meta.engine,
+      html: tpl.html,
+      css: tpl.css,
+      head: tpl.head,
+      settings: mergeSettings(tpl.settings),
+      kind,
+    },
     data,
     ctx,
     options.mode,
@@ -209,29 +299,56 @@ export async function renderLocal(project: Project, tpl: LocalTemplate, data: un
  * filled parts, not the template's source; the inline CSS travels with them, because Chromium loads
  * no stylesheet in its header and footer templates.
  */
-export function renderedSettings(rendered: RenderedDocument): Record<string, unknown> {
-  const style = rendered.inlineCss ? `<style>${rendered.inlineCss}</style>` : '';
-  const part = (settings: { html?: string } | undefined, html: string | undefined) =>
+export function renderedSettings(
+  rendered: RenderedDocument,
+): Record<string, unknown> {
+  const style = rendered.inlineCss
+    ? `<style>${rendered.inlineCss}</style>`
+    : '';
+  const part = (
+    settings: { html?: string } | undefined,
+    html: string | undefined,
+  ) =>
     settings?.html ? { ...settings, html: `${style}${html ?? ''}` } : settings;
-  const { settings } = rendered;
+  // the design is authoring data the API would carry for nothing
+  const { design: _design, ...settings } = rendered.settings;
+  void _design;
   return {
     ...settings,
-    ...(settings.header ? { header: part(settings.header, rendered.headerHtml) } : {}),
-    ...(settings.footer ? { footer: part(settings.footer, rendered.footerHtml) } : {}),
+    ...(settings.header
+      ? { header: part(settings.header, rendered.headerHtml) }
+      : {}),
+    ...(settings.footer
+      ? { footer: part(settings.footer, rendered.footerHtml) }
+      : {}),
     ...(settings.pdf?.metadata?.title !== undefined
-      ? { pdf: { ...settings.pdf, metadata: { ...settings.pdf.metadata, title: rendered.title ?? '' } } }
+      ? {
+          pdf: {
+            ...settings.pdf,
+            metadata: { ...settings.pdf.metadata, title: rendered.title ?? '' },
+          },
+        }
       : {}),
   };
 }
 
 /** The kind of an HTML template; Word and PowerPoint templates go through `renderOfficeLocal`. */
 function htmlKind(tpl: LocalTemplate): TemplateKind {
-  if (isOfficeKind(tpl.meta.kind)) throw new DevkitError(`${tpl.slug} is a ${tpl.meta.kind} template; fill it with renderOfficeLocal`, 'validation');
+  if (isOfficeKind(tpl.meta.kind))
+    throw new DevkitError(
+      `${tpl.slug} is a ${tpl.meta.kind} template; fill it with renderOfficeLocal`,
+      'validation',
+    );
   return tpl.meta.kind;
 }
 
 /** Wraps a preview render for the screen the way the editor does. */
-export function previewDocument(tpl: LocalTemplate, rendered: RenderedDocument, mode: 'flow' | 'paged', pagedScriptUrl: string): string {
+export function previewDocument(
+  tpl: LocalTemplate,
+  rendered: RenderedDocument,
+  mode: 'flow' | 'paged',
+  pagedScriptUrl: string,
+): string {
   const kind = htmlKind(tpl);
   const draft = {
     document: rendered.document,
@@ -240,5 +357,7 @@ export function previewDocument(tpl: LocalTemplate, rendered: RenderedDocument, 
     settings: rendered.settings,
     kind,
   };
-  return mode === 'paged' && kind === 'pdf' ? pagedDocument(draft, { pagedScriptUrl }) : flowDocument(draft);
+  return mode === 'paged' && kind === 'pdf'
+    ? pagedDocument(draft, { pagedScriptUrl })
+    : flowDocument(draft);
 }

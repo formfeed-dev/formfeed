@@ -1,12 +1,33 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadProject, writeProjectConfig } from './project-config';
-import { diagnose, previewDocument, renderLocal, renderedSettings } from './local-render';
-import { contentHash, listTemplateSlugs, partialContentHash, readState, readTemplate, recordSharedPartial, versionPayload, writeTemplate } from './project';
+import {
+  diagnose,
+  previewDocument,
+  renderLocal,
+  renderedSettings,
+} from './local-render';
+import {
+  contentHash,
+  listTemplateSlugs,
+  partialContentHash,
+  readState,
+  readTemplate,
+  recordSharedPartial,
+  versionPayload,
+  writeTemplate,
+} from './project';
 import { readBrand, writeBrand } from './brand';
-import { emptyBrand } from '@formfeed/engine';
+import { designStarters, emitDesign, emptyBrand } from '@formfeed/engine';
 
 describe('template folders (spec 15 §2)', () => {
   let dir: string;
@@ -15,49 +36,88 @@ describe('template folders (spec 15 §2)', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  const project = () => loadProject(writeProjectConfig(dir, { engine: 'jinja2' }));
+  const project = () =>
+    loadProject(writeProjectConfig(dir, { engine: 'jinja2' }));
 
   it('round-trips a version through files, folding header and footer into settings', () => {
     const p = project();
     writeTemplate(
       p,
       'invoice',
-      { name: 'Invoice', kind: 'pdf', engine: 'jinja2', description: null, tags: ['a'] },
+      {
+        name: 'Invoice',
+        kind: 'pdf',
+        engine: 'jinja2',
+        description: null,
+        tags: ['a'],
+      },
       {
         html: '<h1>{{ invoice.number }}</h1>',
         css: 'h1 { color: red }',
         head: '',
-        settings: { paper: { format: 'A4' }, header: { html: '<p>Head</p>', height: '15mm' }, footer: { html: '<span class="pageNumber"></span>' } },
+        settings: {
+          paper: { format: 'A4' },
+          header: { html: '<p>Head</p>', height: '15mm' },
+          footer: { html: '<span class="pageNumber"></span>' },
+        },
         sample_data: { invoice: { number: '7' } },
         data_schema: { type: 'object' },
         i18n: { de: { hello: 'Hallo' } },
       },
     );
-    expect(existsSync(join(dir, 'templates', 'invoice', 'header.html'))).toBe(true);
-    expect(existsSync(join(dir, 'templates', 'invoice', 'head.html'))).toBe(false); // empty files are not written
-    const settingsOnDisk = JSON.parse(readFileSync(join(dir, 'templates', 'invoice', 'settings.json'), 'utf8'));
+    expect(existsSync(join(dir, 'templates', 'invoice', 'header.html'))).toBe(
+      true,
+    );
+    expect(existsSync(join(dir, 'templates', 'invoice', 'head.html'))).toBe(
+      false,
+    ); // empty files are not written
+    const settingsOnDisk = JSON.parse(
+      readFileSync(join(dir, 'templates', 'invoice', 'settings.json'), 'utf8'),
+    );
     expect(settingsOnDisk.header).toEqual({ height: '15mm' });
     expect(settingsOnDisk.footer).toBeNull();
 
     const tpl = readTemplate(p, 'invoice');
     expect(listTemplateSlugs(p)).toEqual(['invoice']);
-    expect(tpl.meta).toMatchObject({ name: 'Invoice', kind: 'pdf', engine: 'jinja2', tags: ['a'] });
-    expect(tpl.settings.header).toEqual({ height: '15mm', html: '<p>Head</p>' });
-    expect(tpl.settings.footer).toEqual({ html: '<span class="pageNumber"></span>' });
+    expect(tpl.meta).toMatchObject({
+      name: 'Invoice',
+      kind: 'pdf',
+      engine: 'jinja2',
+      tags: ['a'],
+    });
+    expect(tpl.settings.header).toEqual({
+      height: '15mm',
+      html: '<p>Head</p>',
+    });
+    expect(tpl.settings.footer).toEqual({
+      html: '<span class="pageNumber"></span>',
+    });
     expect(tpl.dataSets['default']).toEqual({ invoice: { number: '7' } });
     expect(tpl.i18n).toEqual({ de: { hello: 'Hallo' } });
     const payload = versionPayload(tpl);
-    expect(payload.settings['header']).toEqual({ height: '15mm', html: '<p>Head</p>' });
+    expect(payload.settings['header']).toEqual({
+      height: '15mm',
+      html: '<p>Head</p>',
+    });
     const before = contentHash(tpl);
-    writeFileSync(join(dir, 'templates', 'invoice', 'template.html'), '<h1>changed</h1>');
+    writeFileSync(
+      join(dir, 'templates', 'invoice', 'template.html'),
+      '<h1>changed</h1>',
+    );
     expect(contentHash(readTemplate(p, 'invoice'))).not.toBe(before);
   });
 
   it('collects the partials a template includes and writes pulled ones back', () => {
     const p = project();
     mkdirSync(join(dir, 'partials', 'blocks'), { recursive: true });
-    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>{% include "blocks/address" %}</footer>');
-    writeFileSync(join(dir, 'partials', 'blocks', 'address.html'), '<p>Street 1</p>');
+    writeFileSync(
+      join(dir, 'partials', 'footer.html'),
+      '<footer>{% include "blocks/address" %}</footer>',
+    );
+    writeFileSync(
+      join(dir, 'partials', 'blocks', 'address.html'),
+      '<p>Street 1</p>',
+    );
     writeTemplate(
       p,
       'letter',
@@ -74,21 +134,42 @@ describe('template folders (spec 15 §2)', () => {
     );
     const tpl = readTemplate(p, 'letter');
     // nested includes and the page footer are collected too
-    expect(Object.keys(tpl.partials).sort()).toEqual(['blocks/address', 'footer']);
+    expect(Object.keys(tpl.partials).sort()).toEqual([
+      'blocks/address',
+      'footer',
+    ]);
     expect(tpl.missingPartials).toEqual([]);
     expect(versionPayload(tpl).partials).toEqual(tpl.partials);
     // editing a partial is a change of the template for the sync state
     const before = contentHash(tpl);
-    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>changed</footer>');
+    writeFileSync(
+      join(dir, 'partials', 'footer.html'),
+      '<footer>changed</footer>',
+    );
     expect(contentHash(readTemplate(p, 'letter'))).not.toBe(before);
 
     // a template without partials hashes as it did before they existed
-    writeTemplate(p, 'plain', { name: 'Plain', kind: 'pdf', engine: 'jinja2' }, { html: '<p>{{ x }}</p>', css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
+    writeTemplate(
+      p,
+      'plain',
+      { name: 'Plain', kind: 'pdf', engine: 'jinja2' },
+      {
+        html: '<p>{{ x }}</p>',
+        css: '',
+        head: '',
+        settings: {},
+        sample_data: {},
+        data_schema: null,
+        i18n: null,
+      },
+    );
     const plain = readTemplate(p, 'plain');
     expect(versionPayload(plain).partials).toBeUndefined();
     expect(contentHash(plain)).toBe(
       createHash('sha256')
-        .update(JSON.stringify(['<p>{{ x }}</p>', '', '', {}, {}, {}, null, null]))
+        .update(
+          JSON.stringify(['<p>{{ x }}</p>', '', '', {}, {}, {}, null, null]),
+        )
         .digest('hex'),
     );
 
@@ -98,42 +179,107 @@ describe('template folders (spec 15 §2)', () => {
       p,
       'letter',
       { name: 'Letter', kind: 'pdf', engine: 'jinja2' },
-      { html: '<main>{% include "footer" %}</main>', css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null, partials: { footer: '<footer>pulled</footer>', 'blocks/address': '<p>Pulled</p>', '../escape': 'no' } },
+      {
+        html: '<main>{% include "footer" %}</main>',
+        css: '',
+        head: '',
+        settings: {},
+        sample_data: {},
+        data_schema: null,
+        i18n: null,
+        partials: {
+          footer: '<footer>pulled</footer>',
+          'blocks/address': '<p>Pulled</p>',
+          '../escape': 'no',
+        },
+      },
     );
-    expect(readFileSync(join(dir, 'partials', 'footer.html'), 'utf8')).toBe('<footer>pulled</footer>');
-    expect(readFileSync(join(dir, 'partials', 'blocks', 'address.html'), 'utf8')).toBe('<p>Pulled</p>');
+    expect(readFileSync(join(dir, 'partials', 'footer.html'), 'utf8')).toBe(
+      '<footer>pulled</footer>',
+    );
+    expect(
+      readFileSync(join(dir, 'partials', 'blocks', 'address.html'), 'utf8'),
+    ).toBe('<p>Pulled</p>');
     expect(existsSync(join(dir, 'escape'))).toBe(false);
   });
 
   it('leaves shared partials of the state out of the version and resolves them locally', async () => {
     const p = project();
     mkdirSync(join(dir, 'partials'), { recursive: true });
-    writeFileSync(join(dir, 'partials', 'letterhead.html'), '<header>{{ brand.name }}{% include "address" %}</header>');
+    writeFileSync(
+      join(dir, 'partials', 'letterhead.html'),
+      '<header>{{ brand.name }}{% include "address" %}</header>',
+    );
     writeFileSync(join(dir, 'partials', 'address.html'), '<p>Street 1</p>');
-    const html = '<main>{% include "Letterhead.j2" %}{% include "footer" %}</main>';
-    writeTemplate(p, 'letter', { name: 'Letter', kind: 'pdf', engine: 'jinja2' }, { html, css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
-    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>Fennlor</footer>');
+    const html =
+      '<main>{% include "Letterhead.j2" %}{% include "footer" %}</main>';
+    writeTemplate(
+      p,
+      'letter',
+      { name: 'Letter', kind: 'pdf', engine: 'jinja2' },
+      {
+        html,
+        css: '',
+        head: '',
+        settings: {},
+        sample_data: {},
+        data_schema: null,
+        i18n: null,
+      },
+    );
+    writeFileSync(
+      join(dir, 'partials', 'footer.html'),
+      '<footer>Fennlor</footer>',
+    );
 
     // before the partial is known as shared it travels with the version like any other
     const plain = readTemplate(p, 'letter');
     expect(plain.missingPartials).toEqual(['Letterhead.j2']);
     const hashWithout = contentHash(plain);
 
-    recordSharedPartial(p, 'letterhead', { version: 3, engine: 'jinja2' }, readFileSync(join(dir, 'partials', 'letterhead.html'), 'utf8'));
+    recordSharedPartial(
+      p,
+      'letterhead',
+      { version: 3, engine: 'jinja2' },
+      readFileSync(join(dir, 'partials', 'letterhead.html'), 'utf8'),
+    );
     // a shared partial of another engine never matches
-    recordSharedPartial(p, 'footer', { version: 1, engine: 'liquid' }, '<footer>Fennlor</footer>');
+    recordSharedPartial(
+      p,
+      'footer',
+      { version: 1, engine: 'liquid' },
+      '<footer>Fennlor</footer>',
+    );
     const tpl = readTemplate(p, 'letter');
     expect(tpl.sharedPartials).toEqual(['letterhead']);
     expect(tpl.missingPartials).toEqual([]);
     // what the shared partial includes that is not shared itself still goes with the version
-    expect(versionPayload(tpl).partials).toEqual({ address: '<p>Street 1</p>', footer: '<footer>Fennlor</footer>' });
+    expect(versionPayload(tpl).partials).toEqual({
+      address: '<p>Street 1</p>',
+      footer: '<footer>Fennlor</footer>',
+    });
     expect(contentHash(tpl)).not.toBe(hashWithout);
-    expect(readState(p).sharedPartials?.['letterhead']).toMatchObject({ version: 3, engine: 'jinja2', contentHash: partialContentHash('<header>{{ brand.name }}{% include "address" %}</header>') });
+    expect(readState(p).sharedPartials?.['letterhead']).toMatchObject({
+      version: 3,
+      engine: 'jinja2',
+      contentHash: partialContentHash(
+        '<header>{{ brand.name }}{% include "address" %}</header>',
+      ),
+    });
 
     // local renders resolve the normalised name from the partials folder and see the pulled brand
-    writeBrand(p, { version: 2, name: 'Fennlor Studio GmbH', colors: { primary: '#0f766e', bad: 3 }, fonts: { heading: 'Inter' }, logo: {}, page_defaults: {} });
+    writeBrand(p, {
+      version: 2,
+      name: 'Fennlor Studio GmbH',
+      colors: { primary: '#0f766e', bad: 3 },
+      fonts: { heading: 'Inter' },
+      logo: {},
+      page_defaults: {},
+    });
     const rendered = await renderLocal(p, tpl, {}, { mode: 'print' });
-    expect(rendered.document).toContain('<header>Fennlor Studio GmbH<p>Street 1</p></header>');
+    expect(rendered.document).toContain(
+      '<header>Fennlor Studio GmbH<p>Street 1</p></header>',
+    );
     expect(rendered.document).toContain('--brand-color-primary: #0f766e;');
     expect(rendered.document).toContain('--brand-font-heading: "Inter";');
   });
@@ -142,15 +288,41 @@ describe('template folders (spec 15 §2)', () => {
     const p = project();
     const settings = {
       header: { html: '<p>{{ company.name }}</p>', height: '20mm' },
-      footer: { html: '<p>{{ company.zip }} <span class="pageNumber"></span></p>' },
+      footer: {
+        html: '<p>{{ company.zip }} <span class="pageNumber"></span></p>',
+      },
       pdf: { metadata: { title: 'Offer {{ number }}' } },
     };
-    writeTemplate(p, 'offer', { name: 'Offer', kind: 'pdf', engine: 'jinja2' }, { html: '<p>{{ number }}</p>', css: '', head: '', settings, sample_data: {}, data_schema: null, i18n: null });
-    const rendered = await renderLocal(p, readTemplate(p, 'offer'), { number: 7, company: { name: 'Fennlor Studio GmbH', zip: '12345' } }, { mode: 'print' });
-    const sent = renderedSettings(rendered) as { header: { html: string; height: string }; footer: { html: string }; pdf: { metadata: { title: string } } };
+    writeTemplate(
+      p,
+      'offer',
+      { name: 'Offer', kind: 'pdf', engine: 'jinja2' },
+      {
+        html: '<p>{{ number }}</p>',
+        css: '',
+        head: '',
+        settings,
+        sample_data: {},
+        data_schema: null,
+        i18n: null,
+      },
+    );
+    const rendered = await renderLocal(
+      p,
+      readTemplate(p, 'offer'),
+      { number: 7, company: { name: 'Fennlor Studio GmbH', zip: '12345' } },
+      { mode: 'print' },
+    );
+    const sent = renderedSettings(rendered) as {
+      header: { html: string; height: string };
+      footer: { html: string };
+      pdf: { metadata: { title: string } };
+    };
     expect(sent.header.html).toContain('<p>Fennlor Studio GmbH</p>');
     expect(sent.header.height).toBe('20mm');
-    expect(sent.footer.html).toContain('<p>12345 <span class="pageNumber"></span></p>');
+    expect(sent.footer.html).toContain(
+      '<p>12345 <span class="pageNumber"></span></p>',
+    );
     expect(sent.pdf.metadata.title).toBe('Offer 7');
     expect(JSON.stringify(sent)).not.toContain('{{');
   });
@@ -158,29 +330,176 @@ describe('template folders (spec 15 §2)', () => {
   it('reads the pulled brand kit, or the empty kit without the file', async () => {
     const p = project();
     expect(readBrand(p)).toEqual(emptyBrand());
-    writeTemplate(p, 'card', { name: 'Card', kind: 'pdf', engine: 'liquid' }, { html: '<p>{{ brand.legal_footer }}|{{ brand.logo.mark }}</p>', css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
-    const empty = await renderLocal(p, readTemplate(p, 'card'), {}, { mode: 'preview' });
+    writeTemplate(
+      p,
+      'card',
+      { name: 'Card', kind: 'pdf', engine: 'liquid' },
+      {
+        html: '<p>{{ brand.legal_footer }}|{{ brand.logo.mark }}</p>',
+        css: '',
+        head: '',
+        settings: {},
+        sample_data: {},
+        data_schema: null,
+        i18n: null,
+      },
+    );
+    const empty = await renderLocal(
+      p,
+      readTemplate(p, 'card'),
+      {},
+      { mode: 'preview' },
+    );
     expect(empty.document).toContain('<p>|</p>');
     expect(empty.document).not.toContain('data-formfeed="brand"');
 
-    writeBrand(p, { version: 4, name: null, colors: {}, fonts: { heading: null, body: null }, font_size: '10pt', logo: { primary: null, inverse: null, mark: 'https://cdn.test/m.svg' }, legal_footer: 'HRB 1', page_defaults: {}, updated_at: null });
-    expect(readBrand(p)).toMatchObject({ version: 4, font_size: '10pt', legal_footer: 'HRB 1', logo: { mark: 'https://cdn.test/m.svg' } });
-    const branded = await renderLocal(p, readTemplate(p, 'card'), {}, { mode: 'preview' });
+    writeBrand(p, {
+      version: 4,
+      name: null,
+      colors: {},
+      fonts: { heading: null, body: null },
+      font_size: '10pt',
+      logo: { primary: null, inverse: null, mark: 'https://cdn.test/m.svg' },
+      legal_footer: 'HRB 1',
+      page_defaults: {},
+      updated_at: null,
+    });
+    expect(readBrand(p)).toMatchObject({
+      version: 4,
+      font_size: '10pt',
+      legal_footer: 'HRB 1',
+      logo: { mark: 'https://cdn.test/m.svg' },
+    });
+    const branded = await renderLocal(
+      p,
+      readTemplate(p, 'card'),
+      {},
+      { mode: 'preview' },
+    );
     expect(branded.document).toContain('<p>HRB 1|https://cdn.test/m.svg</p>');
     // an explicit brand wins over the file, and request data wins over both
-    const explicit = await renderLocal(p, readTemplate(p, 'card'), { brand: { legal_footer: 'data' } }, { mode: 'preview', brand: emptyBrand() });
+    const explicit = await renderLocal(
+      p,
+      readTemplate(p, 'card'),
+      { brand: { legal_footer: 'data' } },
+      { mode: 'preview', brand: emptyBrand() },
+    );
     expect(explicit.document).toContain('<p>data|</p>');
 
     writeFileSync(join(dir, '.formfeed', 'brand.json'), '{ nope');
     expect(() => readBrand(p)).toThrow(/brand\.json is not valid JSON/);
   });
 
+  it('keeps a visual design in design.json and warns when the code left it behind', async () => {
+    const p = project();
+    const starter = designStarters.find((s) => s.id === 'quote')!;
+    const emitted = emitDesign(starter.design, 'jinja2', starter.size);
+    const design = { ...starter.design, output: emitted.output };
+    const settings = {
+      image: { ...starter.size, format: 'png' as const },
+      design,
+    };
+    writeTemplate(
+      p,
+      'quote',
+      { name: 'Quote', kind: 'image', engine: 'jinja2' },
+      {
+        html: emitted.html,
+        css: emitted.css,
+        head: '',
+        settings,
+        sample_data: starter.sampleData as Record<string, unknown>,
+        data_schema: null,
+        i18n: null,
+      },
+    );
+    const folder = join(dir, 'templates', 'quote');
+    expect(
+      JSON.parse(readFileSync(join(folder, 'settings.json'), 'utf8')),
+    ).toEqual({ image: settings.image });
+    expect(
+      JSON.parse(readFileSync(join(folder, 'design.json'), 'utf8')),
+    ).toEqual(design);
+
+    const tpl = readTemplate(p, 'quote');
+    expect(tpl.settings).toEqual(settings);
+    expect(versionPayload(tpl).settings['design']).toEqual(design);
+    expect(
+      diagnose(tpl, tpl.dataSets['default']).filter((d) =>
+        d.code.startsWith('design-'),
+      ),
+    ).toEqual([]);
+    // a local render sends the HTML, not the design
+    const rendered = await renderLocal(p, tpl, tpl.dataSets['default'], {
+      mode: 'print',
+    });
+    expect(renderedSettings(rendered)).not.toHaveProperty('design');
+
+    // a CRLF checkout is no edit; a changed line is
+    writeFileSync(
+      join(folder, 'template.html'),
+      emitted.html.replace(/\n/g, '\r\n'),
+    );
+    expect(
+      diagnose(readTemplate(p, 'quote'), {}).filter((d) =>
+        d.code.startsWith('design-'),
+      ),
+    ).toEqual([]);
+    writeFileSync(
+      join(folder, 'template.html'),
+      emitted.html.replace('</div>\n', '</div>\n<p>by hand</p>\n'),
+    );
+    expect(diagnose(readTemplate(p, 'quote'), {}).map((d) => d.code)).toContain(
+      'design-stale',
+    );
+    writeFileSync(join(folder, 'design.json'), '{ "version": 99 }');
+    expect(
+      diagnose(readTemplate(p, 'quote'), {}).find(
+        (d) => d.code === 'design-invalid',
+      )?.severity,
+    ).toBe('warning');
+
+    // pulling a version without a design removes the file
+    writeTemplate(
+      p,
+      'quote',
+      { name: 'Quote', kind: 'image', engine: 'jinja2' },
+      {
+        html: '<p>x</p>',
+        css: '',
+        head: '',
+        settings: {},
+        sample_data: {},
+        data_schema: null,
+        i18n: null,
+      },
+    );
+    expect(existsSync(join(folder, 'design.json'))).toBe(false);
+  });
+
   it('reports an include without a file', () => {
     const p = project();
-    writeTemplate(p, 'letter', { name: 'Letter', kind: 'pdf', engine: 'jinja2' }, { html: '<main>{% include "nowhere" %}</main>', css: '', head: '', settings: {}, sample_data: {}, data_schema: null, i18n: null });
+    writeTemplate(
+      p,
+      'letter',
+      { name: 'Letter', kind: 'pdf', engine: 'jinja2' },
+      {
+        html: '<main>{% include "nowhere" %}</main>',
+        css: '',
+        head: '',
+        settings: {},
+        sample_data: {},
+        data_schema: null,
+        i18n: null,
+      },
+    );
     const tpl = readTemplate(p, 'letter');
     expect(tpl.missingPartials).toEqual(['nowhere']);
-    expect(diagnose(tpl, {}).some((d) => d.code === 'missing-partial' && d.message.includes('nowhere'))).toBe(true);
+    expect(
+      diagnose(tpl, {}).some(
+        (d) => d.code === 'missing-partial' && d.message.includes('nowhere'),
+      ),
+    ).toBe(true);
   });
 
   it('diagnoses like the editor and renders previews with the shared engine', async () => {
@@ -200,17 +519,41 @@ describe('template folders (spec 15 §2)', () => {
       },
     );
     mkdirSync(join(dir, 'partials'), { recursive: true });
-    writeFileSync(join(dir, 'partials', 'footer.html'), '<footer>{{ total }}</footer>');
+    writeFileSync(
+      join(dir, 'partials', 'footer.html'),
+      '<footer>{{ total }}</footer>',
+    );
     const tpl = readTemplate(p, 'broken');
     const diagnostics = diagnose(tpl, tpl.dataSets['default']);
-    expect(diagnostics.some((d) => d.severity === 'error' && /fancy_filter/.test(d.message))).toBe(true);
-    expect(diagnostics.some((d) => d.severity === 'warning' && /missing/.test(d.message))).toBe(true);
+    expect(
+      diagnostics.some(
+        (d) => d.severity === 'error' && /fancy_filter/.test(d.message),
+      ),
+    ).toBe(true);
+    expect(
+      diagnostics.some(
+        (d) => d.severity === 'warning' && /missing/.test(d.message),
+      ),
+    ).toBe(true);
 
-    writeFileSync(join(dir, 'templates', 'broken', 'template.html'), '<p>{{ total }}</p>{% include "footer" %}');
+    writeFileSync(
+      join(dir, 'templates', 'broken', 'template.html'),
+      '<p>{{ total }}</p>{% include "footer" %}',
+    );
     const fixed = readTemplate(p, 'broken');
-    const rendered = await renderLocal(p, fixed, { total: 5 }, { mode: 'preview' });
+    const rendered = await renderLocal(
+      p,
+      fixed,
+      { total: 5 },
+      { mode: 'preview' },
+    );
     expect(rendered.document).toContain('<footer>5</footer>');
-    const paged = previewDocument(fixed, rendered, 'paged', '/vendor/pagedjs/paged.polyfill.min.js');
+    const paged = previewDocument(
+      fixed,
+      rendered,
+      'paged',
+      '/vendor/pagedjs/paged.polyfill.min.js',
+    );
     expect(paged).toContain('paged.polyfill.min.js');
     expect(paged).toContain('window.PagedConfig');
     const flow = previewDocument(fixed, rendered, 'flow', '/x');

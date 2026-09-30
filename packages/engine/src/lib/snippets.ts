@@ -1,3 +1,4 @@
+import { ifElse, loop, tr, val } from './dialect';
 import type { EngineId } from './types';
 
 /**
@@ -35,33 +36,6 @@ export interface Snippet {
   i18n?: Record<string, Record<string, string>>;
 }
 
-/** Handlebars has no loop variable: inside `{{#each}}` the item's fields are read directly. */
-const loop = (engine: EngineId, item: string, list: string, body: string) =>
-  engine === 'handlebars'
-    ? `{{#each ${list}}}\n${body.replace(new RegExp(`(?<![\\w.])${item}\\.`, 'g'), '')}\n{{/each}}`
-    : `{% for ${item} in ${list} %}\n${body}\n{% endfor %}`;
-const val = (engine: EngineId, expr: string, filter?: string) => {
-  if (!filter) return `{{ ${expr} }}`;
-  if (engine === 'handlebars')
-    return `{{${filter.split('(')[0]} ${expr}${filter.includes('(') ? ' ' + filter.slice(filter.indexOf('(') + 1, -1) : ''}}}`;
-  return engine === 'liquid'
-    ? `{{ ${expr} | ${filter.replace('(', ': ').replace(')', '')} }}`
-    : `{{ ${expr} | ${filter} }}`;
-};
-const ifElse = (engine: EngineId, cond: string, then: string, otherwise: string) =>
-  engine === 'handlebars'
-    ? `{{#if ${cond}}}${then}{{else}}${otherwise}{{/if}}`
-    : `{% if ${cond} %}${then}{% else %}${otherwise}{% endif %}`;
-/** A `t` call with optional placeholder params (`{ rate: 'invoice.vat_rate' }`, values are expressions). */
-const tr = (engine: EngineId, key: string, params: Record<string, string> = {}) => {
-  const entries = Object.entries(params);
-  if (engine === 'handlebars')
-    return `{{t '${key}'${entries.map(([k, v]) => ` ${k}=${v}`).join('')}}}`;
-  if (engine === 'liquid')
-    return `{{ '${key}' | t${entries.length ? ': ' + entries.map(([k, v]) => `${k}: ${v}`).join(', ') : ''} }}`;
-  return `{{ t('${key}'${entries.length ? `, { ${entries.map(([k, v]) => `${k}: ${v}`).join(', ')} }` : ''}) }}`;
-};
-
 function forAll(build: (engine: EngineId) => string): Record<EngineId, string> {
   return {
     jinja2: build('jinja2'),
@@ -77,7 +51,8 @@ export const snippets: Snippet[] = [
     id: 'letterhead',
     group: 'letter',
     title: 'Letterhead',
-    description: 'Logo from the brand kit, or the organisation name when no logo is set.',
+    description:
+      'Logo from the brand kit, or the organisation name when no logo is set.',
     source: forAll(
       (e) => `<header class="ff-letterhead">
   ${ifElse(e, 'brand.logo.primary', `<img class="logo" src="${val(e, 'brand.logo.primary')}" alt="${val(e, 'brand.name')}">`, `<strong class="name">${val(e, 'brand.name')}</strong>`)}
@@ -103,8 +78,18 @@ export const snippets: Snippet[] = [
 </div>$0`,
     ),
     sampleData: {
-      company: { name: 'Fennlor Studio GmbH', street: 'Musterstraße 1', zip: '12345', city: 'Musterstadt' },
-      customer: { name: 'Olvarest GmbH', street: 'Beispielweg 2', zip: '54321', city: 'Beispielstadt' },
+      company: {
+        name: 'Fennlor Studio GmbH',
+        street: 'Musterstraße 1',
+        zip: '12345',
+        city: 'Musterstadt',
+      },
+      customer: {
+        name: 'Olvarest GmbH',
+        street: 'Beispielweg 2',
+        zip: '54321',
+        city: 'Beispielstadt',
+      },
     },
     // Form B puts the field 45 mm below the top edge and 20 mm from the left; the page margins decide where it lands
     css: `.ff-window { width: 85mm; height: 45mm; box-sizing: border-box; padding: 0 5mm; overflow: hidden; }\n.ff-window .sender { height: 5mm; line-height: 5mm; margin-bottom: 3mm; font-size: 7pt; color: #555; border-bottom: 0.5pt solid #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.ff-window address { font-style: normal; font-size: 10pt; line-height: 1.35; }`,
@@ -128,8 +113,16 @@ export const snippets: Snippet[] = [
     },
     css: `.ff-reference { margin-left: auto; border-collapse: collapse; font-size: 9pt; }\n.ff-reference th { text-align: left; font-weight: normal; color: #555; padding: 1px 12px 1px 0; }\n.ff-reference td { text-align: right; padding: 1px 0; }`,
     i18n: {
-      en: { 'reference.customer': 'Customer no.', 'reference.invoice': 'Invoice no.', 'reference.date': 'Date' },
-      de: { 'reference.customer': 'Kundennummer', 'reference.invoice': 'Rechnungsnummer', 'reference.date': 'Datum' },
+      en: {
+        'reference.customer': 'Customer no.',
+        'reference.invoice': 'Invoice no.',
+        'reference.date': 'Date',
+      },
+      de: {
+        'reference.customer': 'Kundennummer',
+        'reference.invoice': 'Rechnungsnummer',
+        'reference.date': 'Datum',
+      },
     },
   },
   {
@@ -144,12 +137,22 @@ export const snippets: Snippet[] = [
 </div>$0`,
     ),
     sampleData: {
-      invoice: { number: '2026-0042', period_start: '2026-09-01', period_end: '2026-09-30' },
+      invoice: {
+        number: '2026-0042',
+        period_start: '2026-09-01',
+        period_end: '2026-09-30',
+      },
     },
     css: `.ff-heading { margin: 24px 0 16px; }\n.ff-heading h1 { font-family: var(--brand-font-heading, inherit); font-size: 18pt; color: var(--brand-color-primary, inherit); margin: 0 0 4px; }\n.ff-heading p { margin: 0; color: #555; }`,
     i18n: {
-      en: { 'heading.title': 'Invoice {number}', 'heading.period': 'Service period:' },
-      de: { 'heading.title': 'Rechnung {number}', 'heading.period': 'Leistungszeitraum:' },
+      en: {
+        'heading.title': 'Invoice {number}',
+        'heading.period': 'Service period:',
+      },
+      de: {
+        'heading.title': 'Rechnung {number}',
+        'heading.period': 'Leistungszeitraum:',
+      },
     },
   },
   {
@@ -267,27 +270,39 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     id: 'small-business-note',
     group: 'invoice',
     title: 'Small business VAT note',
-    description: 'States that no VAT is charged under § 19 UStG (Kleinunternehmerregelung).',
-    source: forAll((e) => `<p class="ff-note">${tr(e, 'vat.small_business')}</p>$0`),
+    description:
+      'States that no VAT is charged under § 19 UStG (Kleinunternehmerregelung).',
+    source: forAll(
+      (e) => `<p class="ff-note">${tr(e, 'vat.small_business')}</p>$0`,
+    ),
     css: `.ff-note { margin-top: 12px; font-size: 9pt; color: #444; }`,
     i18n: {
-      en: { 'vat.small_business': 'No VAT is charged under the small business scheme of § 19 UStG.' },
-      de: { 'vat.small_business': 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.' },
+      en: {
+        'vat.small_business':
+          'No VAT is charged under the small business scheme of § 19 UStG.',
+      },
+      de: {
+        'vat.small_business':
+          'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
+      },
     },
   },
   {
     id: 'reverse-charge-note',
     group: 'invoice',
     title: 'Reverse charge note',
-    description: 'EU business customers: the recipient owes the VAT, with their VAT ID.',
+    description:
+      'EU business customers: the recipient owes the VAT, with their VAT ID.',
     source: forAll(
-      (e) => `<p class="ff-note">${tr(e, 'vat.reverse_charge')} ${tr(e, 'vat.customer_id')} ${val(e, 'customer.vat_id')}</p>$0`,
+      (e) =>
+        `<p class="ff-note">${tr(e, 'vat.reverse_charge')} ${tr(e, 'vat.customer_id')} ${val(e, 'customer.vat_id')}</p>$0`,
     ),
     sampleData: { customer: { vat_id: 'ATU00000000' } },
     css: `.ff-note { margin-top: 12px; font-size: 9pt; color: #444; }`,
     i18n: {
       en: {
-        'vat.reverse_charge': 'Reverse charge: the recipient of the service is liable for VAT.',
+        'vat.reverse_charge':
+          'Reverse charge: the recipient of the service is liable for VAT.',
         'vat.customer_id': 'Customer VAT ID:',
       },
       de: {
@@ -335,7 +350,9 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
   <span>${tr(e, 'footer.page')} <span class="pageNumber"></span> ${tr(e, 'footer.of')} <span class="totalPages"></span></span>
 </div>$0`,
     ),
-    sampleData: { company: { name: 'Fennlor Studio GmbH', email: 'hello@fennlor.example' } },
+    sampleData: {
+      company: { name: 'Fennlor Studio GmbH', email: 'hello@fennlor.example' },
+    },
     i18n: {
       en: { 'footer.page': 'Page', 'footer.of': 'of' },
       de: { 'footer.page': 'Seite', 'footer.of': 'von' },
@@ -346,10 +363,12 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     group: 'page',
     kinds: ['pdf'],
     title: 'Legal footer',
-    description: 'The legal footer from the brand kit, centred in the page footer.',
+    description:
+      'The legal footer from the brand kit, centred in the page footer.',
     target: 'footer',
     source: forAll(
-      (e) => `<div style="width:100%;text-align:center;font-size:8px;color:#666">${val(e, 'brand.legal_footer')}</div>$0`,
+      (e) =>
+        `<div style="width:100%;text-align:center;font-size:8px;color:#666">${val(e, 'brand.legal_footer')}</div>$0`,
     ),
   },
   {
@@ -407,7 +426,10 @@ ${loop(e, 'line', 'invoice.lines', `    <tr><td>${val(e, 'line.description')}</t
     },
     i18n: {
       en: { 'qr.alt': 'Payment QR code', 'qr.caption': 'Scan to pay' },
-      de: { 'qr.alt': 'QR-Code zur Zahlung', 'qr.caption': 'Zum Bezahlen scannen' },
+      de: {
+        'qr.alt': 'QR-Code zur Zahlung',
+        'qr.caption': 'Zum Bezahlen scannen',
+      },
     },
     sampleData: {
       payment: {
@@ -509,14 +531,17 @@ export function snippetText(code: string): string {
  * `sharedPartialsFor` recognises; `undefined` for a name that syntax cannot carry. Liquid uses
  * `include`, because `render` hides the template's data from the partial.
  */
-export function partialInclude(engine: EngineId, name: string): string | undefined {
+export function partialInclude(
+  engine: EngineId,
+  name: string,
+): string | undefined {
   if (engine === 'handlebars')
     return /^[A-Za-z0-9_./-]+$/.test(name) ? `{{> ${name}}}` : undefined;
   // `$` would start a tab stop when the line is inserted as a Monaco snippet
   return /^[^'"{}%$\\\n]+$/.test(name) ? `{% include '${name}' %}` : undefined;
 }
 
-const stripComments =(css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
+const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 /** A rule's selector list in one spelling; text before the last `;` (an `@import`) is not part of it. */
 const selectorKey = (prelude: string) =>
   (prelude.split(';').pop() ?? '')
@@ -528,10 +553,15 @@ const selectorKey = (prelude: string) =>
  * Appends the rules of a snippet's CSS whose selector list the stylesheet does not have yet, so a
  * template that already styles `.ff-lines` itself keeps that rule and still gets the others.
  */
-export function mergeSnippetCss(css: string, snippetCss: string | undefined): string {
+export function mergeSnippetCss(
+  css: string,
+  snippetCss: string | undefined,
+): string {
   if (!snippetCss?.trim()) return css;
   const defined = new Set(
-    [...stripComments(css).matchAll(/([^{}]+)\{/g)].map((m) => selectorKey(m[1] ?? '')),
+    [...stripComments(css).matchAll(/([^{}]+)\{/g)].map((m) =>
+      selectorKey(m[1] ?? ''),
+    ),
   );
   const missing = [...stripComments(snippetCss).matchAll(/([^{}]+)\{[^{}]*\}/g)]
     .filter((m) => !defined.has(selectorKey(m[1] ?? '')))
@@ -553,7 +583,9 @@ export function mergeSnippetI18n(
 ): unknown {
   if (!extra) return dictionaries;
   const base =
-    dictionaries && typeof dictionaries === 'object' && !Array.isArray(dictionaries)
+    dictionaries &&
+    typeof dictionaries === 'object' &&
+    !Array.isArray(dictionaries)
       ? (dictionaries as Record<string, unknown>)
       : {};
   const lang = (l: string) => l.split('-')[0]?.toLowerCase() ?? l;

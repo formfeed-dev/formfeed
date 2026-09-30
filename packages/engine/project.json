@@ -6,6 +6,15 @@
   "tags": [],
   "// targets": "to see all targets run: nx show project engine --web",
   "targets": {
+    "frames": {
+      "executor": "nx:run-commands",
+      "metadata": {
+        "description": "Bundles the preview frame scripts (src/frame/*.entry.ts) into src/lib/generated/frames.ts; commit the result. The engine's tests fail while it is stale."
+      },
+      "options": {
+        "command": "node packages/engine/scripts/build-frames.mjs"
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "metadata": {
