@@ -31,6 +31,10 @@ Choosing a template loads its fields from its data schema (or its sample data), 
 (`invoice.number`) instead of pasting JSON; the JSON field covers lists and nested objects. With
 *Download File* the rendered document is attached as binary data, ready for an email or an upload.
 
+The node also works as a tool: connect it to the **Tools** input of n8n's AI Agent node and the agent
+picks the operation and fills in its fields. A self-hosted n8n offers community nodes as tools only
+when the instance sets `N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true`.
+
 **Formfeed Trigger**
 
 Registers a webhook endpoint in your workspace and starts the workflow on `render.completed`,

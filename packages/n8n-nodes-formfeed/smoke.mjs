@@ -32,6 +32,8 @@ for (const relative of [...manifest.n8n.nodes, ...manifest.n8n.credentials]) {
     if (!property.name || !property.type) fail(`${subject.name}: property without name or type`);
     if (property.displayName === undefined) fail(`${subject.name}: property ${property.name} has no displayName`);
   }
+  // n8n offers the action node to its AI Agent as a tool only while the description says so
+  if (subject.name === 'formfeed' && subject.usableAsTool !== true) fail('the Formfeed node is not usable as a tool');
   console.log('ok', subject.name);
 }
 

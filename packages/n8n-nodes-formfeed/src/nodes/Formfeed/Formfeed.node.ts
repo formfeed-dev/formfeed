@@ -41,6 +41,8 @@ export class Formfeed implements INodeType {
     defaults: { name: 'Formfeed' },
     inputs: [NodeConnectionTypes.Main],
     outputs: [NodeConnectionTypes.Main],
+    // lets n8n's AI Agent node call every operation as a tool; n8n builds the tool from this description
+    usableAsTool: true,
     credentials: [{ name: 'formfeedApi', required: true }],
     properties: [
       {
