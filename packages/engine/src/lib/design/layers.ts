@@ -3,9 +3,21 @@ import {
   type CanvasSize,
   type DesignDocument,
   type DesignLayer,
+  type ImageSource,
   type LayerType,
   type TextLayer,
 } from './types';
+
+/**
+ * An image layer whose image is not chosen yet: an empty file name, URL or data path. A new layer
+ * starts that way; the emitter writes an empty box for it and the editor asks for an image.
+ */
+export function imageIsEmpty(source: ImageSource): boolean {
+  if ('url' in source) return source.url === '';
+  if ('asset' in source) return source.asset === '';
+  if ('path' in source) return source.path === '';
+  return false;
+}
 
 /** A design with nothing on it but a white canvas. */
 export function emptyDesign(): DesignDocument {
@@ -74,7 +86,8 @@ export function defaultLayer(
         ...common,
         type: 'image',
         ...centred(Math.min(canvas.width, 400), Math.min(canvas.height, 300)),
-        source: { url: '' },
+        // not chosen yet (`imageIsEmpty`), and the file library first: that is where an upload goes
+        source: { asset: '' },
         fit: 'cover',
       };
     case 'shape':

@@ -7,6 +7,7 @@ import {
   designStarters,
   emitDesign,
   googleFontsUrl,
+  imageIsEmpty,
   nearestWeight,
   googleFont,
   parseDesign,
@@ -409,14 +410,52 @@ describe('layers', () => {
       width: 240,
       height: 160,
     });
+    // every new layer is a design the editor can go on with: it parses the design after each change,
+    // and a new image that did not parse closed the canvas ("The design cannot be opened")
     for (const type of ['text', 'image', 'shape', 'qr', 'barcode'] as const) {
       const layer = defaultLayer(type, `${type}-1`, type, size);
-      // an image without a source yet is the one layer a new design may not save as is
-      if (type !== 'image')
-        expect(
-          parseDesign({ ...emptyDesign(), layers: [layer] }).problems,
-          type,
-        ).toEqual([]);
+      expect(
+        parseDesign({ ...emptyDesign(), layers: [layer] }).problems,
+        type,
+      ).toEqual([]);
     }
+  });
+
+  it('keeps an image that is not chosen yet as an empty box', async () => {
+    const image = defaultLayer('image', 'image-1', 'Image 1', size);
+    expect(image.type === 'image' && imageIsEmpty(image.source)).toBe(true);
+    for (const source of [{ url: '' }, { asset: '' }, { path: '' }]) {
+      const design = {
+        ...emptyDesign(),
+        layers: [{ ...image, source } as DesignLayer],
+      };
+      expect(parseDesign(design).problems, JSON.stringify(source)).toEqual([]);
+      for (const engine of engines) {
+        const { html } = emitDesign(design, engine, size);
+        // no request for an empty address, and no empty expression for an engine to refuse
+        expect(html, engine).toContain(
+          '<div class="ff-layer l-image-1" data-ff-layer="image-1"></div>',
+        );
+        expect(html, engine).not.toContain('<img');
+        expect(await renderedDesign(engine, design, {}), engine).toContain(
+          'data-ff-layer="image-1"',
+        );
+      }
+    }
+    expect(imageIsEmpty({ url: 'https://cdn.test/a.png' })).toBe(false);
+    expect(imageIsEmpty({ brandLogo: 'primary' })).toBe(false);
+    // a source that is there is still checked
+    for (const source of [
+      { url: 'cdn.test/a.png' },
+      { asset: 'a"b.png' },
+      { path: 'a b' },
+    ])
+      expect(
+        parseDesign({
+          ...emptyDesign(),
+          layers: [{ ...image, source } as DesignLayer],
+        }).design,
+        JSON.stringify(source),
+      ).toBeNull();
   });
 });

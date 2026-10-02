@@ -22,5 +22,5 @@ export {
   nearestWeight,
   type GoogleFont,
 } from './fonts';
-export { defaultLayer, emptyDesign, nextLayerId } from './layers';
+export { defaultLayer, emptyDesign, imageIsEmpty, nextLayerId } from './layers';
 export { designStarters, type DesignStarter } from './starters';

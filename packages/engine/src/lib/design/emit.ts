@@ -8,6 +8,7 @@ import {
   nearestWeight,
 } from './fonts';
 import { designOutputHash } from './hash';
+import { imageIsEmpty } from './layers';
 import type {
   Binding,
   CanvasSize,
@@ -105,6 +106,8 @@ function layerHtml(layer: DesignLayer, engine: EngineId): string {
       return `${open(layer, 'div', fit)}><p class="ff-text">${textHtml(layer.content, engine)}</p></div>`;
     }
     case 'image':
+      // not chosen yet: an empty box, so nothing is requested and no engine meets an empty expression
+      if (imageIsEmpty(layer.source)) return `${open(layer, 'div')}></div>`;
       return `${open(layer, 'img', ` src="${imageSource(layer.source, engine)}" alt=""`)}>`;
     case 'shape':
       return `${open(layer, 'div')}></div>`;

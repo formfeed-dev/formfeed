@@ -436,6 +436,11 @@ function readFormat(r: Reader, raw: unknown): TextFormat | undefined {
 
 function readImageSource(r: Reader, raw: unknown): ImageSource {
   const v = (raw ?? {}) as Record_;
+  // An empty url, file name or path is an image not chosen yet (`imageIsEmpty`): a new layer starts
+  // that way, so it is a design like any other, and the emitter writes an empty box for it.
+  if (v['url'] === '') return { url: '' };
+  if (v['asset'] === '') return { asset: '' };
+  if (v['path'] === '') return { path: '' };
   if (typeof v['url'] === 'string')
     return {
       url: r.string(v['url'], 'image url', 2000, /^https?:\/\/[^\s"'<>]+$/),

@@ -194,6 +194,7 @@ export {
   googleFont,
   googleFonts,
   googleFontsUrl,
+  imageIsEmpty,
   layerIdPattern,
   nearestWeight,
   nextLayerId,

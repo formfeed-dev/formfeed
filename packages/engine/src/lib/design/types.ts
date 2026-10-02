@@ -52,6 +52,7 @@ export interface TextStyle {
   underline?: boolean;
 }
 
+/** Where an image comes from; an empty `url`, `asset` or `path` is one not chosen yet (`imageIsEmpty`). */
 export type ImageSource =
   | { url: string }
   | { asset: string }
