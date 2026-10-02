@@ -8,7 +8,8 @@
  * answers with the items to show (`formfeed:edit-begin`) or a refusal. While editing, text is typed
  * in place, chips are atomic, and Enter, Tab or leaving the element commit
  * (`formfeed:edit-commit`), Escape cancels. The frame never writes the template: it only sends what
- * the user typed.
+ * the user typed. Ctrl+B, Ctrl+I and Ctrl+U format nothing here; on the design stage they are passed
+ * on (`formfeed:edit-style`), where they switch the style of the whole layer.
  */
 
 /** An item as the frame shows it: chips carry the text to display. */
@@ -29,6 +30,15 @@ export interface EditBegin {
   src: string;
   /** A design layer instead of a source position: its `.ff-text` is edited (the canvas, plan 16 §4.6). */
   layer?: string;
+  /**
+   * Where the caret goes, in this document's viewport px. The canvas takes its clicks on an overlay
+   * outside the frame, so it says where the click was; without it the caret goes to the end.
+   */
+  at?: { x: number; y: number };
+  /** Text to type first: the key that started the session on the canvas (select a text, then type). */
+  insert?: string;
+  /** Starts with the whole text selected, so typing replaces it: a text added a moment ago holds a placeholder. */
+  select?: 'all';
   items: FrameItem[];
   allowBreaks: boolean;
   /** Shown beside the element while editing ("Changes all 12"). */
@@ -187,8 +197,14 @@ export function installTextEdit(
         : (doc.querySelector(
             `[data-ff-src="${String(message.src).replace(/"/g, '')}"]`,
           ) as HTMLElement | null);
-    const point =
-      !message.layer && pending && pending.src === message.src ? pending : null;
+    const at = message.at;
+    const point = message.layer
+      ? at && Number.isFinite(at.x) && Number.isFinite(at.y)
+        ? { x: Number(at.x), y: Number(at.y) }
+        : null
+      : pending && pending.src === message.src
+        ? pending
+        : null;
     pending = null;
     // the editor holds its render and its gestures until a session ends: say so when none starts (the
     // element is not in this document, say a layer added after it was rendered)
@@ -236,8 +252,30 @@ export function installTextEdit(
     element.addEventListener('focusout', onFocusOut);
     if (live) element.addEventListener('input', onInput);
     element.focus();
-    placeCaret(element, point);
+    if (message.select === 'all') selectAll(element);
+    else placeCaret(element, point);
     say({ type: 'formfeed:edit-started', token: session.token });
+    if (typeof message.insert === 'string' && message.insert)
+      insertText(message.insert.replace(/\r\n?|\n/g, ' '));
+  }
+
+  /** Types `text` at the caret, as the keyboard would. */
+  function insertText(text: string): void {
+    // the command keeps the browser's undo; where it is missing or refuses, the range does the work
+    if (
+      typeof doc.execCommand === 'function' &&
+      doc.execCommand('insertText', false, text)
+    )
+      return;
+    const selection = win.getSelection();
+    const range =
+      selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+    if (!range) return;
+    range.deleteContents();
+    range.insertNode(doc.createTextNode(text));
+    range.collapse(false);
+    // nothing fired an input event for this: the canvas hears of the text here
+    if (live) onInput();
   }
 
   function onInput(): void {
@@ -258,6 +296,15 @@ export function installTextEdit(
     badge.style.top = `${Math.max(0, rect.top + win.scrollY - 22)}px`;
     doc.body.appendChild(badge);
     return badge;
+  }
+
+  function selectAll(element: HTMLElement): void {
+    const selection = win.getSelection();
+    if (!selection) return;
+    const range = doc.createRange();
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
   }
 
   function placeCaret(
@@ -289,6 +336,20 @@ export function installTextEdit(
       range = doc.createRange();
       range.selectNodeContents(element);
       range.collapse(false);
+    } else if (point) {
+      // A point on a chip: a chip is atomic and takes no typing, so a caret inside one would swallow
+      // every key. It goes to the side of the chip the point is nearer to.
+      const start = range.startContainer;
+      const holder =
+        start.nodeType === 1 ? (start as Element) : start.parentElement;
+      const chip = holder?.closest('[data-ff-chip]') ?? null;
+      if (chip && chip !== element && element.contains(chip)) {
+        const rect = chip.getBoundingClientRect();
+        range = doc.createRange();
+        if (point.x < rect.left + rect.width / 2) range.setStartBefore(chip);
+        else range.setStartAfter(chip);
+        range.collapse(true);
+      }
     }
     selection.removeAllRanges();
     selection.addRange(range);
@@ -314,6 +375,13 @@ export function installTextEdit(
     ) {
       // Firefox fires no beforeinput for these (spike A0)
       event.preventDefault();
+      // a layer of the canvas is one style throughout: the canvas switches it for the whole text
+      if (live && session && !event.altKey)
+        say({
+          type: 'formfeed:edit-style',
+          token: session.token,
+          key: key.toLowerCase(),
+        });
     }
   }
 
@@ -330,20 +398,12 @@ export function installTextEdit(
 
   function onPaste(event: ClipboardEvent): void {
     event.preventDefault();
-    const text = (event.clipboardData?.getData('text/plain') ?? '').replace(
-      /\r\n?|\n/g,
-      ' ',
+    insertText(
+      (event.clipboardData?.getData('text/plain') ?? '').replace(
+        /\r\n?|\n/g,
+        ' ',
+      ),
     );
-    if (!doc.execCommand('insertText', false, text)) {
-      const selection = win.getSelection();
-      const range =
-        selection && selection.rangeCount ? selection.getRangeAt(0) : null;
-      if (range) {
-        range.deleteContents();
-        range.insertNode(doc.createTextNode(text));
-        range.collapse(false);
-      }
-    }
   }
 
   function onDrop(event: DragEvent): void {

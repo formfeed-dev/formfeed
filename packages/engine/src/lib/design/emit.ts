@@ -245,7 +245,10 @@ function layerCss(layer: DesignLayer): string[] {
       'text-align': s.align,
       'font-style': s.italic ? 'italic' : undefined,
       'text-transform': s.uppercase ? 'uppercase' : undefined,
-      'text-decoration': s.underline ? 'underline' : undefined,
+      'text-decoration':
+        [s.underline && 'underline', s.strike && 'line-through']
+          .filter(Boolean)
+          .join(' ') || undefined,
       'text-shadow': text.shadow ? shadow(text.shadow) : undefined,
       'overflow-wrap': 'break-word',
       ...clamp,

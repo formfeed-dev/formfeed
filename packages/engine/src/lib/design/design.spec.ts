@@ -404,6 +404,8 @@ describe('layers', () => {
     };
     expect(nextLayerId(design, 'text')).toBe('text-2');
     expect(nextLayerId(design, 'qr')).toBe('qr-1');
+    // a new text is regular, so the editor's Bold starts switched off
+    expect(design.layers[0]).toMatchObject({ style: { weight: 400 } });
     expect(defaultLayer('shape', 'shape-1', 'Shape', size)).toMatchObject({
       x: 480,
       y: 235,
@@ -419,6 +421,36 @@ describe('layers', () => {
         type,
       ).toEqual([]);
     }
+  });
+
+  it('draws a line under and through text, and its shadow', () => {
+    const text = defaultLayer('text', 'note', 'Note', size) as DesignLayer & {
+      type: 'text';
+    };
+    const css = (style: Partial<typeof text.style>, shadow?: object) => {
+      const design = {
+        ...emptyDesign(),
+        layers: [
+          {
+            ...text,
+            style: { ...text.style, ...style },
+            ...(shadow ? { shadow } : {}),
+          },
+        ],
+      };
+      const parsed = parseDesign(design);
+      expect(parsed.problems).toEqual([]);
+      return emitDesign(parsed.design!, 'jinja2', size).css;
+    };
+    expect(css({})).not.toContain('text-decoration');
+    expect(css({ strike: true })).toContain('text-decoration: line-through');
+    expect(css({ underline: true, strike: true })).toContain(
+      'text-decoration: underline line-through',
+    );
+    // a text layer's shadow follows the letters, not the box
+    const shadowed = css({}, { x: 2, y: 4, blur: 8, color: '#00000080' });
+    expect(shadowed).toContain('text-shadow: 2px 4px 8px #00000080');
+    expect(shadowed).not.toContain('box-shadow');
   });
 
   it('keeps an image that is not chosen yet as an empty box', async () => {

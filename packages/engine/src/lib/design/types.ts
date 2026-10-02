@@ -50,6 +50,8 @@ export interface TextStyle {
   italic?: boolean;
   uppercase?: boolean;
   underline?: boolean;
+  /** A line through the text; with `underline` both lines are drawn. */
+  strike?: boolean;
 }
 
 /** Where an image comes from; an empty `url`, `asset` or `path` is one not chosen yet (`imageIsEmpty`). */

@@ -49,7 +49,8 @@ const baseText: Omit<
   content: [{ text: 'Text' }],
   style: {
     font: { family: 'Inter', source: 'google' },
-    weight: 600,
+    // regular: the editor's Bold is a toggle, and a new text that was already bold confused it
+    weight: 400,
     size: 48,
     lineHeight: 1.2,
     letterSpacing: 0,

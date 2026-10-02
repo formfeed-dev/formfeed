@@ -355,6 +355,7 @@ function readStyle(r: Reader, raw: unknown): TextStyle {
   if (v['italic'] === true) style.italic = true;
   if (v['uppercase'] === true) style.uppercase = true;
   if (v['underline'] === true) style.underline = true;
+  if (v['strike'] === true) style.strike = true;
   return style;
 }
 
