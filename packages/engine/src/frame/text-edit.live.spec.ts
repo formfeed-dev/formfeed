@@ -56,6 +56,37 @@ describe('the design stage edit session', () => {
     expect(sent).toHaveLength(count);
   });
 
+  it('does not open the text when the user went into a field of the app while the session was on its way', () => {
+    // the stage gave this window the focus and sent the session (a text added a moment ago opens by
+    // itself); the click into the inspector's field reached the app first
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    window.dispatchEvent(new Event('blur'));
+    try {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'formfeed:edit-begin',
+            token: 'k7',
+            src: '',
+            layer: 'title',
+            allowBreaks: true,
+            select: 'all',
+            items: [{ kind: 'text', text: 'Hello' }],
+          },
+          source: window,
+        }),
+      );
+      // the stage ends its side on this answer and leaves the focus in the field
+      expect(sent).toEqual([{ type: 'formfeed:edit-cancel', token: 'k7' }]);
+      expect(
+        (document.querySelector('.ff-text') as HTMLElement).contentEditable,
+      ).not.toBe('true');
+    } finally {
+      window.dispatchEvent(new Event('focus'));
+      hasFocus.mockRestore();
+    }
+  });
+
   it('starts with the key that was typed on the canvas, after what is there', () => {
     // selecting a text and typing starts the session: the stage hands over the first character,
     // and a point for the caret, which jsdom cannot resolve, so the caret goes to the end

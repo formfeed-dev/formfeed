@@ -9,7 +9,9 @@
  * in place, chips are atomic, and Enter, Tab or leaving the element commit
  * (`formfeed:edit-commit`), Escape cancels. The frame never writes the template: it only sends what
  * the user typed. Ctrl+B, Ctrl+I and Ctrl+U format nothing here; on the design stage they are passed
- * on (`formfeed:edit-style`), where they switch the style of the whole layer.
+ * on (`formfeed:edit-style`), where they switch the style of the whole layer. A session the editor
+ * asks for is not opened once the user has left this window for the app (`formfeed:edit-cancel`):
+ * opening it takes the focus, and that belongs to where the user went.
  */
 
 /** An item as the frame shows it: chips carry the text to display. */
@@ -99,6 +101,15 @@ export function installTextEdit(
       // the editor is gone
     }
   };
+  // Whether this window had the focus and was left again. The editor asks for a session with the
+  // focus here: the stage hands it over first, in the preview the click brought it.
+  let left = false;
+  win.addEventListener('blur', () => {
+    left = true;
+  });
+  win.addEventListener('focus', () => {
+    left = false;
+  });
 
   const sheet = doc.createElement('style');
   sheet.setAttribute('data-formfeed', 'edit');
@@ -206,9 +217,14 @@ export function installTextEdit(
         ? pending
         : null;
     pending = null;
+    // The user went on to something else while this message was on its way: a press in the app
+    // behind the key or click that asked for the session. Focusing the element now would take the
+    // focus out of the field they went to, and what they type there would land here. Only a window
+    // that was seen to lose the focus counts, so a browser that reports it differently still types.
+    const elsewhere = left && !doc.hasFocus();
     // the editor holds its render and its gestures until a session ends: say so when none starts (the
     // element is not in this document, say a layer added after it was rendered)
-    if (!element || !Array.isArray(message.items)) {
+    if (!element || !Array.isArray(message.items) || elsewhere) {
       say({ type: 'formfeed:edit-cancel', token: String(message.token) });
       return;
     }

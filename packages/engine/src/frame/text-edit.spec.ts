@@ -146,6 +146,37 @@ describe('the preview edit session', () => {
     expect(sent.at(-1)).toEqual({ type: 'formfeed:edit-cancel', token: 't3' });
   });
 
+  it('opens no session in a window the user has left for the app, and opens one again once back', () => {
+    // asked for with the focus here; then a press in the app got ahead of the editor's answer
+    h1().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    window.dispatchEvent(new Event('blur'));
+    try {
+      begin({ token: 't4' });
+      // focusing the element now would take the focus out of the field the user went to
+      expect(sent.at(-1)).toEqual({
+        type: 'formfeed:edit-cancel',
+        token: 't4',
+      });
+      // the property: jsdom does not reflect it into the attribute
+      expect(h1().contentEditable).not.toBe('true');
+      expect(h1().innerHTML).toBe('Dear <b>Erika</b>, thanks');
+    } finally {
+      window.dispatchEvent(new Event('focus'));
+      hasFocus.mockRestore();
+    }
+    begin({ token: 't5' });
+    expect(sent.at(-1)).toEqual({ type: 'formfeed:edit-started', token: 't5' });
+    expect(h1().contentEditable).toBe('true');
+  });
+
+  it('opens a session in a window never seen to lose the focus, whatever the document reports', () => {
+    // only a window that was left counts, so a browser that reports the focus differently still types
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    begin({ token: 't6' });
+    expect(sent.at(-1)).toEqual({ type: 'formfeed:edit-started', token: 't6' });
+  });
+
   it('commits when focus leaves the frame for the editor, although its active element stays', async () => {
     h1().dispatchEvent(new MouseEvent('click', { bubbles: true }));
     begin();
