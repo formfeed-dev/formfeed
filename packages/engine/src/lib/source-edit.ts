@@ -1,5 +1,6 @@
 import {
   lineStarts,
+  locate,
   offsetOf,
   rawTextElements,
   Scanner,
@@ -270,6 +271,14 @@ export function findRegionAgain(
   if (first < 0 || source.indexOf(outer, first + 1) >= 0) return null;
   const found = editableRegionAt(source, engine, first);
   return 'reason' in found ? null : found;
+}
+
+/** Where a region's start tag is, as `data-ff-src` names it: line and column, both 1-based. */
+export function regionPosition(
+  source: string,
+  region: EditableRegion,
+): { line: number; column: number } {
+  return locate(lineStarts(source), region.tagStart);
 }
 
 /** The chips of a region in order, with what they stand for. */

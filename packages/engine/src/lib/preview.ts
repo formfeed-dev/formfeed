@@ -102,6 +102,18 @@ export interface PreviewOptions {
    * `editable`) can be edited in place, and the frame talks to the editor about it by message.
    */
   editing?: boolean;
+  /**
+   * A name the editor gives this document, which the edit session's messages carry back
+   * (`formfeed:document` in the head). The editor has the next document ready a moment before the
+   * frame takes it; with the name it can tell a click that still came from the one before.
+   */
+  document?: string;
+}
+
+/** The document's name for the edit session; letters, digits, dashes and underscores only. */
+function documentMeta(options: PreviewOptions): string {
+  const name = (options.document ?? '').replace(/[^A-Za-z0-9_-]/g, '');
+  return name ? `<meta name="formfeed:document" content="${name}">` : '';
 }
 
 /**
@@ -309,7 +321,7 @@ body.formfeed-preview { position: relative; box-sizing: border-box; width: ${pap
     : '';
   return intoHead(
     draft.document,
-    `${chrome}${options.editing ? textEditScript : ''}${inspectScript}${zoomGestureScript}${pdf ? overflowScript('flow') : ''}`,
+    `${documentMeta(options)}${chrome}${options.editing ? textEditScript : ''}${inspectScript}${zoomGestureScript}${pdf ? overflowScript('flow') : ''}`,
   )
     .replace(/(<body[^>]*>)/, `$1${header}`)
     .replace('</body>', `${footer}</body>`);
@@ -369,7 +381,7 @@ html { background: #e5e7eb; }
   // it). The stylesheet is rewritten as it is inserted, before any layout, so the rule keeps to
   // Paged.js's own boxes.
   const boxSizingGuard = `<script>(function(){var rule='.pagedjs_pagebox *';var o=new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeName==='STYLE'&&n.textContent&&n.textContent.indexOf(rule)>=0){n.textContent=n.textContent.split(rule).join('.pagedjs_pagebox [class*="pagedjs_"]');o.disconnect();}});});});o.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;
-  const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { if (window.formfeedFit) window.formfeedFit(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); } };</script>`;
+  const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { if (window.formfeedFit) window.formfeedFit(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); try { if (window.formfeedEditReady) window.formfeedEditReady(); } catch (e) {} } };</script>`;
   const script = `<script src="${options.pagedScriptUrl}"></script>`;
   const header = headerHtml
     ? `<div class="ff-running-header">${pageNumberSpans(headerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
@@ -379,6 +391,6 @@ html { background: #e5e7eb; }
     : '';
   return intoHead(
     draft.document,
-    `<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${overflowScript('paged')}${config}${script}${options.editing ? textEditScript : ''}${inspectScript}${pageNavScript}${zoomGestureScript}`,
+    `${documentMeta(options)}<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${overflowScript('paged')}${config}${script}${options.editing ? textEditScript : ''}${inspectScript}${pageNavScript}${zoomGestureScript}`,
   ).replace(/(<body[^>]*>)/, `$1${header}${footer}`);
 }

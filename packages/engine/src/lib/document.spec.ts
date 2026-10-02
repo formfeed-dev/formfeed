@@ -196,6 +196,25 @@ describe('paged preview document', () => {
     expect(flow.indexOf('data-formfeed="preview"')).toBeLessThan(flow.indexOf('stray text'));
   });
 
+  it('names the document for the edit session, before the session script reads the name', () => {
+    const draft = { document: assembleDocument({ html: '<p>x</p>' }), settings: {}, kind: 'pdf' as const };
+    const meta = '<meta name="formfeed:document" content="17">';
+    const flow = flowDocument(draft, { editing: true, document: '17' });
+    expect(flow).toContain(meta);
+    expect(flow.indexOf(meta)).toBeLessThan(flow.indexOf('formfeed:edit-request'));
+    const paged = pagedDocument(draft, { pagedScriptUrl: 'https://app.example/paged.js', editing: true, document: '17' });
+    expect(paged.indexOf(meta)).toBeLessThan(paged.indexOf('formfeed:edit-request'));
+    // the session learns that the pages are laid out from the document's own config
+    expect(paged).toContain('if (window.formfeedEditReady) window.formfeedEditReady();');
+    // a name is letters and digits; anything else never reaches the markup
+    expect(flowDocument(draft, { document: '"><script>x' })).toContain('content="scriptx"');
+    // no name, no meta: API renders and saved versions are never named
+    expect(flowDocument(draft)).not.toContain('formfeed:document');
+    expect(pagedDocument(draft, { pagedScriptUrl: 'https://app.example/paged.js' })).not.toContain(
+      'name="formfeed:document"',
+    );
+  });
+
   it('puts the flow preview header and footer into the page margins, from the page edges', () => {
     const document = assembleDocument({ html: '<p>x</p>' });
     const flow = flowDocument({

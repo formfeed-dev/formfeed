@@ -5,7 +5,11 @@ describe('the preview edit session', () => {
   let sent: Array<Record<string, unknown>>;
   let inspected: number;
 
-  beforeAll(() => installTextEdit(window));
+  beforeAll(() => {
+    // the editor names every preview document; the session reads the name once, as it starts
+    document.head.innerHTML = '<meta name="formfeed:document" content="7">';
+    installTextEdit(window);
+  });
 
   beforeEach(() => {
     sent = [];
@@ -70,6 +74,108 @@ describe('the preview edit session', () => {
       .querySelector('span[data-ff-src]')
       ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(sent[1]).toMatchObject({ count: 2 });
+  });
+
+  it('names its document, and the place of the element among those sharing its position', () => {
+    document
+      .querySelectorAll('span[data-ff-src]')[1]
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(sent[0]).toMatchObject({
+      type: 'formfeed:edit-request',
+      src: 'body:3:1',
+      doc: '7',
+      count: 2,
+      index: 1,
+    });
+  });
+
+  it('asks about a text the editor names, as after a click on it, unless another is open', () => {
+    // a click in the document before this one, carried over: the second of two rows of a loop
+    fromEditor({ type: 'formfeed:edit-open', src: 'body:3:1', index: 1 });
+    expect(sent).toEqual([
+      expect.objectContaining({
+        type: 'formfeed:edit-request',
+        src: 'body:3:1',
+        doc: '7',
+        index: 1,
+        text: 'b',
+      }),
+    ]);
+    begin({
+      token: 't7',
+      src: 'body:3:1',
+      items: [{ kind: 'text', text: 'b' }],
+    });
+    const second = document.querySelectorAll(
+      'span[data-ff-src]',
+    )[1] as HTMLElement;
+    expect(second.contentEditable).toBe('true');
+    expect(sent.at(-1)).toEqual({ type: 'formfeed:edit-started', token: 't7' });
+
+    // while it is open the user is typing there: the editor opens nothing else
+    const open = sent.length;
+    fromEditor({ type: 'formfeed:edit-open', src: 'body:1:1', index: 0 });
+    expect(sent).toHaveLength(open);
+
+    second.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    // an element that cannot be edited, or is not in this document, is not asked about
+    const closed = sent.length;
+    fromEditor({ type: 'formfeed:edit-open', src: 'body:2:1' });
+    fromEditor({ type: 'formfeed:edit-open', src: 'body:9:9' });
+    fromEditor({ type: 'formfeed:edit-open' });
+    expect(sent).toHaveLength(closed);
+  });
+
+  describe('telling the editor when a text can be opened', () => {
+    const frameWindow = (paged: boolean) => {
+      const frame = document.createElement('iframe');
+      document.body.append(frame);
+      const win = frame.contentWindow as Window & {
+        PagedConfig?: unknown;
+        formfeedEditReady?: () => void;
+      };
+      win.document.head.innerHTML =
+        '<meta name="formfeed:document" content="8">';
+      if (paged) win.PagedConfig = { auto: true };
+      return win;
+    };
+
+    // a frame of jsdom posts to its parent for real, past the spy on this window: what arrives is heard
+    // only the frame's: this window's own session says the same once, whenever a test first waits
+    const heard: unknown[] = [];
+    const listen = (event: MessageEvent) => {
+      if ((event.data as { doc?: unknown } | null)?.doc === '8')
+        heard.push(event.data);
+    };
+    const arrived = () => new Promise((resolve) => setTimeout(resolve, 20));
+    beforeEach(() => {
+      heard.length = 0;
+      vi.restoreAllMocks();
+      window.addEventListener('message', listen);
+    });
+    afterEach(() => window.removeEventListener('message', listen));
+
+    it('says so at once in a flow document that has loaded', async () => {
+      installTextEdit(frameWindow(false));
+      await arrived();
+      expect(heard).toEqual([{ type: 'formfeed:edit-ready', doc: '8' }]);
+    });
+
+    it('waits in a paged document until its config says the pages are laid out', async () => {
+      const win = frameWindow(true);
+      installTextEdit(win);
+      await arrived();
+      expect(heard).toEqual([]);
+      win.formfeedEditReady?.();
+      await arrived();
+      expect(heard).toEqual([{ type: 'formfeed:edit-ready', doc: '8' }]);
+    });
   });
 
   it('leaves clicks on other elements to click-to-source', () => {

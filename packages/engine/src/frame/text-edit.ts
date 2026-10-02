@@ -12,6 +12,11 @@
  * on (`formfeed:edit-style`), where they switch the style of the whole layer. A session the editor
  * asks for is not opened once the user has left this window for the app (`formfeed:edit-cancel`):
  * opening it takes the focus, and that belongs to where the user went.
+ *
+ * A preview document says which one it is (`doc`, from its `formfeed:document` meta) and when its
+ * elements are in place (`formfeed:edit-ready`). The editor renders a moment before the frame takes
+ * the new document, and a click in that moment is about a document on its way out: the editor waits
+ * for the next one and has the frame ask for the same text there (`formfeed:edit-open`).
  */
 
 /** An item as the frame shows it: chips carry the text to display. */
@@ -88,11 +93,11 @@ export function installTextEdit(
   const live = options.live === true;
   const doc = win.document;
   let session: Session | null = null;
+  /** The element the editor was asked about, and where it was clicked (nowhere when the editor asked). */
   let pending: {
     src: string;
     element: HTMLElement;
-    x: number;
-    y: number;
+    point: { x: number; y: number } | null;
   } | null = null;
   const say = (message: Record<string, unknown>) => {
     try {
@@ -101,6 +106,13 @@ export function installTextEdit(
       // the editor is gone
     }
   };
+  // Which document this is, as the editor named it. A request says so: the editor has a new document
+  // ready a moment before this frame takes it, and a click in between is about this one's positions.
+  const documentId = clicks
+    ? (doc
+        .querySelector('meta[name="formfeed:document"]')
+        ?.getAttribute('content') ?? null)
+    : null;
   // Whether this window had the focus and was left again. The editor asks for a session with the
   // focus here: the stage hands it over first, in the preview the click brought it.
   let left = false;
@@ -145,30 +157,43 @@ export function installTextEdit(
       if (!element) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (session && !session.done) commit();
-      const src = element.getAttribute('data-ff-src') ?? '';
-      const rect = element.getBoundingClientRect();
-      pending = { src, element, x: event.clientX, y: event.clientY };
-      say({
-        type: 'formfeed:edit-request',
-        src,
-        edit: element.getAttribute('data-ff-edit'),
-        text: element.textContent ?? '',
-        count: doc.querySelectorAll(`[data-ff-src="${src.replace(/"/g, '')}"]`)
-          .length,
-        split:
-          element.hasAttribute('data-split-from') ||
-          element.hasAttribute('data-split-to'),
-        rect: {
-          left: rect.left,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height,
-        },
-      });
+      ask(element, { x: event.clientX, y: event.clientY });
     },
     true,
   );
+
+  /** Asks the editor to open `element`: after a click on it, or for the editor (`formfeed:edit-open`). */
+  function ask(
+    element: HTMLElement,
+    point: { x: number; y: number } | null,
+  ): void {
+    if (session && !session.done) commit();
+    const src = element.getAttribute('data-ff-src') ?? '';
+    const rect = element.getBoundingClientRect();
+    // a loop writes one position many times: which of them this is, and how many there are
+    const same = Array.from(
+      doc.querySelectorAll(`[data-ff-src="${src.replace(/"/g, '')}"]`),
+    );
+    pending = { src, element, point };
+    say({
+      type: 'formfeed:edit-request',
+      src,
+      doc: documentId,
+      edit: element.getAttribute('data-ff-edit'),
+      text: element.textContent ?? '',
+      count: same.length,
+      index: Math.max(0, same.indexOf(element)),
+      split:
+        element.hasAttribute('data-split-from') ||
+        element.hasAttribute('data-split-to'),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      },
+    });
+  }
 
   // undo and redo of committed edits belong to the editor; the frame's keys never reach it
   doc.addEventListener('keydown', (event) => {
@@ -194,8 +219,43 @@ export function installTextEdit(
     ) {
       pending = null;
       if (session && !session.done) cancel(false);
-    }
+    } else if (data.type === 'formfeed:edit-open')
+      open(data as { src?: unknown; index?: unknown });
   });
+
+  /**
+   * The editor opens a text itself: the one that was clicked in the document before this one, in the
+   * moment that document was being replaced. The click cannot be repeated here, so the editor names
+   * the element by its position and its place among those sharing it, and the frame asks as it does
+   * after a click. Not while another text is open, which the user went on to meanwhile.
+   */
+  function open(message: { src?: unknown; index?: unknown }): void {
+    if (!clicks || typeof message.src !== 'string') return;
+    if (session && !session.done) return;
+    const same = Array.from(
+      doc.querySelectorAll(
+        `[data-ff-src="${message.src.replace(/"/g, '')}"][data-ff-edit]`,
+      ),
+    ) as HTMLElement[];
+    const index = Number.isInteger(message.index) ? Number(message.index) : 0;
+    const element = same[index] ?? same[0];
+    if (element) ask(element, null);
+  }
+
+  // The editor is told when a text of this document can be opened: once its elements are where they
+  // stay. Paged.js lays the pages out after the document has loaded and tells the document's own
+  // config (`formfeedEditReady` in its `after`); a flow document is ready with its DOM.
+  if (clicks) {
+    const ready = () => say({ type: 'formfeed:edit-ready', doc: documentId });
+    const hooks = win as Window & {
+      PagedConfig?: unknown;
+      formfeedEditReady?: () => void;
+    };
+    if (hooks.PagedConfig) hooks.formfeedEditReady = ready;
+    else if (doc.readyState === 'loading')
+      doc.addEventListener('DOMContentLoaded', ready);
+    else ready();
+  }
 
   function begin(message: EditBegin): void {
     if (session && !session.done) cancel(false);
@@ -214,7 +274,7 @@ export function installTextEdit(
         ? { x: Number(at.x), y: Number(at.y) }
         : null
       : pending && pending.src === message.src
-        ? pending
+        ? pending.point
         : null;
     pending = null;
     // The user went on to something else while this message was on its way: a press in the app

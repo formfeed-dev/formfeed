@@ -164,6 +164,7 @@ export {
   findRegionAgain,
   regionChips,
   regionItems,
+  regionPosition,
   translationItems,
   translationText,
 } from './lib/source-edit';
