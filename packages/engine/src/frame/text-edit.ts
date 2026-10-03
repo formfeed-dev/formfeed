@@ -181,6 +181,8 @@ export function installTextEdit(
       doc: documentId,
       edit: element.getAttribute('data-ff-edit'),
       text: element.textContent ?? '',
+      // what a field wrote shows only here: a value is text, a helper's picture or table is elements
+      elements: element.childElementCount,
       count: same.length,
       index: Math.max(0, same.indexOf(element)),
       split:

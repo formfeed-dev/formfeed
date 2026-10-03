@@ -255,7 +255,12 @@ export function editableRegionAt(
       p.kind === 'text' &&
       decodeText(source.slice(p.start, p.end)).text.trim() !== '',
   );
-  return hasText ? region : { reason: 'no-text' };
+  // A field alone (`<h1>{{ title }}</h1>`, as a new template has them) is a region too: the field
+  // stays a chip and text can be typed on either side of it.
+  const hasField = region.parts.some(
+    (p) => p.kind === 'chip' && p.chip === 'expression',
+  );
+  return hasText || hasField ? region : { reason: 'no-text' };
 }
 
 /**

@@ -73,6 +73,22 @@ describe('editableRegion', () => {
     ]);
   });
 
+  it('takes a field that stands alone, and text typed on either side of it', () => {
+    const source = '<h1>{{ title }}</h1>';
+    expect(regionItems(source, region(source))).toEqual([chip(0)]);
+    expect(edit(source, [text('Re: '), chip(0), text(' (draft)')])).toBe(
+      '<h1>Re: {{ title }} (draft)</h1>',
+    );
+    expect(
+      edit('<td>\n  {{ item.qty }}\n</td>', [chip(0), text(' pcs')]),
+    ).toContain('{{ item.qty }} pcs');
+    expect(edit('<td>{{qty}}</td>', [text('x '), chip(0)], 'handlebars')).toBe(
+      '<td>x {{qty}}</td>',
+    );
+    // the value: the whole rendered text is the field's
+    expect(chipValues('Hello', [chip(0)])).toEqual(['Hello']);
+  });
+
   it('finds the start tag by the line and column data-ff-src names', () => {
     const source = '<main>\n  <h1>Invoice {{ no }}</h1>\n</main>';
     const found = editableRegion(source, 'jinja2', { line: 2, column: 3 });
@@ -110,8 +126,8 @@ describe('editableRegion', () => {
     expect(reason('<p>Hi {{> footer}}</p>', 'handlebars')).toBe('control-flow');
     expect(reason('<p>A {{else}} B</p>', 'handlebars')).toBe('control-flow');
     expect(reason('<div>Intro <p>para</p></div>')).toBe('block-child');
-    expect(reason('<td>{{ item.qty }}</td>')).toBe('no-text');
     expect(reason('<td> </td>')).toBe('no-text');
+    expect(reason('<p><strong>{{ item.qty }}</strong></p>')).toBe('no-text');
     expect(reason('<img src="a.png">')).toBe('void');
     expect(reason('<br/>')).toBe('void');
     expect(reason('<style>p{}</style>')).toBe('raw-text');
@@ -448,7 +464,8 @@ describe('annotating editable regions', () => {
     });
     expect(out).toContain('<h1 data-ff-src="body:1:7" data-ff-edit="text">');
     expect(out).toContain(`<th data-ff-src="body:1:32" data-ff-edit="t">`);
-    expect(out).toMatch(/<td data-ff-src="body:1:\d+">/);
+    // a field alone takes text beside it
+    expect(out).toMatch(/<td data-ff-src="body:1:\d+" data-ff-edit="text">/);
     expect(out).toMatch(/<p data-ff-src="body:1:\d+">/);
     expect(out).toMatch(/<main data-ff-src="body:1:1">/);
     expect(annotateSourcePositions(source, 'jinja2', 'body')).not.toContain(
@@ -485,7 +502,8 @@ describe('annotating editable regions', () => {
       ctx,
       'preview',
     );
-    expect(annotated.document.match(/data-ff-edit="text"/g)).toHaveLength(3);
+    // the two rows of the loop, the paragraph and the field alone in its `b`
+    expect(annotated.document.match(/data-ff-edit="text"/g)).toHaveLength(4);
     expect(annotated.document.replace(/ data-ff-(src|edit)="[^"]*"/g, '')).toBe(
       plain.document,
     );
