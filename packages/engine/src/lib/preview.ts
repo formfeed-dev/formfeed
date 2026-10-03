@@ -68,7 +68,9 @@ export const pageNumberSpans = (
  * produced it (spec 06 §3). `src` is the nearest `data-ff-src` position written by
  * `annotateSourcePositions` (`exact` when the clicked element carries it itself); tag, id, classes
  * and text remain for the editor's search when there is no position. Only descriptive attributes
- * and a short text excerpt travel.
+ * and a short text excerpt travel. A click beside the template's elements (the document itself,
+ * Paged.js's page boxes, a wrapper around annotated elements) reports nothing: the editor's search
+ * found no line for it and said so, although nothing had been asked.
  */
 const inspectScript = `<script>
 document.addEventListener('click', function (event) {
@@ -76,6 +78,13 @@ document.addEventListener('click', function (event) {
   if (!el || el.nodeType !== 1) return;
   try {
     var annotated = el.closest ? el.closest('[data-ff-src]') : null;
+    // the paper around the template (the page's margins, the pane behind it) is no element of it:
+    // a click there asks for nothing
+    if (!annotated && (
+      el === document.documentElement || el === document.body ||
+      el.querySelector('[data-ff-src]') ||
+      (el.closest && el.closest('[class*="pagedjs_"]') === el)
+    )) return;
     parent.postMessage({
       type: 'formfeed:inspect',
       src: annotated ? annotated.getAttribute('data-ff-src') : null,
