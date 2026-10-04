@@ -1,6 +1,15 @@
 import type { Diagnostic } from '@formfeed/engine';
 import { CliError, exitCodeFor } from './errors';
-import { Progress, colorEnabled, createStyle, formatElapsed, paintLine, unicodeSupported, type Style, type Terminal } from './ui';
+import {
+  Progress,
+  colorEnabled,
+  createStyle,
+  formatElapsed,
+  paintLine,
+  unicodeSupported,
+  type Style,
+  type Terminal,
+} from './ui';
 
 export interface Printer {
   json: boolean;
@@ -20,16 +29,28 @@ export function printer(
   streams: { out?: (t: string) => void; err?: (t: string) => void } = {},
   env: NodeJS.ProcessEnv = process.env,
 ): Printer {
-  const style = createStyle(!json && !streams.out && colorEnabled(env, Boolean(process.stdout.isTTY)));
-  const errStyle = createStyle(!streams.err && colorEnabled(env, Boolean(process.stderr.isTTY)));
+  const style = createStyle(
+    !json && !streams.out && colorEnabled(env, Boolean(process.stdout.isTTY)),
+  );
+  const errStyle = createStyle(
+    !streams.err && colorEnabled(env, Boolean(process.stderr.isTTY)),
+  );
   const terminal: Terminal | null =
     !streams.err && process.stderr.isTTY && env['TERM'] !== 'dumb' && !env['CI']
-      ? { write: (t) => void process.stderr.write(t), get columns() { return process.stderr.columns; } }
+      ? {
+          write: (t) => void process.stderr.write(t),
+          get columns() {
+            return process.stderr.columns;
+          },
+        }
       : null;
   return {
     json,
-    out: streams.out ?? ((t) => process.stdout.write(paintLine(style, t) + '\n')),
-    err: streams.err ?? ((t) => process.stderr.write(paintLine(errStyle, t) + '\n')),
+    out:
+      streams.out ?? ((t) => process.stdout.write(paintLine(style, t) + '\n')),
+    err:
+      streams.err ??
+      ((t) => process.stderr.write(paintLine(errStyle, t) + '\n')),
     style,
     errStyle,
     terminal,
@@ -62,7 +83,12 @@ export interface Run<T> {
 }
 
 export function startRun<T>(p: Printer, total: number): Run<T> {
-  const progress = new Progress({ terminal: p.terminal, style: p.errStyle, unicode: p.unicode, total });
+  const progress = new Progress({
+    terminal: p.terminal,
+    style: p.errStyle,
+    unicode: p.unicode,
+    total,
+  });
   const results: T[] = [];
   return {
     results,
@@ -78,7 +104,10 @@ export function startRun<T>(p: Printer, total: number): Run<T> {
     finish(data, summary) {
       progress.stop();
       if (p.json) p.out(JSON.stringify(data, null, 2));
-      else if (summary && total > 1) p.out(p.style.dim(`${summary} in ${formatElapsed(progress.elapsed())}`));
+      else if (summary && total > 1)
+        p.out(
+          p.style.dim(`${summary} in ${formatElapsed(progress.elapsed())}`),
+        );
     },
     stop: () => progress.stop(),
   };
@@ -86,17 +115,33 @@ export function startRun<T>(p: Printer, total: number): Run<T> {
 
 export function table(rows: string[][], header?: string[]): string[] {
   const all = header ? [header, ...rows] : rows;
-  const widths = all[0]?.map((_, i) => Math.max(...all.map((r) => (r[i] ?? '').length))) ?? [];
-  const fmt = (r: string[]) => r.map((c, i) => (c ?? '').padEnd(widths[i] ?? 0)).join('  ').trimEnd();
+  const widths =
+    all[0]?.map((_, i) => Math.max(...all.map((r) => (r[i] ?? '').length))) ??
+    [];
+  const fmt = (r: string[]) =>
+    r
+      .map((c, i) => (c ?? '').padEnd(widths[i] ?? 0))
+      .join('  ')
+      .trimEnd();
   const lines = all.map(fmt);
   if (header) lines.splice(1, 0, widths.map((w) => '-'.repeat(w)).join('  '));
   return lines;
 }
 
 /** One finding per line; Word and PowerPoint findings name the part and paragraph instead of a line. */
-export function formatDiagnostic(file: string, d: Diagnostic & { part?: string; paragraph?: number }): string {
-  const tag = d.severity === 'error' ? 'error' : d.severity === 'warning' ? 'warn ' : 'info ';
-  const at = d.part ? `${file} › ${d.part}${d.paragraph ? ` ¶${d.paragraph}` : ''}` : `${file}:${d.range.start.line}:${d.range.start.column}`;
+export function formatDiagnostic(
+  file: string,
+  d: Diagnostic & { part?: string; paragraph?: number },
+): string {
+  const tag =
+    d.severity === 'error'
+      ? 'error'
+      : d.severity === 'warning'
+        ? 'warn '
+        : 'info ';
+  const at = d.part
+    ? `${file} › ${d.part}${d.paragraph ? ` ¶${d.paragraph}` : ''}`
+    : `${file}:${d.range.start.line}:${d.range.start.column}`;
   return `${tag}  ${at}  ${d.message}  [${d.code}]`;
 }
 
@@ -104,12 +149,33 @@ export function formatDiagnostic(file: string, d: Diagnostic & { part?: string; 
 export function reportError(p: Printer, error: unknown): number {
   const code = exitCodeFor(error);
   const message = error instanceof Error ? error.message : String(error);
-  const details = error instanceof CliError ? error.details : (error as { problem?: unknown }).problem;
-  if (p.json) p.out(JSON.stringify({ ok: false, error: message, exit_code: code, details: details ?? null }, null, 2));
+  const details =
+    error instanceof CliError
+      ? error.details
+      : (error as { problem?: unknown }).problem;
+  if (p.json)
+    p.out(
+      JSON.stringify(
+        {
+          ok: false,
+          error: message,
+          exit_code: code,
+          details: details ?? null,
+        },
+        null,
+        2,
+      ),
+    );
   else {
     p.err(`error: ${message}`);
-    if (details && typeof details === 'object' && 'issues' in (details as object))
-      for (const issue of (details as { issues: Array<{ path?: string; message: string }> }).issues)
+    if (
+      details &&
+      typeof details === 'object' &&
+      'issues' in (details as object)
+    )
+      for (const issue of (
+        details as { issues: Array<{ path?: string; message: string }> }
+      ).issues)
         p.err(`  ${issue.path ? issue.path + ': ' : ''}${issue.message}`);
   }
   return code;

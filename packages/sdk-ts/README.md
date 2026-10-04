@@ -18,11 +18,19 @@ npm install @formfeed/sdk
 ```ts
 import { Formfeed } from '@formfeed/sdk';
 
-const client = new Formfeed({ apiKey: process.env.FORMFEED_API_KEY!, region: 'eu' });
+const client = new Formfeed({
+  apiKey: process.env.FORMFEED_API_KEY!,
+  region: 'eu',
+});
 
 const render = await client.renders.create({
   template: 'invoice-de',
-  data: { invoice: { number: '2026-0042', lines: [{ description: 'Consulting', qty: 8, price: 120 }] } },
+  data: {
+    invoice: {
+      number: '2026-0042',
+      lines: [{ description: 'Consulting', qty: 8, price: 120 }],
+    },
+  },
 });
 console.log(render.download_url, render.page_count);
 
@@ -32,7 +40,11 @@ const pdf = await client.renders.download(render); // the bytes
 ## Async renders and batches
 
 ```ts
-const queued = await client.renders.create({ template: 'invoice-de', data, mode: 'async' });
+const queued = await client.renders.create({
+  template: 'invoice-de',
+  data,
+  mode: 'async',
+});
 const done = await client.renders.waitFor(queued.id);
 
 const job = await client.renders.batch({
@@ -58,14 +70,23 @@ await client.templates.create({
   publish: true,
 });
 
-const filled = await client.renders.create({ template: 'offer', output: 'docx', data }); // or output: 'pdf'
+const filled = await client.renders.create({
+  template: 'offer',
+  output: 'docx',
+  data,
+}); // or output: 'pdf'
 
 // a new version with a new document; without `file` the latest document is kept
-await client.templates.versions.create('offer', { file: { data: await readFile('offer-v2.docx'), name: 'offer.docx' } });
+await client.templates.versions.create('offer', {
+  file: { data: await readFile('offer-v2.docx'), name: 'offer.docx' },
+});
 const docx = await client.templates.versions.file('offer', 'latest'); // the document's bytes
 
 // any office document to PDF (Word, Excel, PowerPoint, OpenDocument, RTF)
-const pdf = await client.pdf.convert({ file: { data: await readFile('report.xlsx'), name: 'report.xlsx' } }, { single_page_sheets: true });
+const pdf = await client.pdf.convert(
+  { file: { data: await readFile('report.xlsx'), name: 'report.xlsx' } },
+  { single_page_sheets: true },
+);
 ```
 
 ## Webhooks
@@ -74,7 +95,11 @@ const pdf = await client.pdf.convert({ file: { data: await readFile('report.xlsx
 import { parseWebhookEvent } from '@formfeed/sdk';
 
 // pass the raw request body, not re-serialised JSON; throws when the signature does not match
-const event = await parseWebhookEvent(secret, request.headers.get('webhook-signature'), rawBody);
+const event = await parseWebhookEvent(
+  secret,
+  request.headers.get('webhook-signature'),
+  rawBody,
+);
 if (event.type === 'render.completed') console.log(event.data); // the render object
 ```
 

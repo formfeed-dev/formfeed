@@ -1,0 +1,91 @@
+{
+  "number": "RE-2026-0060",
+  "issue_date": "2026-09-22",
+  "currency": "EUR",
+  "seller": {
+    "name": "Fennlor Studio GmbH",
+    "vat_id": "DE000000000",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    }
+  },
+  "buyer": {
+    "name": "Olvarest GmbH",
+    "address": {
+      "street": "Beispielweg 2",
+      "postcode": "54321",
+      "city": "Beispielstadt",
+      "country": "DE"
+    }
+  },
+  "delivery": { "date": "2026-09-22" },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Etiketten 100 × 150 mm",
+      "quantity": 10,
+      "unit_code": "XRO",
+      "net_price": 18,
+      "net_amount": 162,
+      "tax": { "category": "S", "rate": 19 },
+      "allowances": [
+        {
+          "amount": 18,
+          "base_amount": 180,
+          "percent": 10,
+          "reason": "Mengenrabatt",
+          "reason_code": "95"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "name": "Thermotransferband",
+      "quantity": 4,
+      "net_price": 12.5,
+      "net_amount": 50,
+      "tax": { "category": "S", "rate": 19 }
+    }
+  ],
+  "allowances": [
+    {
+      "amount": 10.6,
+      "base_amount": 212,
+      "percent": 5,
+      "reason": "Treuerabatt",
+      "reason_code": "95",
+      "tax": { "category": "S", "rate": 19 }
+    }
+  ],
+  "charges": [
+    {
+      "amount": 9.9,
+      "reason": "Versand",
+      "reason_code": "FC",
+      "tax": { "category": "S", "rate": 19 }
+    }
+  ],
+  "tax": {
+    "breakdown": [
+      { "category": "S", "rate": 19, "basis": 211.3, "amount": 40.15 }
+    ]
+  },
+  "totals": {
+    "line_net": 212,
+    "allowances": 10.6,
+    "charges": 9.9,
+    "tax_basis": 211.3,
+    "tax_total": 40.15,
+    "grand": 251.45,
+    "prepaid": 50,
+    "due": 201.45
+  },
+  "payment": {
+    "means_code": "58",
+    "iban": "DE36000000000000000000",
+    "due_date": "2026-10-06"
+  }
+}

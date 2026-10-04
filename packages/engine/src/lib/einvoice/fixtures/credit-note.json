@@ -1,0 +1,54 @@
+{
+  "number": "GS-2026-0007",
+  "issue_date": "2026-09-18",
+  "type_code": "381",
+  "currency": "EUR",
+  "note": "Gutschrift zur Rechnung RE-2026-0042: zwei Stunden Consulting wurden doppelt berechnet.",
+  "preceding_invoices": [
+    { "number": "RE-2026-0042", "issue_date": "2026-09-10" }
+  ],
+  "seller": {
+    "name": "Fennlor Studio GmbH",
+    "vat_id": "DE000000000",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    }
+  },
+  "buyer": {
+    "name": "Olvarest GmbH",
+    "address": {
+      "street": "Beispielweg 2",
+      "postcode": "54321",
+      "city": "Beispielstadt",
+      "country": "DE"
+    }
+  },
+  "delivery": { "date": "2026-09-10" },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Consulting",
+      "quantity": 2,
+      "unit_code": "HUR",
+      "net_price": 120,
+      "net_amount": 240,
+      "tax": { "category": "S", "rate": 19 }
+    }
+  ],
+  "tax": {
+    "breakdown": [{ "category": "S", "rate": 19, "basis": 240, "amount": 45.6 }]
+  },
+  "totals": {
+    "line_net": 240,
+    "tax_basis": 240,
+    "tax_total": 45.6,
+    "grand": 285.6,
+    "due": 285.6
+  },
+  "payment": {
+    "terms": "Der Betrag wird mit der nächsten Rechnung verrechnet."
+  }
+}

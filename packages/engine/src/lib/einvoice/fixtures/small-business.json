@@ -1,0 +1,60 @@
+{
+  "number": "2026-017",
+  "issue_date": "2026-09-26",
+  "currency": "EUR",
+  "seller": {
+    "name": "Erika Mustermann Design",
+    "id": "LF-0001",
+    "tax_number": "00/000/00000",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    }
+  },
+  "buyer": {
+    "name": "Olvarest GmbH",
+    "address": {
+      "street": "Beispielweg 2",
+      "postcode": "54321",
+      "city": "Beispielstadt",
+      "country": "DE"
+    }
+  },
+  "delivery": { "date": "2026-09-26" },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Logo-Design",
+      "quantity": 1,
+      "unit_code": "LS",
+      "net_price": 450,
+      "net_amount": 450,
+      "tax": { "category": "E", "rate": 0 }
+    }
+  ],
+  "tax": {
+    "breakdown": [
+      {
+        "category": "E",
+        "rate": 0,
+        "basis": 450,
+        "amount": 0,
+        "exemption_reason": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."
+      }
+    ]
+  },
+  "totals": {
+    "line_net": 450,
+    "tax_basis": 450,
+    "tax_total": 0,
+    "grand": 450,
+    "due": 450
+  },
+  "payment": {
+    "means_code": "58",
+    "iban": "DE36000000000000000000",
+    "due_date": "2026-10-10"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "number": "RE-2026-0052",
+  "issue_date": "2026-09-21",
+  "currency": "EUR",
+  "seller": {
+    "name": "Fennlor Studio GmbH",
+    "vat_id": "DE000000000",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    }
+  },
+  "buyer": {
+    "name": "Olvarest SARL",
+    "vat_id": "FR00000000000",
+    "address": {
+      "street": "2 avenue de l'Exemple",
+      "postcode": "99100",
+      "city": "Exempleville",
+      "country": "FR"
+    }
+  },
+  "delivery": {
+    "name": "Olvarest SARL, entrepôt",
+    "date": "2026-09-19",
+    "address": {
+      "street": "4 avenue de l'Exemple",
+      "postcode": "99100",
+      "city": "Exempleville",
+      "country": "FR"
+    }
+  },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Etikettendrucker FD-200",
+      "seller_item_id": "FD-200",
+      "standard_item_id": { "value": "0000000000000", "scheme": "0160" },
+      "quantity": 5,
+      "net_price": 349,
+      "net_amount": 1745,
+      "tax": { "category": "K", "rate": 0 }
+    }
+  ],
+  "tax": {
+    "breakdown": [
+      {
+        "category": "K",
+        "rate": 0,
+        "basis": 1745,
+        "amount": 0,
+        "exemption_reason": "Steuerfreie innergemeinschaftliche Lieferung",
+        "exemption_reason_code": "VATEX-EU-IC"
+      }
+    ]
+  },
+  "totals": {
+    "line_net": 1745,
+    "tax_basis": 1745,
+    "tax_total": 0,
+    "grand": 1745,
+    "due": 1745
+  },
+  "payment": {
+    "means_code": "58",
+    "iban": "DE36000000000000000000",
+    "terms": "Zahlbar innerhalb von 30 Tagen."
+  }
+}

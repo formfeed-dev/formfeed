@@ -1,5 +1,6 @@
 import { brandCss, brandFontFamilies } from './brand';
 import type { BrandContext } from './brand';
+import type { EinvoiceOptionsInput } from './einvoice/schema';
 import { getEngine } from './engines';
 import { fitRuntime } from './generated/frames';
 import { escapeHtml } from './helpers';
@@ -67,6 +68,13 @@ export interface TemplateSettings {
   currency?: string;
   tailwind?: boolean;
   watermark?: { text?: string; opacity?: number } | null;
+  /**
+   * The template is an invoice template (spec 17 §4.1): every PDF rendered from it carries the
+   * e-invoice built from the `_invoice` block of the data. A request's `settings.einvoice` and
+   * `post.einvoice` merge over this field by field (`resolveEinvoiceOptions`); `false` there
+   * switches it off for one request.
+   */
+  einvoice?: EinvoiceOptionsInput | false | null;
   /**
    * The visual editor's document (plan 16 §4.1, `DesignDocument` once `parseDesign` accepted it). It
    * is authoring data: nothing renders it, the version's HTML and CSS are what it emitted.

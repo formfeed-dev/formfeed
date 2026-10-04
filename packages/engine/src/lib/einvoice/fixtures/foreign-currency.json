@@ -1,0 +1,54 @@
+{
+  "number": "RE-2026-0062",
+  "issue_date": "2026-09-24",
+  "currency": "CHF",
+  "accounting_currency": "EUR",
+  "note": "Umrechnung zum Kurs von 0,94 CHF je EUR.",
+  "seller": {
+    "name": "Fennlor Studio GmbH",
+    "vat_id": "DE000000000",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    }
+  },
+  "buyer": {
+    "name": "Olvarest GmbH",
+    "address": {
+      "street": "Beispielweg 2",
+      "postcode": "54321",
+      "city": "Beispielstadt",
+      "country": "DE"
+    }
+  },
+  "delivery": { "date": "2026-09-24" },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Jahreslizenz Formularserver",
+      "quantity": 1,
+      "unit_code": "ANN",
+      "net_price": 1000,
+      "net_amount": 1000,
+      "tax": { "category": "S", "rate": 19 }
+    }
+  ],
+  "tax": {
+    "breakdown": [{ "category": "S", "rate": 19, "basis": 1000, "amount": 190 }]
+  },
+  "totals": {
+    "line_net": 1000,
+    "tax_basis": 1000,
+    "tax_total": 190,
+    "tax_total_accounting": 202.13,
+    "grand": 1190,
+    "due": 1190
+  },
+  "payment": {
+    "means_code": "30",
+    "iban": "DE36000000000000000000",
+    "due_date": "2026-10-08"
+  }
+}

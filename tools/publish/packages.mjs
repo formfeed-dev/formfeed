@@ -21,9 +21,20 @@ export const VERSION = '0.3.11';
 export const PUBLIC_REPOSITORY = 'formfeed-dev/formfeed';
 
 export const common = (dir) => ({
-  author: { name: 'Formfeed', email: 'support@formfeed.dev', url: 'https://formfeed.dev' },
-  repository: { type: 'git', url: `git+https://github.com/${PUBLIC_REPOSITORY}.git`, directory: `packages/${dir}` },
-  bugs: { url: `https://github.com/${PUBLIC_REPOSITORY}/issues`, email: 'support@formfeed.dev' },
+  author: {
+    name: 'Formfeed',
+    email: 'support@formfeed.dev',
+    url: 'https://formfeed.dev',
+  },
+  repository: {
+    type: 'git',
+    url: `git+https://github.com/${PUBLIC_REPOSITORY}.git`,
+    directory: `packages/${dir}`,
+  },
+  bugs: {
+    url: `https://github.com/${PUBLIC_REPOSITORY}/issues`,
+    email: 'support@formfeed.dev',
+  },
   engines: { node: '>=22' },
 });
 
@@ -31,28 +42,60 @@ export const packages = [
   {
     dir: 'sdk-ts',
     name: '@formfeed/sdk',
-    description: 'Formfeed API client: renders, templates, webhooks. No dependencies, Web APIs only.',
+    description:
+      'Formfeed API client: renders, templates, webhooks. No dependencies, Web APIs only.',
     homepage: 'https://docs.formfeed.dev/api/sdks/typescript',
     platform: 'neutral',
     entries: { '.': 'src/index.ts' },
     dependencies: [],
-    keywords: ['formfeed', 'pdf', 'pdf-generation', 'html-to-pdf', 'image-generation', 'templates', 'api', 'sdk'],
+    keywords: [
+      'formfeed',
+      'pdf',
+      'pdf-generation',
+      'html-to-pdf',
+      'image-generation',
+      'templates',
+      'api',
+      'sdk',
+    ],
   },
   {
     dir: 'engine',
     name: '@formfeed/engine',
-    description: 'The Formfeed template engine (Jinja2, Liquid, Handlebars) for the browser and Node.',
+    description:
+      'The Formfeed template engine (Jinja2, Liquid, Handlebars) for the browser and Node.',
     homepage: 'https://docs.formfeed.dev/devkit/engine-package',
     platform: 'neutral',
     entries: { '.': 'src/index.ts' },
     // @formfeed/api-types is internal and inlined into the bundle
-    dependencies: ['@date-fns/tz', 'bwip-js', 'date-fns', 'handlebars', 'liquidjs', 'marked', 'n2words', 'nunjucks', 'qrcode'],
-    keywords: ['formfeed', 'templates', 'template-engine', 'jinja2', 'liquid', 'handlebars', 'pdf'],
+    dependencies: [
+      '@date-fns/tz',
+      'bwip-js',
+      'date-fns',
+      'handlebars',
+      'liquidjs',
+      'marked',
+      'n2words',
+      'nunjucks',
+      'qrcode',
+      // the `_invoice` schema of the e-invoice module (spec 17 §4.3)
+      'zod',
+    ],
+    keywords: [
+      'formfeed',
+      'templates',
+      'template-engine',
+      'jinja2',
+      'liquid',
+      'handlebars',
+      'pdf',
+    ],
   },
   {
     dir: 'devkit',
     name: '@formfeed/devkit',
-    description: 'Formfeed template folders, project config and local rendering, shared by the CLI and @formfeed/testing.',
+    description:
+      'Formfeed template folders, project config and local rendering, shared by the CLI and @formfeed/testing.',
     homepage: 'https://docs.formfeed.dev/devkit/overview',
     platform: 'node',
     entries: { '.': 'src/index.ts' },
@@ -62,16 +105,28 @@ export const packages = [
   {
     dir: 'testing',
     name: '@formfeed/testing',
-    description: 'Vitest and Jest matchers for Formfeed templates: render without errors, use only known variables, snapshots.',
+    description:
+      'Vitest and Jest matchers for Formfeed templates: render without errors, use only known variables, snapshots.',
     homepage: 'https://docs.formfeed.dev/devkit/testing',
     platform: 'node',
-    entries: { '.': 'src/index.ts', './vitest': 'src/vitest.ts', './jest': 'src/jest.ts' },
+    entries: {
+      '.': 'src/index.ts',
+      './vitest': 'src/vitest.ts',
+      './jest': 'src/jest.ts',
+    },
     dependencies: ['@formfeed/devkit', '@formfeed/engine', '@formfeed/sdk'],
     // the matching runner is the user's, so neither is required; the Vitest entry's `Matchers`
     // augmentation needs 3.2
     peerDependencies: { vitest: '>=3.2' },
     optionalPeers: ['vitest'],
-    keywords: ['formfeed', 'testing', 'vitest', 'jest', 'matchers', 'templates'],
+    keywords: [
+      'formfeed',
+      'testing',
+      'vitest',
+      'jest',
+      'matchers',
+      'templates',
+    ],
   },
 ];
 

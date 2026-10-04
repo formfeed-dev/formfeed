@@ -1,0 +1,80 @@
+{
+  "number": "RE-2026-0061",
+  "issue_date": "2026-09-23",
+  "currency": "EUR",
+  "seller": {
+    "name": "Fennlor Studio GmbH",
+    "vat_id": "DE000000000",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    }
+  },
+  "buyer": {
+    "name": "Olvarest GmbH",
+    "address": {
+      "street": "Beispielweg 2",
+      "postcode": "54321",
+      "city": "Beispielstadt",
+      "country": "DE"
+    }
+  },
+  "period": { "start": "2026-09-01", "end": "2026-09-22" },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Dokumentversand, Staffel 1",
+      "quantity": 3,
+      "net_price": 0.335,
+      "net_amount": 1.01,
+      "tax": { "category": "S", "rate": 19 }
+    },
+    {
+      "id": "2",
+      "name": "SMS-Benachrichtigung",
+      "quantity": 1,
+      "net_price": 0.08,
+      "net_amount": 0.08,
+      "tax": { "category": "S", "rate": 19 }
+    },
+    {
+      "id": "3",
+      "name": "SMS-Benachrichtigung",
+      "quantity": 1,
+      "net_price": 0.08,
+      "net_amount": 0.08,
+      "tax": { "category": "S", "rate": 19 }
+    },
+    {
+      "id": "4",
+      "name": "SMS-Benachrichtigung",
+      "quantity": 1,
+      "net_price": 0.08,
+      "net_amount": 0.08,
+      "tax": { "category": "S", "rate": 19 }
+    },
+    {
+      "id": "5",
+      "name": "SMS-Benachrichtigung",
+      "quantity": 1,
+      "net_price": 0.08,
+      "net_amount": 0.08,
+      "tax": { "category": "S", "rate": 19 }
+    }
+  ],
+  "tax": {
+    "breakdown": [
+      { "category": "S", "rate": 19, "basis": 1.33, "amount": 0.27 }
+    ]
+  },
+  "totals": {
+    "line_net": 1.33,
+    "tax_basis": 1.33,
+    "tax_total": 0.27,
+    "grand": 1.6,
+    "due": 1.6
+  },
+  "payment": { "terms": "Zahlbar sofort ohne Abzug." }
+}

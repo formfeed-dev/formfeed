@@ -1,0 +1,92 @@
+{
+  "number": "RE-2026-0043",
+  "issue_date": "2026-09-12",
+  "type_code": "380",
+  "currency": "EUR",
+  "buyer_reference": "Kostenstelle 4711",
+  "order_reference": "PO-2026-118",
+  "contract_reference": "RV-2025-03",
+  "note": "Vielen Dank für Ihren Auftrag.",
+  "seller": {
+    "name": "Fennlor Studio GmbH",
+    "vat_id": "DE000000000",
+    "tax_number": "00/000/00000",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    },
+    "contact": {
+      "name": "Buchhaltung",
+      "phone": "+49 30 0000000",
+      "email": "rechnung@fennlor.example"
+    }
+  },
+  "buyer": {
+    "name": "Olvarest GmbH",
+    "vat_id": "DE000000000",
+    "address": {
+      "street": "Beispielweg 2",
+      "street2": "Gebäude B",
+      "postcode": "54321",
+      "city": "Beispielstadt",
+      "country": "DE"
+    },
+    "contact": { "name": "Max Mustermann", "email": "max@olvarest.example" }
+  },
+  "delivery": { "date": "2026-09-01" },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Fachbuch Vorlagen mit System",
+      "description": "Gebundene Ausgabe, 320 Seiten",
+      "seller_item_id": "FB-320",
+      "quantity": 3,
+      "net_price": 29.9,
+      "net_amount": 89.7,
+      "tax": { "category": "S", "rate": 7 }
+    },
+    {
+      "id": "2",
+      "name": "Workshop Dokumentautomatisierung",
+      "quantity": 1,
+      "unit_code": "DAY",
+      "net_price": 1200,
+      "net_amount": 1200,
+      "tax": { "category": "S", "rate": 19 },
+      "period": { "start": "2026-09-01", "end": "2026-09-01" },
+      "buyer_accounting_reference": "6821",
+      "order_line_reference": "2"
+    },
+    {
+      "id": "3",
+      "name": "Versandpauschale",
+      "quantity": 1,
+      "net_price": "4.90",
+      "net_amount": "4.90",
+      "tax": { "category": "S", "rate": 19 }
+    }
+  ],
+  "tax": {
+    "breakdown": [
+      { "category": "S", "rate": 7, "basis": 89.7, "amount": 6.28 },
+      { "category": "S", "rate": 19, "basis": 1204.9, "amount": 228.93 }
+    ]
+  },
+  "totals": {
+    "line_net": 1294.6,
+    "tax_basis": 1294.6,
+    "tax_total": 235.21,
+    "grand": 1529.81,
+    "due": 1529.81
+  },
+  "payment": {
+    "means_code": 58,
+    "iban": "DE36000000000000000000",
+    "bic": "XXXXDEXXXXX",
+    "account_name": "Fennlor Studio GmbH",
+    "reference": "RE-2026-0043",
+    "due_date": "2026-09-26"
+  }
+}

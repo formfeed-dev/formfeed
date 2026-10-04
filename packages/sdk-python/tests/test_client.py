@@ -614,6 +614,37 @@ def test_storage_option_travels_and_the_delivery_comes_back():
     assert b'name="storage"\r\n\r\nfalse' in rec.calls[2].content
 
 
+def test_einvoice_option_travels_and_the_report_comes_back():
+    report = {
+        "profile": "en16931",
+        "flavour": "zugferd",
+        "spec_version": "2.5",
+        "xml_url": "https://cdn.test/o/rechnung.xml?exp=1&sig=2",
+        "validation": {
+            "valid": True,
+            "schematron": "Factur-X 1.09.2 (Mustang 2.26.0)",
+            "pdfa": "PDF/A-3b",
+            "messages": [
+                {"part": "xml", "severity": "warning", "rule": "PEPPOL-EN16931-R008", "message": "Document MUST not contain empty elements.",
+                 "location": "/rsm:CrossIndustryInvoice"}
+            ],
+        },
+        "display": {"checked": ["BT-1", "BT-109", "BT-110", "BT-112"], "missing": ["BT-110"]},
+    }
+    client, rec = sync_client(lambda req, n: _json({**RENDER, "einvoice": report} if n == 1 else RENDER))
+    render = client.renders.create(template="rechnung", data={"_invoice": {"number": "RE-2026-0001"}}, post={"einvoice": {"flavour": "zugferd", "xml": "both"}})
+    assert json.loads(rec.calls[0].content)["post"] == {"einvoice": {"flavour": "zugferd", "xml": "both"}}
+    assert render.einvoice is not None and render.einvoice.profile == "en16931" and render.einvoice.spec_version == "2.5"
+    assert render.einvoice.xml_url is not None and render.einvoice.xml_url.startswith("https://cdn.test/")
+    assert render.einvoice.validation is not None and render.einvoice.validation.valid
+    assert render.einvoice.validation.pdfa == "PDF/A-3b" and render.einvoice.validation.messages[0].rule == "PEPPOL-EN16931-R008"
+    assert render.einvoice.display is not None and render.einvoice.display.missing == ["BT-110"]
+    # a template's own declaration is switched off for one request, and a render that made none says so
+    plain = client.renders.create(template="rechnung", post={"einvoice": False})
+    assert json.loads(rec.calls[1].content)["post"] == {"einvoice": False}
+    assert plain.einvoice is None
+
+
 def test_storage_events_and_a_missing_connection():
     from formfeed import StorageDeliveryEvent
 

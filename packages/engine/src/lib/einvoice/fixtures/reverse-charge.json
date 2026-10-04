@@ -1,0 +1,61 @@
+{
+  "number": "RE-2026-0051",
+  "issue_date": "2026-09-20",
+  "currency": "EUR",
+  "seller": {
+    "name": "Fennlor Studio GmbH",
+    "vat_id": "DE000000000",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    }
+  },
+  "buyer": {
+    "name": "Olvarest GmbH",
+    "vat_id": "ATU00000000",
+    "address": {
+      "street": "Beispielweg 2",
+      "postcode": "1010",
+      "city": "Beispielstadt",
+      "country": "AT"
+    }
+  },
+  "period": { "start": "2026-09-01", "end": "2026-09-19" },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Softwareentwicklung",
+      "quantity": 40,
+      "unit_code": "HUR",
+      "net_price": 95,
+      "net_amount": 3800,
+      "tax": { "category": "AE", "rate": 0 }
+    }
+  ],
+  "tax": {
+    "breakdown": [
+      {
+        "category": "AE",
+        "rate": 0,
+        "basis": 3800,
+        "amount": 0,
+        "exemption_reason": "Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge)",
+        "exemption_reason_code": "VATEX-EU-AE"
+      }
+    ]
+  },
+  "totals": {
+    "line_net": 3800,
+    "tax_basis": 3800,
+    "tax_total": 0,
+    "grand": 3800,
+    "due": 3800
+  },
+  "payment": {
+    "means_code": "58",
+    "iban": "DE36000000000000000000",
+    "due_date": "2026-10-04"
+  }
+}

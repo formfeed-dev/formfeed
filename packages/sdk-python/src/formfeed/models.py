@@ -69,6 +69,51 @@ class StorageDeliveryEvent(StorageDelivery):
     delivered_at: str | None = None
 
 
+class EinvoiceMessage(_Model):
+    """One finding of the validator: a rule of the invoice XML, or a clause of PDF/A."""
+
+    part: Literal["xml", "pdf"]
+    severity: Literal["error", "warning"]
+    #: ``BR-CO-15``, ``CII-SR-465``, or a clause of PDF/A.
+    rule: str | None = None
+    message: str = ""
+    #: An XPath into the XML, or the object of the PDF.
+    location: str | None = None
+
+
+class EinvoiceValidation(_Model):
+    valid: bool
+    #: The rule set the XML was held to.
+    schematron: str = ""
+    #: ``PDF/A-3b`` once the file was checked; ``None`` when validation ended at the XML.
+    pdfa: str | None = None
+    #: At most 50, errors first.
+    messages: list[EinvoiceMessage] = []
+    truncated: bool = False
+
+
+class EinvoiceDisplay(_Model):
+    """The display check: the values of the XML looked for in the text of the PDF, by business term."""
+
+    checked: list[str] = []
+    #: The terms the PDF does not show.
+    missing: list[str] = []
+
+
+class Einvoice(_Model):
+    """``einvoice`` of a render: the ZUGFeRD / Factur-X invoice it made, what the validator said and
+    whether the PDF shows what the XML states. A failed render keeps it too."""
+
+    profile: Literal["basic", "en16931"]
+    flavour: Literal["factur-x", "zugferd"]
+    #: The release under the flavour's name: Factur-X ``1.09`` is ZUGFeRD ``2.5``.
+    spec_version: str = ""
+    #: A signed link to the XML when the render asked for ``xml: "both"``; ``None`` otherwise.
+    xml_url: str | None = None
+    validation: EinvoiceValidation | None = None
+    display: EinvoiceDisplay | None = None
+
+
 class Render(_Model):
     id: str
     status: RenderStatus
@@ -87,6 +132,8 @@ class Render(_Model):
     deduplicated: bool = False
     #: The copy in the workspace's own bucket; ``None`` when none applies.
     storage: StorageDelivery | None = None
+    #: The e-invoice the render made (``post={"einvoice": {...}}`` or the template's settings); ``None`` when it made none.
+    einvoice: Einvoice | None = None
     timings: dict[str, float] | None = None
     error: dict[str, Any] | None = None
     meta: dict[str, Any] = {}

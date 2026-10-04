@@ -1,0 +1,83 @@
+{
+  "number": "FA-2026-0015",
+  "issue_date": "2026-09-25",
+  "currency": "EUR",
+  "operation": "services",
+  "notes": [
+    {
+      "subject_code": "PMT",
+      "text": "En cas de retard de paiement, une indemnité forfaitaire pour frais de recouvrement de 40 € sera exigée."
+    },
+    {
+      "subject_code": "PMD",
+      "text": "En cas de retard de paiement, des pénalités seront appliquées au taux de trois fois le taux d'intérêt légal."
+    },
+    {
+      "subject_code": "AAB",
+      "text": "Aucun escompte n'est accordé pour paiement anticipé."
+    }
+  ],
+  "seller": {
+    "name": "Fennlor Studio SAS",
+    "id": { "value": "00000000000000", "scheme": "0009" },
+    "legal_registration": { "value": "000000000", "scheme": "0002" },
+    "vat_id": "FR00000000000",
+    "vat_on_debits": true,
+    "address": {
+      "street": "1 rue du Modèle",
+      "postcode": "99000",
+      "city": "Villemodèle",
+      "country": "FR"
+    },
+    "electronic_address": { "value": "000000000", "scheme": "0225" }
+  },
+  "buyer": {
+    "name": "Olvarest SARL",
+    "siren": "000000018",
+    "vat_id": "FR00000000018",
+    "address": {
+      "street": "2 avenue de l'Exemple",
+      "postcode": "99100",
+      "city": "Exempleville",
+      "country": "FR"
+    },
+    "electronic_address": { "value": "000000018", "scheme": "0225" }
+  },
+  "delivery": {
+    "name": "Olvarest SARL, atelier",
+    "date": "2026-09-24",
+    "address": {
+      "street": "4 avenue de l'Exemple",
+      "postcode": "99100",
+      "city": "Exempleville",
+      "country": "FR"
+    }
+  },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Maintenance du système d'étiquetage",
+      "quantity": 12,
+      "unit_code": "HUR",
+      "net_price": 85,
+      "net_amount": 1020,
+      "tax": { "category": "S", "rate": 20 }
+    }
+  ],
+  "tax": {
+    "breakdown": [{ "category": "S", "rate": 20, "basis": 1020, "amount": 204 }]
+  },
+  "totals": {
+    "line_net": 1020,
+    "tax_basis": 1020,
+    "tax_total": 204,
+    "grand": 1224,
+    "due": 1224
+  },
+  "payment": {
+    "means_code": "58",
+    "iban": "FR76 0000 0000 0000 0000 0000 000",
+    "terms": "Paiement à 30 jours",
+    "due_date": "2026-10-25"
+  }
+}

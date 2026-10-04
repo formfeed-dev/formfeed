@@ -1,0 +1,73 @@
+{
+  "number": "RE-2026-0042",
+  "issue_date": "2026-09-10",
+  "currency": "EUR",
+  "seller": {
+    "name": "Fennlor Studio GmbH",
+    "vat_id": "DE000000000",
+    "legal_registration": "HRB 00000",
+    "legal_info": "Amtsgericht Musterstadt, HRB 00000, Geschäftsführerin Erika Mustermann",
+    "address": {
+      "street": "Musterstraße 1",
+      "postcode": "12345",
+      "city": "Musterstadt",
+      "country": "DE"
+    },
+    "contact": {
+      "name": "Erika Mustermann",
+      "phone": "+49 30 0000000",
+      "email": "rechnung@fennlor.example"
+    },
+    "electronic_address": "rechnung@fennlor.example"
+  },
+  "buyer": {
+    "name": "Olvarest GmbH",
+    "address": {
+      "street": "Beispielweg 2",
+      "postcode": "54321",
+      "city": "Beispielstadt",
+      "country": "DE"
+    },
+    "electronic_address": "eingang@olvarest.example"
+  },
+  "delivery": { "date": "2026-09-10" },
+  "lines": [
+    {
+      "id": "1",
+      "name": "Consulting",
+      "quantity": 8,
+      "unit_code": "HUR",
+      "net_price": 120,
+      "net_amount": 960,
+      "tax": { "category": "S", "rate": 19 }
+    },
+    {
+      "id": "2",
+      "name": "Implementation",
+      "quantity": 20,
+      "unit_code": "HUR",
+      "net_price": 110,
+      "net_amount": 2200,
+      "tax": { "category": "S", "rate": 19 }
+    }
+  ],
+  "tax": {
+    "breakdown": [
+      { "category": "S", "rate": 19, "basis": 3160, "amount": 600.4 }
+    ]
+  },
+  "totals": {
+    "line_net": 3160,
+    "tax_basis": 3160,
+    "tax_total": 600.4,
+    "grand": 3760.4,
+    "due": 3760.4
+  },
+  "payment": {
+    "means_code": "58",
+    "iban": "DE36 0000 0000 0000 0000 00",
+    "reference": "RE-2026-0042",
+    "terms": "Zahlbar bis zum 24.09.2026 ohne Abzug.",
+    "due_date": "2026-09-24"
+  }
+}

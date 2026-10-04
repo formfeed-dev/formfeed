@@ -40,6 +40,9 @@
       "@formfeed/engine/design": [
         "./packages/engine/src/lib/design/index.ts"
       ],
+      "@formfeed/engine/einvoice": [
+        "./packages/engine/src/lib/einvoice/index.ts"
+      ],
       "@formfeed/devkit/emit": [
         "./packages/devkit/src/lib/types/generate.ts"
       ],

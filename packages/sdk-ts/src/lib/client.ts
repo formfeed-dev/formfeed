@@ -141,15 +141,20 @@ export interface StorageDeliveryEvent extends StorageDelivery {
 export interface FormfeedTemplates {}
 
 /** The data type of template `T`: generated for known slugs, a plain record otherwise. */
-export type TemplateData<T> = T extends keyof FormfeedTemplates ? FormfeedTemplates[T] : Record<string, unknown>;
+export type TemplateData<T> = T extends keyof FormfeedTemplates
+  ? FormfeedTemplates[T]
+  : Record<string, unknown>;
 
 /**
  * A render request whose `data` follows the template's generated type. A slug the generated file
  * does not know, a template id or a string variable keeps the untyped `Record<string, unknown>`.
  */
-export type TypedRenderRequest<T extends string = string> = Omit<RenderRequest, 'template' | 'data'> & { template?: T } & (
-    T extends keyof FormfeedTemplates ? { data: FormfeedTemplates[T] } : { data?: Record<string, unknown> }
-  );
+export type TypedRenderRequest<T extends string = string> = Omit<
+  RenderRequest,
+  'template' | 'data'
+> & { template?: T } & (T extends keyof FormfeedTemplates
+    ? { data: FormfeedTemplates[T] }
+    : { data?: Record<string, unknown> });
 
 export type PdfPermission = 'print' | 'copy' | 'modify' | 'annotate';
 
@@ -171,6 +176,54 @@ export interface PostProcessing {
   merge_after?: string[];
   watermark?: WatermarkOptions;
   password?: { user?: string; owner?: string; permissions?: PdfPermission[] };
+  /**
+   * Makes the PDF a ZUGFeRD / Factur-X e-invoice, built from the `_invoice` block of `data`. `{}`
+   * takes the defaults; `false` switches off what the template's settings declare. Not together
+   * with `password`. Starter plan and above; one unit on top of the render.
+   */
+  einvoice?: EinvoiceOptions | false;
+}
+
+/** What kind of e-invoice a render makes; every field has a default. */
+export interface EinvoiceOptions {
+  /** `en16931` (default) carries the whole European standard, `basic` the smallest full invoice. */
+  profile?: 'basic' | 'en16931';
+  /** One specification under two names; decides the name and release the render reports. */
+  flavour?: 'factur-x' | 'zugferd';
+  /** `both` stores the XML as a file of its own beside the PDF (`einvoice.xml_url`). */
+  xml?: 'embedded' | 'both';
+  /** What a value of the XML that the PDF does not show does: a warning, or a failed render. */
+  display_check?: 'warn' | 'strict';
+}
+
+/** One finding of the validator: a rule of the XML, or a clause of PDF/A. */
+export interface EinvoiceMessage {
+  part: 'xml' | 'pdf';
+  severity: 'error' | 'warning';
+  rule: string | null;
+  message: string;
+  /** An XPath into the XML, or the object of the PDF. */
+  location: string | null;
+}
+
+/** The e-invoice of a render: what was made, what the validator said, what the PDF shows. */
+export interface Einvoice {
+  profile: 'basic' | 'en16931';
+  flavour: 'factur-x' | 'zugferd';
+  /** The release under the flavour's name: Factur-X `1.09` is ZUGFeRD `2.5`. */
+  spec_version: string;
+  /** A signed link to the XML when the render asked for `xml: "both"`; null otherwise. */
+  xml_url: string | null;
+  validation: {
+    valid: boolean;
+    schematron: string;
+    pdfa: string | null;
+    /** At most 50, errors first. */
+    messages: EinvoiceMessage[];
+    truncated?: boolean;
+  } | null;
+  /** The business terms of the XML looked for in the PDF's text, and those it does not show. */
+  display: { checked: string[]; missing: string[] } | null;
 }
 
 /** Where the result of a PDF tool is stored, as for a render. */
@@ -195,7 +248,12 @@ export interface ProtectOptions extends PdfOutputOptions {
 export interface PdfInfo {
   source: string;
   page_count: number;
-  pages: Array<{ width_pt: number; height_pt: number; width_mm: number; height_mm: number }>;
+  pages: Array<{
+    width_pt: number;
+    height_pt: number;
+    width_mm: number;
+    height_mm: number;
+  }>;
   encrypted: boolean;
   metadata: Record<string, unknown>;
 }
@@ -212,13 +270,24 @@ export interface Render {
   region: string;
   environment: 'live' | 'test';
   /** `channel`: the release channel the version came from; `canary` when the channel's canary share picked it. */
-  template: { id: string; slug: string; version: number; channel?: string | null; canary?: boolean } | null;
+  template: {
+    id: string;
+    slug: string;
+    version: number;
+    channel?: string | null;
+    canary?: boolean;
+  } | null;
   engine_version: string | null;
   template_checksum: string | null;
   output_sha256: string | null;
   deduplicated: boolean;
   /** The copy in the workspace's own bucket; null when none applies. */
   storage: StorageDelivery | null;
+  /**
+   * The e-invoice the render made, with the validator's report; null when it made none. A failed
+   * render keeps it too, which is where it says why. Absent from renders made before the feature.
+   */
+  einvoice?: Einvoice | null;
   timings: Record<string, number> | null;
   error: { code?: string; message?: string; [key: string]: unknown } | null;
   meta: Record<string, unknown>;
@@ -421,7 +490,12 @@ export interface WebhookResend {
  */
 export interface RenderInput {
   render_id: string;
-  template?: { id: string; slug: string; version: number; channel?: string | null };
+  template?: {
+    id: string;
+    slug: string;
+    version: number;
+    channel?: string | null;
+  };
   html?: string;
   engine?: Engine;
   url?: string;
@@ -613,12 +687,17 @@ export interface OfficeVersionCreate extends OfficeFields {
   allow_breaking?: boolean;
 }
 
-const isOfficeInput = (input: object): input is { file?: OfficeFileUpload } => 'file' in input;
+const isOfficeInput = (input: object): input is { file?: OfficeFileUpload } =>
+  'file' in input;
 
 /** The bytes of an upload as a Blob, named for the multipart part. */
 function blobOf(file: OfficeFileUpload): { blob: Blob; name: string } {
-  const blob = file.data instanceof Blob ? file.data : new Blob([file.data as BlobPart]);
-  const own = typeof File !== 'undefined' && file.data instanceof File ? file.data.name : undefined;
+  const blob =
+    file.data instanceof Blob ? file.data : new Blob([file.data as BlobPart]);
+  const own =
+    typeof File !== 'undefined' && file.data instanceof File
+      ? file.data.name
+      : undefined;
   return { blob, name: file.name ?? own ?? 'document' };
 }
 
@@ -626,13 +705,23 @@ function blobOf(file: OfficeFileUpload): { blob: Blob; name: string } {
  * A multipart body the way the API reads it: the file as `file`, strings as they are, booleans
  * and numbers as text, objects and arrays as JSON text; `undefined` fields are left out.
  */
-function multipart(fields: Record<string, unknown>, file: OfficeFileUpload): FormData {
+function multipart(
+  fields: Record<string, unknown>,
+  file: OfficeFileUpload,
+): FormData {
   const form = new FormData();
   const { blob, name } = blobOf(file);
   form.set('file', blob, name);
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined) continue;
-    form.set(key, typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value));
+    form.set(
+      key,
+      typeof value === 'string'
+        ? value
+        : typeof value === 'object'
+          ? JSON.stringify(value)
+          : String(value),
+    );
   }
   return form;
 }
@@ -722,8 +811,12 @@ function randomKey(): string {
 }
 
 /** Every call that creates a render carries an Idempotency-Key, so a retry cannot charge twice. */
-const withKey = (options: RequestOptions): RequestOptions => ({ ...options, idempotencyKey: options.idempotencyKey ?? randomKey() });
-const idOf = (source: { id: string } | string) => (typeof source === 'string' ? source : source.id);
+const withKey = (options: RequestOptions): RequestOptions => ({
+  ...options,
+  idempotencyKey: options.idempotencyKey ?? randomKey(),
+});
+const idOf = (source: { id: string } | string) =>
+  typeof source === 'string' ? source : source.id;
 
 export class Formfeed {
   private readonly baseUrl: string;
@@ -734,44 +827,88 @@ export class Formfeed {
   private readonly extraHeaders: Record<string, string>;
 
   constructor(options: FormfeedOptions) {
-    if (!options.apiKey) throw new FormfeedError('invalid_request', 'apiKey is required', 0);
+    if (!options.apiKey)
+      throw new FormfeedError('invalid_request', 'apiKey is required', 0);
     this.apiKey = options.apiKey;
-    this.baseUrl = (options.baseUrl ?? hosts[options.region ?? 'eu']).replace(/\/$/, '');
+    this.baseUrl = (options.baseUrl ?? hosts[options.region ?? 'eu']).replace(
+      /\/$/,
+      '',
+    );
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.maxRetries = options.maxRetries ?? 3;
     this.timeoutMs = options.timeoutMs ?? 120_000;
-    this.extraHeaders = Object.fromEntries(Object.entries(options.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]));
-    if (!this.fetchImpl) throw new FormfeedError('invalid_request', 'fetch is not available; pass options.fetch', 0);
+    this.extraHeaders = Object.fromEntries(
+      Object.entries(options.headers ?? {}).map(([name, value]) => [
+        name.toLowerCase(),
+        value,
+      ]),
+    );
+    if (!this.fetchImpl)
+      throw new FormfeedError(
+        'invalid_request',
+        'fetch is not available; pass options.fetch',
+        0,
+      );
   }
 
   readonly renders = {
     /** Renders a template, HTML or URL. Sync by default; `mode: 'async'` returns a queued render. */
-    create: <T extends string = string>(request: TypedRenderRequest<T>, options: RequestOptions = {}): Promise<Render> =>
+    create: <T extends string = string>(
+      request: TypedRenderRequest<T>,
+      options: RequestOptions = {},
+    ): Promise<Render> =>
       this.request<Render>('POST', '/renders', request, {
         ...options,
         idempotencyKey: options.idempotencyKey ?? randomKey(),
       }),
     get: (id: string, options: RequestOptions = {}): Promise<Render> =>
-      this.request<Render>('GET', `/renders/${encodeURIComponent(id)}`, undefined, options),
+      this.request<Render>(
+        'GET',
+        `/renders/${encodeURIComponent(id)}`,
+        undefined,
+        options,
+      ),
     /** Polls until the render succeeded or failed (async renders). */
     waitFor: async (id: string, options: WaitOptions = {}): Promise<Render> => {
       const deadline = Date.now() + (options.timeoutMs ?? 120_000);
       const interval = options.intervalMs ?? 1000;
       for (;;) {
         const render = await this.renders.get(id, { signal: options.signal });
-        if (render.status === 'succeeded' || render.status === 'failed') return render;
+        if (render.status === 'succeeded' || render.status === 'failed')
+          return render;
         if (Date.now() + interval > deadline)
-          throw new FormfeedError('timeout', `render ${id} did not finish within the wait time`, 0);
+          throw new FormfeedError(
+            'timeout',
+            `render ${id} did not finish within the wait time`,
+            0,
+          );
         await sleep(interval, options.signal);
       }
     },
     /** Downloads the output of a finished render as bytes. */
-    download: async (render: Render | string, options: RequestOptions = {}): Promise<Uint8Array> => {
-      const target = typeof render === 'string' ? await this.renders.get(render, options) : render;
+    download: async (
+      render: Render | string,
+      options: RequestOptions = {},
+    ): Promise<Uint8Array> => {
+      const target =
+        typeof render === 'string'
+          ? await this.renders.get(render, options)
+          : render;
       if (!target.download_url)
-        throw new FormfeedError('not_ready', `render ${target.id} has no output (${target.status})`, 0);
-      const res = await this.fetchImpl(target.download_url, { signal: options.signal });
-      if (!res.ok) throw new FormfeedError('download_failed', `download answered HTTP ${res.status}`, res.status);
+        throw new FormfeedError(
+          'not_ready',
+          `render ${target.id} has no output (${target.status})`,
+          0,
+        );
+      const res = await this.fetchImpl(target.download_url, {
+        signal: options.signal,
+      });
+      if (!res.ok)
+        throw new FormfeedError(
+          'download_failed',
+          `download answered HTTP ${res.status}`,
+          res.status,
+        );
       return new Uint8Array(await res.arrayBuffer());
     },
     /** Page of renders, newest first. */
@@ -780,16 +917,26 @@ export class Formfeed {
       options: RequestOptions = {},
     ): Promise<{ data: Render[]; next_cursor: string | null }> => {
       const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
+      for (const [k, v] of Object.entries(query))
+        if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
       const qs = params.toString();
-      return this.request('GET', `/renders${qs ? `?${qs}` : ''}`, undefined, options);
+      return this.request(
+        'GET',
+        `/renders${qs ? `?${qs}` : ''}`,
+        undefined,
+        options,
+      );
     },
     /** Every render matching the query, following the cursor. */
-    all: async (query: Omit<RenderListOptions, 'cursor'> = {}, options: RequestOptions = {}): Promise<Render[]> => {
+    all: async (
+      query: Omit<RenderListOptions, 'cursor'> = {},
+      options: RequestOptions = {},
+    ): Promise<Render[]> => {
       const out: Render[] = [];
       let cursor: string | null = null;
       do {
-        const page: { data: Render[]; next_cursor: string | null } = await this.renders.list({ ...query, cursor }, options);
+        const page: { data: Render[]; next_cursor: string | null } =
+          await this.renders.list({ ...query, cursor }, options);
         out.push(...page.data);
         cursor = page.next_cursor;
       } while (cursor);
@@ -797,14 +944,27 @@ export class Formfeed {
     },
     /** Removes the stored files of a render before they expire. Needs the `file:delete` scope. */
     deleteOutputs: (id: string, options: RequestOptions = {}): Promise<void> =>
-      this.request<void>('DELETE', `/renders/${encodeURIComponent(id)}/outputs`, undefined, options),
+      this.request<void>(
+        'DELETE',
+        `/renders/${encodeURIComponent(id)}/outputs`,
+        undefined,
+        options,
+      ),
     /**
      * The stored request of a render, to render it again. Needs `render:input`; throws
      * `render_input_expired` (410) when the workspace keeps no requests or the period ended.
      */
     input: (id: string, options: RequestOptions = {}): Promise<RenderInput> =>
-      this.request<RenderInput>('GET', `/renders/${encodeURIComponent(id)}/input`, undefined, options),
-    batch: <T extends string = string>(request: BatchRequest<T>, options: RequestOptions = {}): Promise<Job> =>
+      this.request<RenderInput>(
+        'GET',
+        `/renders/${encodeURIComponent(id)}/input`,
+        undefined,
+        options,
+      ),
+    batch: <T extends string = string>(
+      request: BatchRequest<T>,
+      options: RequestOptions = {},
+    ): Promise<Job> =>
       this.request<Job>('POST', '/renders/batch', request, {
         ...options,
         idempotencyKey: options.idempotencyKey ?? randomKey(),
@@ -817,14 +977,49 @@ export class Formfeed {
    * 0.5 units each on live keys; info is free.
    */
   readonly pdf = {
-    merge: (sources: Array<Render | LibraryFile | string>, output: PdfOutputOptions = {}, options: RequestOptions = {}): Promise<Render> =>
-      this.request<Render>('POST', '/pdf/merge', { ...output, sources: sources.map(idOf) }, withKey(options)),
-    protect: (source: Render | string, protect: ProtectOptions, options: RequestOptions = {}): Promise<Render> =>
-      this.request<Render>('POST', '/pdf/protect', { ...protect, source: idOf(source) }, withKey(options)),
-    watermark: (source: Render | string, watermark: WatermarkOptions & PdfOutputOptions, options: RequestOptions = {}): Promise<Render> =>
-      this.request<Render>('POST', '/pdf/watermark', { ...watermark, source: idOf(source) }, withKey(options)),
-    info: (source: Render | string, options: RequestOptions = {}): Promise<PdfInfo> =>
-      this.request<PdfInfo>('POST', '/pdf/info', { source: idOf(source) }, options),
+    merge: (
+      sources: Array<Render | LibraryFile | string>,
+      output: PdfOutputOptions = {},
+      options: RequestOptions = {},
+    ): Promise<Render> =>
+      this.request<Render>(
+        'POST',
+        '/pdf/merge',
+        { ...output, sources: sources.map(idOf) },
+        withKey(options),
+      ),
+    protect: (
+      source: Render | string,
+      protect: ProtectOptions,
+      options: RequestOptions = {},
+    ): Promise<Render> =>
+      this.request<Render>(
+        'POST',
+        '/pdf/protect',
+        { ...protect, source: idOf(source) },
+        withKey(options),
+      ),
+    watermark: (
+      source: Render | string,
+      watermark: WatermarkOptions & PdfOutputOptions,
+      options: RequestOptions = {},
+    ): Promise<Render> =>
+      this.request<Render>(
+        'POST',
+        '/pdf/watermark',
+        { ...watermark, source: idOf(source) },
+        withKey(options),
+      ),
+    info: (
+      source: Render | string,
+      options: RequestOptions = {},
+    ): Promise<PdfInfo> =>
+      this.request<PdfInfo>(
+        'POST',
+        '/pdf/info',
+        { source: idOf(source) },
+        options,
+      ),
     /**
      * Converts an office document to a PDF render (Starter plan and above): an uploaded file (Word,
      * Excel, PowerPoint, OpenDocument, RTF or HTML, up to 20 MB, not kept), or the output of a Word or
@@ -837,8 +1032,18 @@ export class Formfeed {
       options: RequestOptions = {},
     ): Promise<Render> => {
       if (typeof source === 'object' && 'file' in source)
-        return this.request<Render>('POST', '/pdf/convert', multipart({ ...convert }, source.file), withKey(options));
-      return this.request<Render>('POST', '/pdf/convert', { ...convert, source: idOf(source) }, withKey(options));
+        return this.request<Render>(
+          'POST',
+          '/pdf/convert',
+          multipart({ ...convert }, source.file),
+          withKey(options),
+        );
+      return this.request<Render>(
+        'POST',
+        '/pdf/convert',
+        { ...convert, source: idOf(source) },
+        withKey(options),
+      );
     },
   };
 
@@ -850,44 +1055,77 @@ export class Formfeed {
    */
   readonly files = {
     /** Uploads a file; the same name replaces the existing file in place and keeps its URL. */
-    upload: (file: FileUpload, options: RequestOptions = {}): Promise<LibraryFile> => {
+    upload: (
+      file: FileUpload,
+      options: RequestOptions = {},
+    ): Promise<LibraryFile> => {
       const blob =
         file.data instanceof Blob
           ? file.data
-          : new Blob([file.data as BlobPart], file.contentType ? { type: file.contentType } : {});
+          : new Blob(
+              [file.data as BlobPart],
+              file.contentType ? { type: file.contentType } : {},
+            );
       const form = new FormData();
       form.set('file', blob, file.name);
       form.set('name', file.name);
       return this.request<LibraryFile>('POST', '/files', form, options);
     },
     /** Page of files, newest first. */
-    list: (query: FileListOptions = {}, options: RequestOptions = {}): Promise<{ data: LibraryFile[]; next_cursor: string | null }> => {
+    list: (
+      query: FileListOptions = {},
+      options: RequestOptions = {},
+    ): Promise<{ data: LibraryFile[]; next_cursor: string | null }> => {
       const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
+      for (const [k, v] of Object.entries(query))
+        if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
       const qs = params.toString();
-      return this.request('GET', `/files${qs ? `?${qs}` : ''}`, undefined, options);
+      return this.request(
+        'GET',
+        `/files${qs ? `?${qs}` : ''}`,
+        undefined,
+        options,
+      );
     },
     /** Every file matching the query, following the cursor. */
-    all: async (query: Omit<FileListOptions, 'cursor'> = {}, options: RequestOptions = {}): Promise<LibraryFile[]> => {
+    all: async (
+      query: Omit<FileListOptions, 'cursor'> = {},
+      options: RequestOptions = {},
+    ): Promise<LibraryFile[]> => {
       const out: LibraryFile[] = [];
       let cursor: string | null = null;
       do {
-        const page: { data: LibraryFile[]; next_cursor: string | null } = await this.files.list({ ...query, cursor }, options);
+        const page: { data: LibraryFile[]; next_cursor: string | null } =
+          await this.files.list({ ...query, cursor }, options);
         out.push(...page.data);
         cursor = page.next_cursor;
       } while (cursor);
       return out;
     },
     get: (id: string, options: RequestOptions = {}): Promise<LibraryFile> =>
-      this.request<LibraryFile>('GET', `/files/${encodeURIComponent(id)}`, undefined, options),
+      this.request<LibraryFile>(
+        'GET',
+        `/files/${encodeURIComponent(id)}`,
+        undefined,
+        options,
+      ),
     /** Removes the file and its bytes; templates that name it render a missing image afterwards. */
-    delete: (file: LibraryFile | string, options: RequestOptions = {}): Promise<void> =>
-      this.request<void>('DELETE', `/files/${encodeURIComponent(idOf(file))}`, undefined, options),
+    delete: (
+      file: LibraryFile | string,
+      options: RequestOptions = {},
+    ): Promise<void> =>
+      this.request<void>(
+        'DELETE',
+        `/files/${encodeURIComponent(idOf(file))}`,
+        undefined,
+        options,
+      ),
   };
 
   /** The organisation's brand kit, read-only through the API (it is edited in the app). Needs `template:read`. */
   readonly brand = {
-    get: (options: RequestOptions = {}): Promise<Brand> => this.request<Brand>('GET', '/brand', undefined, options),
+    get: (options: RequestOptions = {}): Promise<Brand> =>
+      this.request<Brand>('GET', '/brand', undefined, options),
   };
 
   /**
@@ -897,23 +1135,54 @@ export class Formfeed {
   readonly partials = {
     /** Every shared partial, without its source. */
     list: async (options: RequestOptions = {}): Promise<SharedPartial[]> =>
-      (await this.request<{ data: SharedPartial[] }>('GET', '/partials', undefined, options)).data,
+      (
+        await this.request<{ data: SharedPartial[] }>(
+          'GET',
+          '/partials',
+          undefined,
+          options,
+        )
+      ).data,
     /** One partial with its source. */
     get: (name: string, options: RequestOptions = {}): Promise<SharedPartial> =>
-      this.request<SharedPartial>('GET', `/partials/${encodeURIComponent(name)}`, undefined, options),
+      this.request<SharedPartial>(
+        'GET',
+        `/partials/${encodeURIComponent(name)}`,
+        undefined,
+        options,
+      ),
     /** Creates or replaces a partial; pass `base_version` to fail with 409 when it changed since you read it. */
-    put: async (name: string, input: SharedPartialPut, options: RequestOptions = {}): Promise<SharedPartialPutResult> => {
-      const { status, body } = await this.send<SharedPartial>('PUT', `/partials/${encodeURIComponent(name)}`, input, options);
+    put: async (
+      name: string,
+      input: SharedPartialPut,
+      options: RequestOptions = {},
+    ): Promise<SharedPartialPutResult> => {
+      const { status, body } = await this.send<SharedPartial>(
+        'PUT',
+        `/partials/${encodeURIComponent(name)}`,
+        input,
+        options,
+      );
       return { partial: body, created: status === 201 };
     },
     /** Removes a partial; templates that still include it fail to render afterwards. */
     delete: (name: string, options: RequestOptions = {}): Promise<void> =>
-      this.request<void>('DELETE', `/partials/${encodeURIComponent(name)}`, undefined, options),
+      this.request<void>(
+        'DELETE',
+        `/partials/${encodeURIComponent(name)}`,
+        undefined,
+        options,
+      ),
   };
 
   readonly jobs = {
     get: (id: string, options: RequestOptions = {}): Promise<Job> =>
-      this.request<Job>('GET', `/jobs/${encodeURIComponent(id)}`, undefined, options),
+      this.request<Job>(
+        'GET',
+        `/jobs/${encodeURIComponent(id)}`,
+        undefined,
+        options,
+      ),
     waitFor: async (id: string, options: WaitOptions = {}): Promise<Job> => {
       const deadline = Date.now() + (options.timeoutMs ?? 600_000);
       const interval = options.intervalMs ?? 2000;
@@ -921,7 +1190,11 @@ export class Formfeed {
         const job = await this.jobs.get(id, { signal: options.signal });
         if (job.status !== 'queued' && job.status !== 'processing') return job;
         if (Date.now() + interval > deadline)
-          throw new FormfeedError('timeout', `job ${id} did not finish within the wait time`, 0);
+          throw new FormfeedError(
+            'timeout',
+            `job ${id} did not finish within the wait time`,
+            0,
+          );
         await sleep(interval, options.signal);
       }
     },
@@ -929,30 +1202,79 @@ export class Formfeed {
 
   readonly webhooks = {
     list: async (options: RequestOptions = {}): Promise<WebhookEndpoint[]> =>
-      (await this.request<{ data: WebhookEndpoint[] }>('GET', '/webhooks', undefined, options)).data,
-    create: (input: WebhookEndpointCreate, options: RequestOptions = {}): Promise<WebhookEndpoint> =>
+      (
+        await this.request<{ data: WebhookEndpoint[] }>(
+          'GET',
+          '/webhooks',
+          undefined,
+          options,
+        )
+      ).data,
+    create: (
+      input: WebhookEndpointCreate,
+      options: RequestOptions = {},
+    ): Promise<WebhookEndpoint> =>
       this.request<WebhookEndpoint>('POST', '/webhooks', input, options),
-    update: (id: string, patch: WebhookEndpointUpdate, options: RequestOptions = {}): Promise<WebhookEndpoint> =>
-      this.request<WebhookEndpoint>('PUT', `/webhooks/${encodeURIComponent(id)}`, patch, options),
+    update: (
+      id: string,
+      patch: WebhookEndpointUpdate,
+      options: RequestOptions = {},
+    ): Promise<WebhookEndpoint> =>
+      this.request<WebhookEndpoint>(
+        'PUT',
+        `/webhooks/${encodeURIComponent(id)}`,
+        patch,
+        options,
+      ),
     delete: (id: string, options: RequestOptions = {}): Promise<void> =>
-      this.request<void>('DELETE', `/webhooks/${encodeURIComponent(id)}`, undefined, options),
-    test: (id: string, options: RequestOptions = {}): Promise<{ queued: boolean }> =>
-      this.request<{ queued: boolean }>('POST', `/webhooks/${encodeURIComponent(id)}/test`, undefined, options),
+      this.request<void>(
+        'DELETE',
+        `/webhooks/${encodeURIComponent(id)}`,
+        undefined,
+        options,
+      ),
+    test: (
+      id: string,
+      options: RequestOptions = {},
+    ): Promise<{ queued: boolean }> =>
+      this.request<{ queued: boolean }>(
+        'POST',
+        `/webhooks/${encodeURIComponent(id)}/test`,
+        undefined,
+        options,
+      ),
     /**
      * Sends a stored event (`evt_…`) again as a new delivery to a registered endpoint (`webhook:manage`)
      * or a running listen session (`webhook:listen`).
      */
-    resend: (eventId: string, endpointId: string, options: RequestOptions = {}): Promise<WebhookResend> =>
-      this.request<WebhookResend>('POST', `/webhooks/events/${encodeURIComponent(eventId)}/resend`, { endpoint_id: endpointId }, options),
+    resend: (
+      eventId: string,
+      endpointId: string,
+      options: RequestOptions = {},
+    ): Promise<WebhookResend> =>
+      this.request<WebhookResend>(
+        'POST',
+        `/webhooks/events/${encodeURIComponent(eventId)}/resend`,
+        { endpoint_id: endpointId },
+        options,
+      ),
     /**
      * Listen sessions, what `formfeed listen` uses. Needs `webhook:listen`. Starting a session ends the
      * previous one of the same key; the WebSocket itself is up to the caller.
      */
     listen: {
-      start: (input: ListenSessionOptions = {}, options: RequestOptions = {}): Promise<ListenSession> =>
+      start: (
+        input: ListenSessionOptions = {},
+        options: RequestOptions = {},
+      ): Promise<ListenSession> =>
         this.request<ListenSession>('POST', '/webhooks/listen', input, options),
       end: (id: string, options: RequestOptions = {}): Promise<void> =>
-        this.request<void>('DELETE', `/webhooks/listen/${encodeURIComponent(id)}`, undefined, options),
+        this.request<void>(
+          'DELETE',
+          `/webhooks/listen/${encodeURIComponent(id)}`,
+          undefined,
+          options,
+        ),
     },
   };
 
@@ -962,28 +1284,51 @@ export class Formfeed {
       options: RequestOptions = {},
     ): Promise<{ data: Template[]; next_cursor: string | null }> => {
       const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
+      for (const [k, v] of Object.entries(query))
+        if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
       const qs = params.toString();
-      return this.request('GET', `/templates${qs ? `?${qs}` : ''}`, undefined, options);
+      return this.request(
+        'GET',
+        `/templates${qs ? `?${qs}` : ''}`,
+        undefined,
+        options,
+      );
     },
     /** Every template of the workspace, following the cursor. */
-    all: async (query: Omit<TemplateListOptions, 'cursor'> = {}, options: RequestOptions = {}): Promise<Template[]> => {
+    all: async (
+      query: Omit<TemplateListOptions, 'cursor'> = {},
+      options: RequestOptions = {},
+    ): Promise<Template[]> => {
       const out: Template[] = [];
       let cursor: string | null = null;
       do {
-        const page: { data: Template[]; next_cursor: string | null } = await this.templates.list({ ...query, cursor }, options);
+        const page: { data: Template[]; next_cursor: string | null } =
+          await this.templates.list({ ...query, cursor }, options);
         out.push(...page.data);
         cursor = page.next_cursor;
       } while (cursor);
       return out;
     },
     get: (idOrSlug: string, options: RequestOptions = {}): Promise<Template> =>
-      this.request<Template>('GET', `/templates/${encodeURIComponent(idOrSlug)}`, undefined, options),
+      this.request<Template>(
+        'GET',
+        `/templates/${encodeURIComponent(idOrSlug)}`,
+        undefined,
+        options,
+      ),
     /** A Word or PowerPoint template (`kind` `docx` or `pptx`) is created from its `file`, sent as multipart. */
-    create: (input: TemplateCreate | OfficeTemplateCreate, options: RequestOptions = {}): Promise<Template> => {
+    create: (
+      input: TemplateCreate | OfficeTemplateCreate,
+      options: RequestOptions = {},
+    ): Promise<Template> => {
       if (isOfficeInput(input) && input.file) {
         const { file, ...fields } = input;
-        return this.request<Template>('POST', '/templates', multipart(fields, file), options);
+        return this.request<Template>(
+          'POST',
+          '/templates',
+          multipart(fields, file),
+          options,
+        );
       }
       return this.request<Template>('POST', '/templates', input, options);
     },
@@ -991,35 +1336,85 @@ export class Formfeed {
       idOrSlug: string,
       patch: { name?: string; description?: string | null; tags?: string[] },
       options: RequestOptions = {},
-    ): Promise<Template> => this.request<Template>('PUT', `/templates/${encodeURIComponent(idOrSlug)}`, patch, options),
+    ): Promise<Template> =>
+      this.request<Template>(
+        'PUT',
+        `/templates/${encodeURIComponent(idOrSlug)}`,
+        patch,
+        options,
+      ),
     archive: (idOrSlug: string, options: RequestOptions = {}): Promise<void> =>
-      this.request<void>('DELETE', `/templates/${encodeURIComponent(idOrSlug)}`, undefined, options),
+      this.request<void>(
+        'DELETE',
+        `/templates/${encodeURIComponent(idOrSlug)}`,
+        undefined,
+        options,
+      ),
     versions: {
-      list: async (idOrSlug: string, options: RequestOptions = {}): Promise<TemplateVersion[]> =>
-        (await this.request<{ data: TemplateVersion[] }>('GET', `/templates/${encodeURIComponent(idOrSlug)}/versions`, undefined, options)).data,
+      list: async (
+        idOrSlug: string,
+        options: RequestOptions = {},
+      ): Promise<TemplateVersion[]> =>
+        (
+          await this.request<{ data: TemplateVersion[] }>(
+            'GET',
+            `/templates/${encodeURIComponent(idOrSlug)}/versions`,
+            undefined,
+            options,
+          )
+        ).data,
       /** `which`: 'published', 'latest', a version number or a channel name (its main version). Carries the files. */
-      get: (idOrSlug: string, which: string | number = 'published', options: RequestOptions = {}): Promise<TemplateVersion> =>
-        this.request<TemplateVersion>('GET', `/templates/${encodeURIComponent(idOrSlug)}/versions/${encodeURIComponent(String(which))}`, undefined, options),
+      get: (
+        idOrSlug: string,
+        which: string | number = 'published',
+        options: RequestOptions = {},
+      ): Promise<TemplateVersion> =>
+        this.request<TemplateVersion>(
+          'GET',
+          `/templates/${encodeURIComponent(idOrSlug)}/versions/${encodeURIComponent(String(which))}`,
+          undefined,
+          options,
+        ),
       /** For a Word or PowerPoint template, pass `file` to replace the document; without it the latest file is kept. */
-      create: (idOrSlug: string, input: TemplateVersionCreate | OfficeVersionCreate, options: RequestOptions = {}): Promise<TemplateVersion> => {
+      create: (
+        idOrSlug: string,
+        input: TemplateVersionCreate | OfficeVersionCreate,
+        options: RequestOptions = {},
+      ): Promise<TemplateVersion> => {
         const path = `/templates/${encodeURIComponent(idOrSlug)}/versions`;
         if (isOfficeInput(input)) {
           const { file, ...fields } = input;
-          if (file) return this.request<TemplateVersion>('POST', path, multipart(fields, file), options);
+          if (file)
+            return this.request<TemplateVersion>(
+              'POST',
+              path,
+              multipart(fields, file),
+              options,
+            );
           return this.request<TemplateVersion>('POST', path, fields, options);
         }
         return this.request<TemplateVersion>('POST', path, input, options);
       },
       /** The Word or PowerPoint file of a version (`which` as for `get`); needs `template:read`. */
-      file: async (idOrSlug: string, which: string | number = 'published', options: RequestOptions = {}): Promise<Uint8Array> => {
+      file: async (
+        idOrSlug: string,
+        which: string | number = 'published',
+        options: RequestOptions = {},
+      ): Promise<Uint8Array> => {
         const path = `/templates/${encodeURIComponent(idOrSlug)}/versions/${encodeURIComponent(String(which))}/file`;
-        return (await this.send<Uint8Array>('GET', path, undefined, options, 'bytes')).body;
+        return (
+          await this.send<Uint8Array>('GET', path, undefined, options, 'bytes')
+        ).body;
       },
       /**
        * Publishes a version. When both versions store a data schema and the new one breaks callers of the
        * published one, the API refuses with `schema_breaking_change` unless `allowBreaking` is set.
        */
-      publish: (idOrSlug: string, number: number, options: SchemaGuardOptions = {}): Promise<TemplateVersion> => {
+      publish: (
+        idOrSlug: string,
+        number: number,
+        options: SchemaGuardOptions = {},
+      ): Promise<TemplateVersion> => {
         const { allowBreaking, ...rest } = options;
         return this.request<TemplateVersion>(
           'POST',
@@ -1034,10 +1429,23 @@ export class Formfeed {
      * uses the version the channel points at. Moves reach renders within a minute.
      */
     channels: {
-      list: (idOrSlug: string, options: RequestOptions = {}): Promise<ChannelList> =>
-        this.request<ChannelList>('GET', `/templates/${encodeURIComponent(idOrSlug)}/channels`, undefined, options),
+      list: (
+        idOrSlug: string,
+        options: RequestOptions = {},
+      ): Promise<ChannelList> =>
+        this.request<ChannelList>(
+          'GET',
+          `/templates/${encodeURIComponent(idOrSlug)}/channels`,
+          undefined,
+          options,
+        ),
       /** Creates or moves a channel; on `published` this publishes. */
-      set: (idOrSlug: string, name: string, move: ChannelMove, options: SchemaGuardOptions = {}): Promise<Channel> => {
+      set: (
+        idOrSlug: string,
+        name: string,
+        move: ChannelMove,
+        options: SchemaGuardOptions = {},
+      ): Promise<Channel> => {
         const { allowBreaking, ...rest } = options;
         return this.request<Channel>(
           'PUT',
@@ -1047,11 +1455,25 @@ export class Formfeed {
         );
       },
       /** The canary becomes the main version. */
-      promote: (idOrSlug: string, name: string, options: SchemaGuardOptions = {}): Promise<Channel> => this.channelAction(idOrSlug, name, 'promote', options),
+      promote: (
+        idOrSlug: string,
+        name: string,
+        options: SchemaGuardOptions = {},
+      ): Promise<Channel> =>
+        this.channelAction(idOrSlug, name, 'promote', options),
       /** Back to the version before the last move. */
-      rollback: (idOrSlug: string, name: string, options: SchemaGuardOptions = {}): Promise<Channel> => this.channelAction(idOrSlug, name, 'rollback', options),
+      rollback: (
+        idOrSlug: string,
+        name: string,
+        options: SchemaGuardOptions = {},
+      ): Promise<Channel> =>
+        this.channelAction(idOrSlug, name, 'rollback', options),
       /** Refused with `channel_in_use` while renders of the last hour used the channel, unless `force`. */
-      delete: (idOrSlug: string, name: string, options: RequestOptions & { force?: boolean } = {}): Promise<void> => {
+      delete: (
+        idOrSlug: string,
+        name: string,
+        options: RequestOptions & { force?: boolean } = {},
+      ): Promise<void> => {
         const { force, ...rest } = options;
         return this.request<void>(
           'DELETE',
@@ -1066,10 +1488,21 @@ export class Formfeed {
      * published (else the latest) version, or of `version`: `published`, `latest`, a number or a
      * channel name.
      */
-    schema: (idOrSlug: string, options: RequestOptions & { version?: VersionRef } = {}): Promise<Record<string, unknown>> => {
+    schema: (
+      idOrSlug: string,
+      options: RequestOptions & { version?: VersionRef } = {},
+    ): Promise<Record<string, unknown>> => {
       const { version, ...rest } = options;
-      const query = version === undefined ? '' : `?version=${encodeURIComponent(String(version))}`;
-      return this.request<Record<string, unknown>>('GET', `/templates/${encodeURIComponent(idOrSlug)}/schema${query}`, undefined, rest);
+      const query =
+        version === undefined
+          ? ''
+          : `?version=${encodeURIComponent(String(version))}`;
+      return this.request<Record<string, unknown>>(
+        'GET',
+        `/templates/${encodeURIComponent(idOrSlug)}/schema${query}`,
+        undefined,
+        rest,
+      );
     },
     /**
      * Checks a version with data without rendering: syntax, header and footer, missing partials,
@@ -1081,15 +1514,30 @@ export class Formfeed {
       input: { version?: VersionRef; data?: Record<string, unknown> } = {},
       options: RequestOptions = {},
     ): Promise<TemplateValidation> =>
-      this.request<TemplateValidation>('POST', `/templates/${encodeURIComponent(idOrSlug)}/validate`, input, options),
+      this.request<TemplateValidation>(
+        'POST',
+        `/templates/${encodeURIComponent(idOrSlug)}/validate`,
+        input,
+        options,
+      ),
   };
 
   readonly account = {
     get: (options: RequestOptions = {}): Promise<Record<string, unknown>> =>
-      this.request<Record<string, unknown>>('GET', '/account', undefined, options),
+      this.request<Record<string, unknown>>(
+        'GET',
+        '/account',
+        undefined,
+        options,
+      ),
     /** Units of the current period, or of `YYYY-MM`, with a daily series and a breakdown per template. */
     usage: (period = 'current', options: RequestOptions = {}): Promise<Usage> =>
-      this.request<Usage>('GET', `/usage?period=${encodeURIComponent(period)}`, undefined, options),
+      this.request<Usage>(
+        'GET',
+        `/usage?period=${encodeURIComponent(period)}`,
+        undefined,
+        options,
+      ),
   };
 
   /** Workspaces of the key's organisation. Needs `workspace:delete`, which no key has by default. */
@@ -1099,10 +1547,20 @@ export class Formfeed {
      * is removed after 30 days. The organisation's last workspace is refused with `last_workspace`.
      */
     delete: (id: string, options: RequestOptions = {}): Promise<void> =>
-      this.request<void>('DELETE', `/workspaces/${encodeURIComponent(id)}`, undefined, options),
+      this.request<void>(
+        'DELETE',
+        `/workspaces/${encodeURIComponent(id)}`,
+        undefined,
+        options,
+      ),
   };
 
-  private channelAction(idOrSlug: string, name: string, action: 'promote' | 'rollback', options: SchemaGuardOptions): Promise<Channel> {
+  private channelAction(
+    idOrSlug: string,
+    name: string,
+    action: 'promote' | 'rollback',
+    options: SchemaGuardOptions,
+  ): Promise<Channel> {
     const { allowBreaking, ...rest } = options;
     return this.request<Channel>(
       'POST',
@@ -1142,19 +1600,31 @@ export class Formfeed {
     };
     // FormData brings its own multipart content type with the boundary; everything else is JSON.
     const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
-    if (body !== undefined && !isForm) headers['content-type'] = 'application/json';
-    if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
+    if (body !== undefined && !isForm)
+      headers['content-type'] = 'application/json';
+    if (options.idempotencyKey)
+      headers['idempotency-key'] = options.idempotencyKey;
     let attempt = 0;
     for (;;) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(new Error('request timed out')), this.timeoutMs);
-      options.signal?.addEventListener('abort', () => controller.abort(options.signal?.reason));
+      const timer = setTimeout(
+        () => controller.abort(new Error('request timed out')),
+        this.timeoutMs,
+      );
+      options.signal?.addEventListener('abort', () =>
+        controller.abort(options.signal?.reason),
+      );
       let res: Response;
       try {
         res = await this.fetchImpl(url, {
           method,
           headers,
-          body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
+          body:
+            body === undefined
+              ? undefined
+              : isForm
+                ? (body as FormData)
+                : JSON.stringify(body),
           signal: controller.signal,
         });
       } catch (e) {
@@ -1164,22 +1634,41 @@ export class Formfeed {
           await sleep(this.backoff(attempt, null), options.signal);
           continue;
         }
-        throw new FormfeedError('network_error', e instanceof Error ? e.message : String(e), 0);
+        throw new FormfeedError(
+          'network_error',
+          e instanceof Error ? e.message : String(e),
+          0,
+        );
       }
       clearTimeout(timer);
-      if ((res.status === 429 || res.status === 503) && attempt < this.maxRetries) {
+      if (
+        (res.status === 429 || res.status === 503) &&
+        attempt < this.maxRetries
+      ) {
         attempt++;
-        await sleep(this.backoff(attempt, res.headers.get('retry-after')), options.signal);
+        await sleep(
+          this.backoff(attempt, res.headers.get('retry-after')),
+          options.signal,
+        );
         continue;
       }
       if (res.status === 204) return { status: 204, body: undefined as T };
-      if (as === 'bytes' && res.ok) return { status: res.status, body: new Uint8Array(await res.arrayBuffer()) as T };
+      if (as === 'bytes' && res.ok)
+        return {
+          status: res.status,
+          body: new Uint8Array(await res.arrayBuffer()) as T,
+        };
       const text = await res.text();
       let json: unknown = null;
       try {
         json = text ? (JSON.parse(text) as unknown) : null;
       } catch {
-        if (res.ok) throw new FormfeedError('invalid_response', `the API answered HTTP ${res.status} with a body that is not JSON`, res.status);
+        if (res.ok)
+          throw new FormfeedError(
+            'invalid_response',
+            `the API answered HTTP ${res.status} with a body that is not JSON`,
+            res.status,
+          );
       }
       if (!res.ok) {
         const problem = (json ?? {}) as Problem;
@@ -1197,7 +1686,10 @@ export class Formfeed {
 
   private backoff(attempt: number, retryAfter: string | null): number {
     const fromHeader = retryAfter ? Number(retryAfter) * 1000 : NaN;
-    const base = Number.isFinite(fromHeader) && fromHeader > 0 ? fromHeader : 500 * 2 ** (attempt - 1);
+    const base =
+      Number.isFinite(fromHeader) && fromHeader > 0
+        ? fromHeader
+        : 500 * 2 ** (attempt - 1);
     return Math.min(30_000, base + Math.random() * 250);
   }
 }
