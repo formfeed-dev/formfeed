@@ -1,17 +1,24 @@
 import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
 import { defaultOutput } from '@formfeed/engine';
 import type { Formfeed, Render } from '@formfeed/sdk-ts';
+import { accessibilityLines, auditLines, strictVerdict } from './accessibility';
 import type { Project } from './config';
 import { CliError, exitCodes } from './errors';
 import {
   contentTypeFor,
   defaultData,
   diagnose,
+  diagnoseAccessibility,
   localFilePath,
   previewDocument,
   readTemplate,
@@ -56,9 +63,15 @@ export interface DevServer {
 
 /** Browser builds served to the preview frame: package name and file below the package root. */
 const vendorFiles: Record<string, [pkg: string, file: string]> = {
-  '/vendor/pagedjs/paged.polyfill.min.js': ['pagedjs', 'dist/paged.polyfill.min.js'],
+  '/vendor/pagedjs/paged.polyfill.min.js': [
+    'pagedjs',
+    'dist/paged.polyfill.min.js',
+  ],
   '/vendor/chartjs/chart.umd.js': ['chart.js', 'dist/chart.umd.js'],
-  '/vendor/tailwind/index.global.js': ['@tailwindcss/browser', 'dist/index.global.js'],
+  '/vendor/tailwind/index.global.js': [
+    '@tailwindcss/browser',
+    'dist/index.global.js',
+  ],
 };
 
 const require = createRequire(import.meta.url);
@@ -69,7 +82,11 @@ function resolveVendor([pkg, file]: [string, string]): string | null {
     let dir = dirname(require.resolve(pkg));
     for (let i = 0; i < 6; i++) {
       const manifest = join(dir, 'package.json');
-      if (existsSync(manifest) && (JSON.parse(readFileSync(manifest, 'utf8')) as { name?: string }).name === pkg) {
+      if (
+        existsSync(manifest) &&
+        (JSON.parse(readFileSync(manifest, 'utf8')) as { name?: string })
+          .name === pkg
+      ) {
         const target = join(dir, file);
         return existsSync(target) ? target : null;
       }
@@ -81,7 +98,9 @@ function resolveVendor([pkg, file]: [string, string]): string | null {
   }
 }
 
-export async function startDevServer(options: DevServerOptions): Promise<DevServer> {
+export async function startDevServer(
+  options: DevServerOptions,
+): Promise<DevServer> {
   const { project, slug } = options;
   const host = options.host ?? '127.0.0.1';
   const log = options.log ?? (() => undefined);
@@ -114,7 +133,12 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
   // `.formfeed` holds brand.json: `formfeed brand pull` in another terminal reloads the preview
   // `reload` assigned it, which the compiler cannot see through the closure
   const loaded = template as LocalTemplate | null;
-  for (const dir of [loaded?.dir ?? `${project.templatesDir}/${slug}`, project.partialsDir, project.filesDir, join(project.root, '.formfeed')]) {
+  for (const dir of [
+    loaded?.dir ?? `${project.templatesDir}/${slug}`,
+    project.partialsDir,
+    project.filesDir,
+    join(project.root, '.formfeed'),
+  ]) {
     if (!existsSync(dir)) continue;
     try {
       watchers.push(watch(dir, { recursive: true }, broadcast));
@@ -131,10 +155,17 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
     });
   });
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handle(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
     const url = new URL(req.url ?? '/', `http://${host}`);
     if (url.pathname === '/events') {
-      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
       res.write('event: hello\ndata: {}\n\n');
       clients.add(res);
       req.on('close', () => clients.delete(res));
@@ -147,7 +178,10 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
         res.end('vendor file not installed');
         return;
       }
-      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'max-age=3600' });
+      res.writeHead(200, {
+        'content-type': 'text/javascript; charset=utf-8',
+        'cache-control': 'max-age=3600',
+      });
       res.end(await readFile(file));
       return;
     }
@@ -155,7 +189,10 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
     if (url.pathname.startsWith('/files/')) {
       let path: string;
       try {
-        path = localFilePath(project, decodeURIComponent(url.pathname.slice('/files/'.length)));
+        path = localFilePath(
+          project,
+          decodeURIComponent(url.pathname.slice('/files/'.length)),
+        );
       } catch {
         res.writeHead(404);
         res.end('not found');
@@ -166,12 +203,17 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
         res.end(`Not in ${project.filesDir}; run formfeed files pull`);
         return;
       }
-      res.writeHead(200, { 'content-type': contentTypeFor(path) ?? 'application/octet-stream', 'cache-control': 'no-store' });
+      res.writeHead(200, {
+        'content-type': contentTypeFor(path) ?? 'application/octet-stream',
+        'cache-control': 'no-store',
+      });
       res.end(await readFile(path));
       return;
     }
     if (url.pathname === '/api/state') {
-      const state = stateJson(url.searchParams.get('data') ?? options.data ?? undefined);
+      const state = stateJson(
+        url.searchParams.get('data') ?? options.data ?? undefined,
+      );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(state));
       return;
@@ -183,22 +225,46 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
         return;
       }
       if (template.file) {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+        });
         res.end(officePage(template.meta.kind, Boolean(options.client)));
         return;
       }
-      const mode = url.searchParams.get('mode') === 'flow' || template.meta.kind === 'image' ? 'flow' : 'paged';
-      const set = defaultData(template, url.searchParams.get('data') ?? options.data ?? undefined);
-      const locale = url.searchParams.get('locale') ?? options.locale ?? undefined;
+      const mode =
+        url.searchParams.get('mode') === 'flow' ||
+        template.meta.kind === 'image'
+          ? 'flow'
+          : 'paged';
+      const set = defaultData(
+        template,
+        url.searchParams.get('data') ?? options.data ?? undefined,
+      );
+      const locale =
+        url.searchParams.get('locale') ?? options.locale ?? undefined;
       try {
         const rendered = await renderLocal(project, template, set.data, {
           mode: 'preview',
           locale,
           assetBaseUrl: `http://${req.headers.host ?? host}/files`,
-          vendor: { chartJs: { src: '/vendor/chartjs/chart.umd.js' }, tailwind: { src: '/vendor/tailwind/index.global.js' } },
+          vendor: {
+            chartJs: { src: '/vendor/chartjs/chart.umd.js' },
+            tailwind: { src: '/vendor/tailwind/index.global.js' },
+          },
         });
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(previewDocument(template, rendered, mode, '/vendor/pagedjs/paged.polyfill.min.js'));
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+        });
+        res.end(
+          previewDocument(
+            template,
+            rendered,
+            mode,
+            '/vendor/pagedjs/paged.polyfill.min.js',
+          ),
+        );
       } catch (e) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(errorPage(e instanceof Error ? e.message : String(e)));
@@ -208,7 +274,12 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
     if (url.pathname === '/api/render' && req.method === 'POST') {
       if (!options.client) {
         res.writeHead(401, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'No API key configured; run `formfeed login --api-key ff_test_…`' }));
+        res.end(
+          JSON.stringify({
+            error:
+              'No API key configured; run `formfeed login --api-key ff_test_…`',
+          }),
+        );
         return;
       }
       if (!template) {
@@ -216,7 +287,10 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
         res.end(JSON.stringify({ error: loadError }));
         return;
       }
-      const body = JSON.parse((await readBody(req)) || '{}') as { data?: string; output?: 'pdf' | 'png' | 'jpg' | 'webp' };
+      const body = JSON.parse((await readBody(req)) || '{}') as {
+        data?: string;
+        output?: 'pdf' | 'png' | 'jpg' | 'webp';
+      };
       const set = defaultData(template, body.data ?? options.data ?? undefined);
       // a true render leaves as a complete document, so it resolves against the remote library
       assetBase ??= await remoteAssetBase(options.client);
@@ -228,31 +302,79 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
           // no API renders a local document: filled here as the worker would, converted there
           let filled;
           try {
-            filled = await renderOfficeLocal(project, template, set.data, { assetBaseUrl: assetBase, images: cliImageHost(options.fetch) });
+            filled = await renderOfficeLocal(project, template, set.data, {
+              assetBaseUrl: assetBase,
+              images: cliImageHost(options.fetch),
+            });
           } catch (e) {
             res.writeHead(422, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+            res.end(
+              JSON.stringify({
+                error: e instanceof Error ? e.message : String(e),
+              }),
+            );
             return;
           }
           warnings = filled.warnings;
-          render = await options.client.pdf.convert({ file: { data: filled.bytes, name: `${slug}.${template.meta.kind}` } }, { filename: `${slug}.pdf`, meta });
+          render = await options.client.pdf.convert(
+            {
+              file: {
+                data: filled.bytes,
+                name: `${slug}.${template.meta.kind}`,
+              },
+            },
+            { filename: `${slug}.pdf`, meta },
+          );
         } else {
-          const rendered = await renderLocal(project, template, set.data, { mode: 'print', assetBaseUrl: assetBase });
+          const rendered = await renderLocal(project, template, set.data, {
+            mode: 'print',
+            assetBaseUrl: assetBase,
+          });
           render = await options.client.renders.create({
             html: rendered.document,
             settings: renderedSettings(rendered),
             // the template's own format, as `formfeed render` and the API choose it
-            output: body.output ?? defaultOutput(template.meta.kind, template.settings),
+            output:
+              body.output ??
+              defaultOutput(template.meta.kind, template.settings),
             meta,
           });
         }
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ...render, warnings }));
+        // the validator's verdict of a template that declares pdf.ua (plan 21), as `formfeed render` prints it
+        res.end(
+          JSON.stringify({
+            ...render,
+            warnings,
+            accessibility_lines: accessibilityLines(render.accessibility),
+          }),
+        );
       } catch (e) {
         const status = (e as { status?: number }).status;
-        res.writeHead(status && status >= 400 ? status : 502, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+        // a strict render that failed says which rules and elements, not only that it failed
+        const verdict = strictVerdict(e);
+        res.writeHead(status && status >= 400 ? status : 502, {
+          'content-type': 'application/json',
+        });
+        res.end(
+          JSON.stringify({
+            error: e instanceof Error ? e.message : String(e),
+            ...(verdict
+              ? { accessibility_lines: accessibilityLines(verdict) }
+              : {}),
+          }),
+        );
       }
+      return;
+    }
+    // The preview's template check (plan 21 §6): the frame posts its findings to the shell, which
+    // asks here for their sentences, so the wording has one definition.
+    if (url.pathname === '/api/audit' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req)) || '{}') as {
+        findings?: unknown;
+      };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(auditLines(body.findings)));
       return;
     }
     if (url.pathname === '/') {
@@ -265,7 +387,16 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
   }
 
   function stateJson(dataName?: string) {
-    if (!template) return { slug, error: loadError, dataSets: [], locales: [], diagnostics: [], kind: 'pdf', trueRender: Boolean(options.client) };
+    if (!template)
+      return {
+        slug,
+        error: loadError,
+        dataSets: [],
+        locales: [],
+        diagnostics: [],
+        kind: 'pdf',
+        trueRender: Boolean(options.client),
+      };
     const set = defaultData(template, dataName);
     return {
       slug,
@@ -276,7 +407,10 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
       dataSet: set.name,
       locales: template.i18n ? Object.keys(template.i18n) : [],
       office: Boolean(template.file),
-      diagnostics: diagnose(template, set.data),
+      diagnostics: [
+        ...diagnose(template, set.data),
+        ...declarationProblems(template),
+      ],
       trueRender: Boolean(options.client),
       error: null,
     };
@@ -287,7 +421,9 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
     server.listen(options.port ?? 4400, host, () => resolve());
   }).catch((e: NodeJS.ErrnoException) => {
     throw new CliError(
-      e.code === 'EADDRINUSE' ? `Port ${options.port ?? 4400} is in use; pass --port` : e.message,
+      e.code === 'EADDRINUSE'
+        ? `Port ${options.port ?? 4400} is in use; pass --port`
+        : e.message,
       exitCodes.usage,
     );
   });
@@ -302,6 +438,23 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
         server.close(() => resolve());
       }),
   };
+}
+
+/**
+ * What is wrong with a template's `pdf.ua` declaration itself (an image or office template, an
+ * e-invoice beside it), named by its file. The findings in the page are the preview's: its check
+ * sees the rendered document, of which the static one only knows the source.
+ */
+function declarationProblems(template: LocalTemplate) {
+  return diagnoseAccessibility(template)
+    .filter((found) => found.file === 'settings.json')
+    .flatMap((found) =>
+      found.diagnostics
+        .filter((d) =>
+          /^accessibility-(setting|image|office|einvoice)$/.test(d.code ?? ''),
+        )
+        .map((d) => ({ ...d, part: found.file })),
+    );
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -353,6 +506,7 @@ function shell(slug: string): string {
   .diag code { font-size: 11px; opacity: .8; }
   #status { color: #71717a; }
   #result a { color: #4f46e5; }
+  .verdict { white-space: pre-wrap; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 8px 0 0; }
 </style>
 </head>
 <body>
@@ -370,6 +524,10 @@ function shell(slug: string): string {
   <aside>
     <h2>Diagnostics</h2>
     <div id="diagnostics"></div>
+    <div id="auditWrap" hidden>
+      <h2>Template check · PDF/UA-1</h2>
+      <div id="audit"></div>
+    </div>
     <h2>True render</h2>
     <div id="result">Renders through the API with the current files and data set.</div>
   </aside>
@@ -386,9 +544,34 @@ function shell(slug: string): string {
     return p.toString();
   }
   function showPreview() {
+    // the check belongs to the page that is leaving; the next one posts its own if it declares pdf.ua
+    $('auditWrap').hidden = true; $('audit').innerHTML = '';
     // template HTML runs sandboxed; Chrome shows no PDF in a sandboxed frame, so only the PDF goes without
     $('frame').setAttribute('sandbox', 'allow-scripts allow-same-origin');
     $('frame').src = '/preview?' + query() + '&t=' + Date.now();
+  }
+  // What the preview's template check found in the laid-out page; the server words it.
+  function showAudit(findings) {
+    fetch('/api/audit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ findings: findings }) })
+      .then(function (r) { return r.json(); })
+      .then(function (lines) {
+        var box = $('audit'); box.innerHTML = ''; $('auditWrap').hidden = false;
+        if (!lines.length) {
+          var none = document.createElement('div'); none.className = 'diag info';
+          none.textContent = 'Nothing found in this page. The validator runs with a true render.';
+          box.appendChild(none); return;
+        }
+        lines.forEach(function (l) {
+          var el = document.createElement('div'); el.className = 'diag ' + l.severity; el.textContent = l.message;
+          if (l.snippet) { var c = document.createElement('code'); c.textContent = l.snippet; el.appendChild(document.createElement('br')); el.appendChild(c); }
+          box.appendChild(el);
+        });
+      })
+      .catch(function () {});
+  }
+  function showVerdict(lines) {
+    if (!lines || !lines.length) return;
+    var pre = document.createElement('pre'); pre.className = 'verdict'; pre.textContent = lines.join('\\n'); $('result').appendChild(pre);
   }
   function showPdf(url) {
     $('frame').removeAttribute('sandbox');
@@ -429,13 +612,14 @@ function shell(slug: string): string {
     fetch('/api/render', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data: state.data }) })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
       .then(function (res) {
-        if (!res.ok) { $('result').textContent = res.body.error || 'failed'; return; }
+        if (!res.ok) { $('result').textContent = res.body.error || 'failed'; showVerdict(res.body.accessibility_lines); return; }
         var r = res.body;
         $('result').innerHTML = (r.page_count ? r.page_count + ' page(s) · ' : '') + (r.units != null ? r.units + ' units · ' : '') +
           (r.download_url ? '<a href="' + r.download_url + '" target="_blank" rel="noopener">open output</a>' : r.status);
         (r.warnings || []).forEach(function (w) {
           var el = document.createElement('div'); el.className = 'diag warning'; el.textContent = w; $('result').appendChild(el);
         });
+        showVerdict(r.accessibility_lines);
         if (office.active && r.download_url) { office.pdf = r.download_url; office.auto = true; showPdf(r.download_url); }
       })
       .catch(function (e) { $('result').textContent = String(e); });
@@ -446,7 +630,11 @@ function shell(slug: string): string {
     refresh();
     if (office.active && office.auto) render();
   });
-  window.addEventListener('message', function (ev) { if (ev.data && ev.data.type === 'formfeed:pages') $('status').textContent = ev.data.pages + ' page(s) · updated ' + new Date().toLocaleTimeString(); });
+  window.addEventListener('message', function (ev) {
+    if (!ev.data) return;
+    if (ev.data.type === 'formfeed:pages') $('status').textContent = ev.data.pages + ' page(s) · updated ' + new Date().toLocaleTimeString();
+    if (ev.data.type === 'formfeed:audit') showAudit(ev.data.findings);
+  });
   refresh();
 })();
 </script>

@@ -13,6 +13,7 @@ import {
   parseDesign,
   renderOffice,
   renderVersion,
+  resolveUa,
   type AssembleVendor,
   type BrandContext,
   type Diagnostic,
@@ -357,7 +358,10 @@ export function previewDocument(
     settings: rendered.settings,
     kind,
   };
+  // a template that declares PDF/UA-1 (plan 21 §6) has its laid-out page checked, as in the editor:
+  // the frame posts what it finds as `formfeed:audit`
+  const audit = kind === 'pdf' && resolveUa(rendered.settings.pdf?.ua) !== null;
   return mode === 'paged' && kind === 'pdf'
-    ? pagedDocument(draft, { pagedScriptUrl })
-    : flowDocument(draft);
+    ? pagedDocument(draft, { pagedScriptUrl, audit })
+    : flowDocument(draft, { audit });
 }

@@ -1,3 +1,4 @@
+import type { UaSetting } from './accessibility';
 import { brandCss, brandFontFamilies } from './brand';
 import type { BrandContext } from './brand';
 import type { EinvoiceOptionsInput } from './einvoice/schema';
@@ -44,6 +45,13 @@ export interface TemplateSettings {
   pdf?: {
     tagged?: boolean;
     outline?: boolean;
+    /**
+     * PDF/UA-1 (plan 21 §7): the render is checked against the machine-checkable rules of the
+     * standard and calls itself PDF/UA-1 only when it passed. `true` is `{ check: 'strict' }`, which
+     * fails a render whose file does not pass; `report` delivers it without the identifier. It
+     * implies `tagged`. Read it through `resolveUa`.
+     */
+    ua?: UaSetting;
     metadata?: {
       title?: string;
       author?: string;

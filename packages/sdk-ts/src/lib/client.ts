@@ -40,6 +40,10 @@ export interface RenderRequest {
   data?: Record<string, unknown>;
   /** Left out, the template decides: PDF, or an image template's `settings.image.format`. */
   output?: OutputFormat;
+  /**
+   * Merged over the template's settings. `{ pdf: { ua: true } }` makes the file a PDF/UA-1 document
+   * and the render carry the validator's verdict as `accessibility`; see `PdfUaOptions`.
+   */
   settings?: Record<string, unknown>;
   filename?: string;
   expires_in?: number | null;
@@ -226,6 +230,55 @@ export interface Einvoice {
   display: { checked: string[]; missing: string[] } | null;
 }
 
+/**
+ * `settings.pdf.ua` as an object; `true` is `{ check: 'strict' }`. `strict` fails a render whose
+ * file does not pass validation (422 `pdfua_validation_failed`) and delivers nothing; `report`
+ * delivers the file without the PDF/UA identifier and says so in `accessibility.conformant`.
+ */
+export interface PdfUaOptions {
+  check?: 'strict' | 'report';
+}
+
+/** One rule of PDF/UA-1 a file failed. */
+export interface AccessibilityFailure {
+  /** Clause and test number of the rule in veraPDF's PDF/UA-1 profile, `7.4.2-1`. */
+  rule: string;
+  /** What in the template the rule is about (`heading-order`, `image-alt`, …), where that is known. */
+  code?: string;
+  /** How many checks of the rule failed. */
+  count: number;
+  /** What to change in the template, else the validator's own description of the rule. */
+  message: string;
+  /** The start tags of the elements concerned, at most five. */
+  elements: string[];
+}
+
+/** What a reader will stumble over although no rule fails for it. */
+export interface AccessibilityWarning {
+  code: string;
+  count: number;
+  /** Start tags, or the text itself for `running-text` and `generated-text`. */
+  elements: string[];
+}
+
+/**
+ * What the validator said about a file as PDF/UA-1: its verdict on the machine-checkable rules of
+ * the standard, and no more than that. A passed check does not make a document accessible.
+ */
+export interface Accessibility {
+  standard: 'PDF/UA-1';
+  check: 'strict' | 'report';
+  /** The file passed every rule the validator checks; only then does it carry the PDF/UA identifier. */
+  conformant: boolean;
+  /** The validator and its version, `veraPDF 1.30.2`. */
+  validator: string;
+  rules: { passed: number; failed: number };
+  /** At most 20. */
+  failures: AccessibilityFailure[];
+  warnings: AccessibilityWarning[];
+  truncated?: boolean;
+}
+
 /** Where the result of a PDF tool is stored, as for a render. */
 export interface PdfOutputOptions {
   filename?: string;
@@ -288,6 +341,12 @@ export interface Render {
    * render keeps it too, which is where it says why. Absent from renders made before the feature.
    */
   einvoice?: Einvoice | null;
+  /**
+   * The validator's verdict on the file as PDF/UA-1; null unless the render set `settings.pdf.ua`.
+   * A strict render that failed keeps it too, which is where it names the rules. Absent from
+   * renders made before the feature.
+   */
+  accessibility?: Accessibility | null;
   timings: Record<string, number> | null;
   error: { code?: string; message?: string; [key: string]: unknown } | null;
   meta: Record<string, unknown>;

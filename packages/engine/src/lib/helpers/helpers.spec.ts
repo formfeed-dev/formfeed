@@ -30,8 +30,12 @@ describe('format helpers', () => {
   it('stops on a calculation that is not a number instead of printing NaN', () => {
     // `net * invoice.vat_rate / 100` with a rate of "19 %" is NaN; no document may say so
     for (const name of ['money', 'number', 'numToWords']) {
-      expect(() => call(name, Number.NaN)).toThrow(`${name}: got NaN, the result of a calculation with a value that is missing or not a number`);
-      expect(() => call(name, Number.POSITIVE_INFINITY)).toThrow(`${name}: got Infinity`);
+      expect(() => call(name, Number.NaN)).toThrow(
+        `${name}: got NaN, the result of a calculation with a value that is missing or not a number`,
+      );
+      expect(() => call(name, Number.POSITIVE_INFINITY)).toThrow(
+        `${name}: got Infinity`,
+      );
     }
     // text and missing values are not calculations: they pass through as before
     expect(call('money', 'on request')).toBe('on request');
@@ -56,10 +60,14 @@ describe('format helpers', () => {
     expect(call('round', 1.001, 0, 'ceil')).toBe(2);
     // binary products that land just below the cut are not floored one step too far
     expect(call('round', 1.15, 2, 'floor')).toBe(1.15);
-    expect(call('round', 4.35, 1, { __keywords: true, method: 'ceil' })).toBe(4.4);
+    expect(call('round', 4.35, 1, { __keywords: true, method: 'ceil' })).toBe(
+      4.4,
+    );
     expect(call('round', 12.7, { precision: 0, method: 'floor' })).toBe(12);
     expect(call('round', 'n/a', 2, 'floor')).toBe('');
-    expect(() => call('round', 1.5, 0, 'down')).toThrow(/method must be 'common', 'floor' or 'ceil'/);
+    expect(() => call('round', 1.5, 0, 'down')).toThrow(
+      /method must be 'common', 'floor' or 'ceil'/,
+    );
   });
 
   it('adds to dates', () => {
@@ -139,9 +147,15 @@ describe('code helpers', () => {
   it('names the helper when there is nothing to encode', () => {
     // the libraries said only "No input text" and "bar code text not specified"
     for (const value of [undefined, null, '']) {
-      expect(() => call('qrcode', value)).toThrow('qrcode: nothing to encode, the value is empty or missing from the data');
-      expect(() => call('qr', value, { size: 96 })).toThrow('qrcode: nothing to encode');
-      expect(() => call('barcode', value, { type: 'ean13' })).toThrow('barcode: nothing to encode, the value is empty or missing from the data');
+      expect(() => call('qrcode', value)).toThrow(
+        'qrcode: nothing to encode, the value is empty or missing from the data',
+      );
+      expect(() => call('qr', value, { size: 96 })).toThrow(
+        'qrcode: nothing to encode',
+      );
+      expect(() => call('barcode', value, { type: 'ean13' })).toThrow(
+        'barcode: nothing to encode, the value is empty or missing from the data',
+      );
     }
     // a zero is a value
     expect(decodeURIComponent(call('barcode', 0) as string)).toContain('<svg');
@@ -149,13 +163,34 @@ describe('code helpers', () => {
 
   it('leaves EAN and UPC digits where the symbology puts them', () => {
     // centring the whole number under an EAN-13 drew its long guard bars through the digits
-    const bwip = (bcid: string, text: string, extra: Partial<Parameters<typeof toSVG>[0]> = {}) =>
-      svgDataUri(toSVG({ bcid, text, height: 12, scale: 2, includetext: true, ...extra }));
-    expect(call('barcode', '2000000010014', { type: 'ean13' })).toBe(bwip('ean13', '2000000010014'));
-    expect(call('barcode', '20000004', { type: 'ean8' })).toBe(bwip('ean8', '20000004'));
-    expect(call('barcode', '000000000000', { type: 'upc' })).toBe(bwip('upca', '000000000000'));
+    const bwip = (
+      bcid: string,
+      text: string,
+      extra: Partial<Parameters<typeof toSVG>[0]> = {},
+    ) =>
+      svgDataUri(
+        toSVG({
+          bcid,
+          text,
+          height: 12,
+          scale: 2,
+          includetext: true,
+          ...extra,
+        }),
+      );
+    expect(call('barcode', '2000000010014', { type: 'ean13' })).toBe(
+      bwip('ean13', '2000000010014'),
+    );
+    expect(call('barcode', '20000004', { type: 'ean8' })).toBe(
+      bwip('ean8', '20000004'),
+    );
+    expect(call('barcode', '000000000000', { type: 'upc' })).toBe(
+      bwip('upca', '000000000000'),
+    );
     // everything else centres its text under the bars
-    expect(call('barcode', 'R-2026-0001', {})).toBe(bwip('code128', 'R-2026-0001', { textxalign: 'center' }));
+    expect(call('barcode', 'R-2026-0001', {})).toBe(
+      bwip('code128', 'R-2026-0001', { textxalign: 'center' }),
+    );
   });
 
   it('builds a valid EPC payload', () => {
@@ -199,55 +234,146 @@ describe('registry', () => {
 
 describe('document helpers', () => {
   it('emits a chart canvas with deterministic options and a sized image', () => {
-    const chart = String(call('chart', { type: 'pie', data: { labels: ['a'] } }, { width: 200 }));
+    const chart = String(
+      call('chart', { type: 'pie', data: { labels: ['a'] } }, { width: 200 }),
+    );
     expect(chart).toContain('class="ff-chart"');
     expect(chart).toContain('width="200"');
     expect(chart).toContain('&quot;animation&quot;:false');
     expect(chart).toContain('&quot;type&quot;:&quot;pie&quot;');
-    expect(String(call('image', 'https://x/y.png', { width: '4cm', fit: 'contain', alt: 'Logo <1>' }))).toBe(
+    expect(
+      String(
+        call('image', 'https://x/y.png', {
+          width: '4cm',
+          fit: 'contain',
+          alt: 'Logo <1>',
+        }),
+      ),
+    ).toBe(
       '<img src="https://x/y.png" alt="Logo &lt;1&gt;" style="width:4cm;object-fit:contain">',
     );
-    expect(helperDocs().map((d) => d.name)).toEqual(expect.arrayContaining(['chart', 'image']));
+    expect(helperDocs().map((d) => d.name)).toEqual(
+      expect.arrayContaining(['chart', 'image']),
+    );
+  });
+
+  it('names a chart for whoever cannot see it, from either argument, and keeps the text out of the drawing', () => {
+    // without a text the canvas is as before: a picture without a name, which the audit reports
+    expect(
+      String(call('chart', { type: 'bar', labels: ['a'], values: [1] })),
+    ).not.toContain('role=');
+    for (const chart of [
+      String(
+        call('chart', {
+          type: 'bar',
+          labels: ['a'],
+          values: [1],
+          alt: ' Sales "2026" <by quarter> ',
+        }),
+      ),
+      String(
+        call(
+          'chart',
+          { type: 'bar', labels: ['a'], values: [1] },
+          { alt: 'Sales "2026" <by quarter>' },
+        ),
+      ),
+    ]) {
+      expect(chart).toContain(
+        ' role="img" aria-label="Sales &quot;2026&quot; &lt;by quarter&gt;" ',
+      );
+      // Chart.js gets data and options, never the words
+      expect(chart.split('data-ff-chart=')[1]).not.toContain('Sales');
+    }
+    expect(
+      String(
+        call('chart', { type: 'bar', labels: ['a'], values: [1], alt: '   ' }),
+      ),
+    ).not.toContain('role=');
   });
 
   it('builds chart data from labels and values or series', () => {
     // numbers from strings, gaps for anything else; one series takes the first palette colour
-    expect(chartDataFromPlain({ labels: ['a', 'b', 'c'], values: [1, '2', 'n/a'] })).toEqual({
+    expect(
+      chartDataFromPlain({ labels: ['a', 'b', 'c'], values: [1, '2', 'n/a'] }),
+    ).toEqual({
       labels: ['a', 'b', 'c'],
-      datasets: [{ data: [1, 2, null], backgroundColor: CHART_PALETTE[0], borderColor: CHART_PALETTE[0] }],
+      datasets: [
+        {
+          data: [1, 2, null],
+          backgroundColor: CHART_PALETTE[0],
+          borderColor: CHART_PALETTE[0],
+        },
+      ],
     });
     // named series, each with its own or the next palette colour
     const series = chartDataFromPlain({
       type: 'line',
       labels: ['Q1'],
-      series: [{ label: '2025', values: [3] }, { label: '2026', values: [4], color: '#111111' }],
+      series: [
+        { label: '2025', values: [3] },
+        { label: '2026', values: [4], color: '#111111' },
+      ],
     });
     expect(series.datasets).toEqual([
-      { label: '2025', data: [3], backgroundColor: CHART_PALETTE[0], borderColor: CHART_PALETTE[0], fill: false },
-      { label: '2026', data: [4], backgroundColor: '#111111', borderColor: '#111111', fill: false },
+      {
+        label: '2025',
+        data: [3],
+        backgroundColor: CHART_PALETTE[0],
+        borderColor: CHART_PALETTE[0],
+        fill: false,
+      },
+      {
+        label: '2026',
+        data: [4],
+        backgroundColor: '#111111',
+        borderColor: '#111111',
+        fill: false,
+      },
     ]);
     // a pie colours every slice, unless the data gives a list
-    expect(chartDataFromPlain({ type: 'pie', labels: ['a', 'b'], values: [1, 2] }).datasets[0]?.['backgroundColor']).toEqual(
-      CHART_PALETTE.slice(0, 2),
-    );
     expect(
-      chartDataFromPlain({ type: 'doughnut', labels: ['a', 'b'], values: [1, 2], color: ['#000', '#fff'] }).datasets[0]?.[
-        'backgroundColor'
-      ],
+      chartDataFromPlain({ type: 'pie', labels: ['a', 'b'], values: [1, 2] })
+        .datasets[0]?.['backgroundColor'],
+    ).toEqual(CHART_PALETTE.slice(0, 2));
+    expect(
+      chartDataFromPlain({
+        type: 'doughnut',
+        labels: ['a', 'b'],
+        values: [1, 2],
+        color: ['#000', '#fff'],
+      }).datasets[0]?.['backgroundColor'],
     ).toEqual(['#000', '#fff']);
   });
 
   it('hides the legend of one unnamed series, but keeps the options a template sets', () => {
     const payload = (spec: object) => chartPayload(spec);
-    expect(payload({ labels: ['a'], values: [1] }).options['plugins']).toEqual({ legend: { display: false } });
-    expect(payload({ labels: ['a'], values: [1], label: 'Revenue' }).options['plugins']).toBeUndefined();
-    expect(payload({ type: 'pie', labels: ['a'], values: [1] }).options['plugins']).toBeUndefined();
+    expect(payload({ labels: ['a'], values: [1] }).options['plugins']).toEqual({
+      legend: { display: false },
+    });
     expect(
-      payload({ labels: ['a'], values: [1], options: { plugins: { legend: { position: 'bottom' } } } }).options['plugins'],
+      payload({ labels: ['a'], values: [1], label: 'Revenue' }).options[
+        'plugins'
+      ],
+    ).toBeUndefined();
+    expect(
+      payload({ type: 'pie', labels: ['a'], values: [1] }).options['plugins'],
+    ).toBeUndefined();
+    expect(
+      payload({
+        labels: ['a'],
+        values: [1],
+        options: { plugins: { legend: { position: 'bottom' } } },
+      }).options['plugins'],
     ).toEqual({ legend: { position: 'bottom' } });
     // a full Chart.js configuration wins over plain fields
-    expect(payload({ data: { datasets: [] }, values: [1] }).data).toEqual({ datasets: [] });
+    expect(payload({ data: { datasets: [] }, values: [1] }).data).toEqual({
+      datasets: [],
+    });
     // a missing colour (an empty brand kit) falls back to the palette
-    expect(chartDataFromPlain({ labels: ['a'], values: [1], color: '' }).datasets[0]?.['backgroundColor']).toBe(CHART_PALETTE[0]);
+    expect(
+      chartDataFromPlain({ labels: ['a'], values: [1], color: '' })
+        .datasets[0]?.['backgroundColor'],
+    ).toBe(CHART_PALETTE[0]);
   });
 });

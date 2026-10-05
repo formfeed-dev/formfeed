@@ -69,6 +69,11 @@ import {
   type GlobalFlags,
   type Settings,
 } from './lib/config';
+import {
+  accessibilityLines,
+  strictFailure,
+  strictVerdict,
+} from './lib/accessibility';
 import { deviceLogin } from './lib/device-login';
 import { startDevServer } from './lib/dev-server';
 import { formatDiff } from './lib/diff';
@@ -106,6 +111,7 @@ import {
   defaultData,
   defaultTypesFile,
   diagnose,
+  diagnoseAccessibility,
   diagnoseEinvoice,
   generateTypes,
   isIgnored,
@@ -1013,6 +1019,17 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
             diagnostics: found.diagnostics,
           });
         }
+        // a template that declares PDF/UA-1 (plan 21): what its source already says about the file
+        for (const found of diagnoseAccessibility(tpl)) {
+          errors += found.diagnostics.filter(
+            (d) => d.severity === 'error',
+          ).length;
+          report.push({
+            slug: one,
+            file: found.file,
+            diagnostics: found.diagnostics,
+          });
+        }
       }
       const templates = new Set(report.map((r) => r.slug)).size;
       emit(p(), { ok: errors === 0, errors, templates: report }, () => [
@@ -1203,14 +1220,26 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
             render.status === 'succeeded' || render.status === 'failed'
               ? render
               : await c.renders.waitFor(render.id);
-          if (finished.status !== 'succeeded')
+          if (finished.status !== 'succeeded') {
+            // a render that outlived the sync deadline fails here instead of in the request
+            if (
+              finished.error?.code === 'pdfua_validation_failed' &&
+              finished.accessibility
+            )
+              throw strictFailure(slug, finished.accessibility, finished);
             throw new CliError(
               `render ${finished.id} failed: ${JSON.stringify(finished.error)}`,
               exitCodes.network,
               finished,
             );
+          }
           live.update('downloading');
           bytes = await c.renders.download(finished);
+        } catch (e) {
+          // a strict PDF/UA render that failed (plan 21) is a finding about the template
+          const verdict = strictVerdict(e);
+          if (!verdict) throw e;
+          throw strictFailure(slug, verdict, (e as FormfeedError).problem);
         } finally {
           live.stop();
         }
@@ -1220,6 +1249,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         emit(p(), { ...finished, file, warnings }, () => [
           ...warnings.map((w) => `warn   ${w}`),
           ...einvoiceLines(finished.einvoice),
+          ...accessibilityLines(finished.accessibility),
           `${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s) -> ${shown(file)}`,
         ]);
       },

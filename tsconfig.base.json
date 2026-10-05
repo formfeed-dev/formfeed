@@ -43,6 +43,9 @@
       "@formfeed/engine/einvoice": [
         "./packages/engine/src/lib/einvoice/index.ts"
       ],
+      "@formfeed/engine/accessibility": [
+        "./packages/engine/src/lib/accessibility/index.ts"
+      ],
       "@formfeed/devkit/emit": [
         "./packages/devkit/src/lib/types/generate.ts"
       ],

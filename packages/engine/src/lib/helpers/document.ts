@@ -22,6 +22,11 @@ export interface ChartSpec {
   /** Colour of the single series; a list colours pie and doughnut slices one by one. */
   color?: string | string[];
   series?: ChartSeries[];
+  /**
+   * What the chart shows, in words: a screen reader says it in place of the picture, and a tagged
+   * PDF carries it as the figure's alternative text. A chart without one fails PDF/UA-1.
+   */
+  alt?: string;
 }
 
 export interface ChartSeries {
@@ -31,7 +36,16 @@ export interface ChartSeries {
 }
 
 /** Colours for series and slices that name none. */
-export const CHART_PALETTE = ['#3E63DD', '#12A594', '#E5484D', '#F76B15', '#8E4EC6', '#FFC53D', '#0090FF', '#978365'];
+export const CHART_PALETTE = [
+  '#3E63DD',
+  '#12A594',
+  '#E5484D',
+  '#F76B15',
+  '#8E4EC6',
+  '#FFC53D',
+  '#0090FF',
+  '#978365',
+];
 
 const SLICED = new Set(['pie', 'doughnut', 'polarArea']);
 
@@ -47,7 +61,10 @@ const colour = (value: unknown): string | string[] | undefined =>
  * without the caller knowing Chart.js. Values become numbers (anything else a gap); a series
  * without a colour takes the next palette colour, and each slice of a pie or doughnut its own.
  */
-export function chartDataFromPlain(spec: ChartSpec): { datasets: Record<string, unknown>[]; labels: unknown[] } {
+export function chartDataFromPlain(spec: ChartSpec): {
+  datasets: Record<string, unknown>[];
+  labels: unknown[];
+} {
   const type = spec.type ?? 'bar';
   const series: ChartSeries[] = Array.isArray(spec.series)
     ? spec.series.map((s) => asObject(s) as ChartSeries)
@@ -62,8 +79,13 @@ export function chartDataFromPlain(spec: ChartSpec): { datasets: Record<string, 
     const fill = SLICED.has(type)
       ? (own ?? labels.map((_, i) => CHART_PALETTE[i % CHART_PALETTE.length]))
       : (own ?? CHART_PALETTE[index % CHART_PALETTE.length]);
-    const dataset: Record<string, unknown> = { data, backgroundColor: fill, borderColor: fill };
-    if (s.label !== undefined && s.label !== null && s.label !== '') dataset['label'] = String(s.label);
+    const dataset: Record<string, unknown> = {
+      data,
+      backgroundColor: fill,
+      borderColor: fill,
+    };
+    if (s.label !== undefined && s.label !== null && s.label !== '')
+      dataset['label'] = String(s.label);
     if (type === 'line') dataset['fill'] = false;
     return dataset;
   });
@@ -71,7 +93,8 @@ export function chartDataFromPlain(spec: ChartSpec): { datasets: Record<string, 
 }
 
 const isPlain = (spec: ChartSpec) =>
-  spec.data === undefined && (Array.isArray(spec.values) || Array.isArray(spec.series));
+  spec.data === undefined &&
+  (Array.isArray(spec.values) || Array.isArray(spec.series));
 
 export interface ImageOptions {
   width?: number | string;
@@ -104,12 +127,18 @@ export function chartPayload(spec: ChartSpec): {
   // deterministic output: no animation, no responsive resizing after layout
   options['animation'] = false;
   options['responsive'] = false;
-  if (!isPlain(spec)) return { type: spec.type ?? 'bar', data: spec.data ?? {}, options };
+  if (!isPlain(spec))
+    return { type: spec.type ?? 'bar', data: spec.data ?? {}, options };
   const data = chartDataFromPlain(spec);
   // one unnamed series needs no legend, unless the options say otherwise
-  const unnamed = data.datasets.length === 1 && data.datasets[0]?.['label'] === undefined;
+  const unnamed =
+    data.datasets.length === 1 && data.datasets[0]?.['label'] === undefined;
   const plugins = asObject(options['plugins']);
-  if (unnamed && !SLICED.has(spec.type ?? 'bar') && plugins['legend'] === undefined)
+  if (
+    unnamed &&
+    !SLICED.has(spec.type ?? 'bar') &&
+    plugins['legend'] === undefined
+  )
     options['plugins'] = { ...plugins, legend: { display: false } };
   return { type: spec.type ?? 'bar', data, options };
 }
@@ -119,7 +148,12 @@ export function chartMarkup(spec: ChartSpec, id?: string): string {
   const height = toNumber(spec.height ?? 240) || 240;
   const payload = escapeHtml(JSON.stringify(chartPayload(spec)));
   const idAttr = id ? ` id="${escapeHtml(id)}"` : '';
-  return `<canvas class="ff-chart"${idAttr} width="${width}" height="${height}" style="width:${width}px;height:${height}px" data-ff-chart="${payload}"></canvas>`;
+  // a canvas is a picture to everyone who cannot see it: with a text it is an image with a name
+  const alt =
+    typeof spec.alt === 'string' && spec.alt.trim()
+      ? ` role="img" aria-label="${escapeHtml(spec.alt.trim())}"`
+      : '';
+  return `<canvas class="ff-chart"${idAttr}${alt} width="${width}" height="${height}" style="width:${width}px;height:${height}px" data-ff-chart="${payload}"></canvas>`;
 }
 
 export function imageMarkup(url: string, options: ImageOptions = {}): string {
@@ -147,19 +181,25 @@ export const documentHelpers: HelperDefinition[] = [
     html: true,
     doc: {
       signature:
-        'chart({ type, labels, values, label, color } | { type, labels, series } | { type, data, options }, { width, height })',
+        'chart({ type, labels, values, label, color } | { type, labels, series } | { type, data, options }, { width, height, alt })',
       description:
-        'Draws a Chart.js chart (bar, line, pie, doughnut, radar, …) from plain data, `labels` with `values` or several `series` of `{ label, values, color }`, or from a full Chart.js `data` and `options`; animations are disabled so PDF and preview match.',
+        'Draws a Chart.js chart (bar, line, pie, doughnut, radar, …) from plain data, `labels` with `values` or several `series` of `{ label, values, color }`, or from a full Chart.js `data` and `options`; animations are disabled so PDF and preview match. `alt` says in words what the chart shows: a screen reader reads it in place of the picture, and a tagged PDF needs it.',
       examples: {
-        jinja2: "{{ chart({ type: 'line', labels: sales.labels, values: sales.quarters, width: 480 }) }}",
-        liquid: "{{ '' | chart: type: 'line', labels: sales.labels, values: sales.quarters, width: 480 }}",
-        handlebars: "{{chart type='line' labels=sales.labels values=sales.quarters width=480}}",
+        jinja2:
+          "{{ chart({ type: 'line', labels: sales.labels, values: sales.quarters, width: 480, alt: 'Sales by quarter' }) }}",
+        liquid:
+          "{{ '' | chart: type: 'line', labels: sales.labels, values: sales.quarters, width: 480, alt: 'Sales by quarter' }}",
+        handlebars:
+          "{{chart type='line' labels=sales.labels values=sales.quarters width=480 alt='Sales by quarter'}}",
       },
       category: 'document',
     },
     fn: (ctx, spec, extra?) => {
       if (ctx.mode === 'office') throw new Error(officeUnsupported('chart'));
-      return chartMarkup({ ...asObject(spec), ...asObject(extra) } as ChartSpec);
+      return chartMarkup({
+        ...asObject(spec),
+        ...asObject(extra),
+      } as ChartSpec);
     },
   },
   {
@@ -168,18 +208,27 @@ export const documentHelpers: HelperDefinition[] = [
     doc: {
       signature: 'image(url, { width, height, fit, alt })',
       description:
-        'Places an image with fixed size and crop mode (`cover`, `contain`, `fill`); the render-worker fetches it through its cache and blocks private hosts.',
+        'Places an image with fixed size and crop mode (`cover`, `contain`, `fill`); the render-worker fetches it through its cache and blocks private hosts. `alt` says what it shows; without one the image counts as decoration and a screen reader passes over it.',
       examples: {
-        jinja2: "{{ image(product.photo, { width: 120, height: 80, fit: 'cover' }) }}",
-        liquid: "{{ product.photo | image: width: 120, height: 80, fit: 'cover' }}",
-        handlebars: "{{image product.photo width=120 height=80 fit='cover'}}",
+        jinja2:
+          "{{ image(product.photo, { width: 120, height: 80, fit: 'cover', alt: product.name }) }}",
+        liquid:
+          "{{ product.photo | image: width: 120, height: 80, fit: 'cover', alt: product.name }}",
+        handlebars:
+          "{{image product.photo width=120 height=80 fit='cover' alt=product.name}}",
       },
       category: 'document',
     },
     fn: (ctx, url, options?) => {
       const o = asObject(options) as ImageOptions;
       if (ctx.drawing)
-        return ctx.drawing({ kind: 'url', url: resolveAsset(ctx.assetBaseUrl, String(url ?? '')), width: o.width, height: o.height, alt: o.alt });
+        return ctx.drawing({
+          kind: 'url',
+          url: resolveAsset(ctx.assetBaseUrl, String(url ?? '')),
+          width: o.width,
+          height: o.height,
+          alt: o.alt,
+        });
       return imageMarkup(String(url ?? ''), o);
     },
   },

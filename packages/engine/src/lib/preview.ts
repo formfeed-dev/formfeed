@@ -3,7 +3,11 @@ import {
   type TemplateKind,
   type TemplateSettings,
 } from './assemble';
-import { stageRuntime, textEditRuntime } from './generated/frames';
+import {
+  auditRuntime,
+  stageRuntime,
+  textEditRuntime,
+} from './generated/frames';
 
 /**
  * Preview documents shared by the web editor and `formfeed dev` (spec 06 §3, spec 15 §4): the
@@ -117,6 +121,34 @@ export interface PreviewOptions {
    * frame takes it; with the name it can tell a click that still came from the one before.
    */
   document?: string;
+  /**
+   * Run the accessibility audit on the laid-out document (plan 21 §6) and post what it finds:
+   * `{ type: 'formfeed:audit', findings }`. For templates that ask for `pdf.ua`.
+   */
+  audit?: boolean;
+}
+
+/**
+ * The audit of `src/frame/audit.ts` in a preview frame. It runs once the document is laid out (the
+ * flow preview when its fonts are loaded, the paged preview when Paged.js is done and says how many
+ * pages there are) and tells the editor what it found.
+ */
+function auditScript(mode: 'paged' | 'flow'): string {
+  return `<script>${auditRuntime.replace(/<\/script/gi, '<\\/script')}</script><script>
+(function () {
+  window.formfeedRunAudit = function (pages) {
+    try {
+      var report = window.formfeedAudit({
+        locale: true,
+        pages: pages,
+        pageHeight: parseFloat(getComputedStyle(document.body).minHeight) || 0,
+      });
+      parent.postMessage({ type: 'formfeed:audit', findings: report.findings }, '*');
+    } catch (e) {}
+  };
+  ${mode === 'flow' ? "window.addEventListener('load', function () { (document.fonts ? document.fonts.ready : Promise.resolve()).then(function () { window.formfeedRunAudit(); }); });" : ''}
+})();
+</script>`;
 }
 
 /** The document's name for the edit session; letters, digits, dashes and underscores only. */
@@ -277,6 +309,23 @@ function intoHead(document: string, markup: string): string {
 }
 
 /**
+ * Puts markup at the start and at the end of the document's own body: the tag `assembleDocument`
+ * writes, found by its class, and the last `</body>` of the document. The first `<body` in the text
+ * is not the body once the head carries scripts: the audit's runtime parses header and footer
+ * templates and so holds `<body>` and `</body>` in its source, and with it in the head the preview's
+ * header and footer were pasted into that script and missing from the page.
+ */
+function intoBody(document: string, atStart: string, atEnd = ''): string {
+  const own = document.indexOf('<body class="formfeed-body');
+  const open = own >= 0 ? own : document.search(/<body[^>]*>/);
+  if (open < 0) return document;
+  const content = document.indexOf('>', open) + 1;
+  const close = document.lastIndexOf('</body>');
+  const end = close >= content ? close : document.length;
+  return `${document.slice(0, content)}${atStart}${document.slice(content, end)}${atEnd}${document.slice(end)}`;
+}
+
+/**
  * Header and footer as Chromium prints them: across the whole page width, outside the page margins,
  * with the template's padding (default `0 10mm`) inside. The preview's box sits within the margins,
  * so it reaches out by them.
@@ -323,17 +372,19 @@ body.formfeed-preview { position: relative; box-sizing: border-box; width: ${pap
 </style>`
     : `<style data-formfeed="preview">html { background: #e5e7eb; } body.formfeed-preview { margin: 24px auto; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }</style>`;
   const header = headerHtml
-    ? `<div class="formfeed-chrome" style="${pdf ? flowChromeStyle(settings, 'header') : `${chromeBoxStyle(settings, 'header')}margin-bottom:8px`}">${headerHtml}</div>`
+    ? `<div class="formfeed-chrome" data-ff-chrome="header" style="${pdf ? flowChromeStyle(settings, 'header') : `${chromeBoxStyle(settings, 'header')}margin-bottom:8px`}">${headerHtml}</div>`
     : '';
   const footer = footerHtml
-    ? `<div class="formfeed-chrome" style="${pdf ? flowChromeStyle(settings, 'footer') : `${chromeBoxStyle(settings, 'footer')}margin-top:8px`}">${pageNumberSpans(footerHtml, '1', '1')}</div>`
+    ? `<div class="formfeed-chrome" data-ff-chrome="footer" style="${pdf ? flowChromeStyle(settings, 'footer') : `${chromeBoxStyle(settings, 'footer')}margin-top:8px`}">${pageNumberSpans(footerHtml, '1', '1')}</div>`
     : '';
-  return intoHead(
-    draft.document,
-    `${documentMeta(options)}${chrome}${options.editing ? textEditScript : ''}${inspectScript}${zoomGestureScript}${pdf ? overflowScript('flow') : ''}`,
-  )
-    .replace(/(<body[^>]*>)/, `$1${header}`)
-    .replace('</body>', `${footer}</body>`);
+  return intoBody(
+    intoHead(
+      draft.document,
+      `${documentMeta(options)}${chrome}${options.editing ? textEditScript : ''}${inspectScript}${zoomGestureScript}${pdf ? overflowScript('flow') : ''}${pdf && options.audit ? auditScript('flow') : ''}`,
+    ),
+    header,
+    footer,
+  );
 }
 
 /**
@@ -390,7 +441,7 @@ html { background: #e5e7eb; }
   // it). The stylesheet is rewritten as it is inserted, before any layout, so the rule keeps to
   // Paged.js's own boxes.
   const boxSizingGuard = `<script>(function(){var rule='.pagedjs_pagebox *';var o=new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeName==='STYLE'&&n.textContent&&n.textContent.indexOf(rule)>=0){n.textContent=n.textContent.split(rule).join('.pagedjs_pagebox [class*="pagedjs_"]');o.disconnect();}});});});o.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;
-  const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { if (window.formfeedFit) window.formfeedFit(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); try { if (window.formfeedEditReady) window.formfeedEditReady(); } catch (e) {} } };</script>`;
+  const config = `<script>window.PagedConfig = { auto: true, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { if (window.formfeedFit) window.formfeedFit(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); if (window.formfeedRunAudit) window.formfeedRunAudit(flow.total); try { if (window.formfeedEditReady) window.formfeedEditReady(); } catch (e) {} } };</script>`;
   const script = `<script src="${options.pagedScriptUrl}"></script>`;
   const header = headerHtml
     ? `<div class="ff-running-header">${pageNumberSpans(headerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
@@ -398,8 +449,11 @@ html { background: #e5e7eb; }
   const footer = footerHtml
     ? `<div class="ff-running-footer">${pageNumberSpans(footerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
     : '';
-  return intoHead(
-    draft.document,
-    `${documentMeta(options)}<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${overflowScript('paged')}${config}${script}${options.editing ? textEditScript : ''}${inspectScript}${pageNavScript}${zoomGestureScript}`,
-  ).replace(/(<body[^>]*>)/, `$1${header}${footer}`);
+  return intoBody(
+    intoHead(
+      draft.document,
+      `${documentMeta(options)}<style data-formfeed="paged">${runningCss}</style>${selectorGuard}${boxSizingGuard}${overflowScript('paged')}${options.audit ? auditScript('paged') : ''}${config}${script}${options.editing ? textEditScript : ''}${inspectScript}${pageNavScript}${zoomGestureScript}`,
+    ),
+    `${header}${footer}`,
+  );
 }

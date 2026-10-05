@@ -114,6 +114,52 @@ class Einvoice(_Model):
     display: EinvoiceDisplay | None = None
 
 
+class AccessibilityRules(_Model):
+    passed: int = 0
+    failed: int = 0
+
+
+class AccessibilityFailure(_Model):
+    """One rule of PDF/UA-1 a file failed."""
+
+    #: Clause and test number of the rule in veraPDF's PDF/UA-1 profile, ``7.4.2-1``.
+    rule: str
+    #: What in the template the rule is about (``heading-order``, ``image-alt``, …), where that is known.
+    code: str | None = None
+    #: How many checks of the rule failed.
+    count: int = 0
+    #: What to change in the template, else the validator's own description of the rule.
+    message: str = ""
+    #: The start tags of the elements concerned, at most five.
+    elements: list[str] = []
+
+
+class AccessibilityWarning(_Model):
+    """What a reader will stumble over although no rule fails for it."""
+
+    code: str
+    count: int = 0
+    #: Start tags, or the text itself for ``running-text`` and ``generated-text``.
+    elements: list[str] = []
+
+
+class Accessibility(_Model):
+    """``accessibility`` of a render that set ``settings.pdf.ua``: the validator's verdict on the
+    machine-checkable rules of PDF/UA-1, and no more than that. A strict render that failed keeps it too."""
+
+    standard: str = "PDF/UA-1"
+    check: Literal["strict", "report"] = "strict"
+    #: The file passed every rule the validator checks; only then does it carry the PDF/UA identifier.
+    conformant: bool
+    #: The validator and its version, ``veraPDF 1.30.2``.
+    validator: str = ""
+    rules: AccessibilityRules = AccessibilityRules()
+    #: At most 20.
+    failures: list[AccessibilityFailure] = []
+    warnings: list[AccessibilityWarning] = []
+    truncated: bool = False
+
+
 class Render(_Model):
     id: str
     status: RenderStatus
@@ -134,6 +180,8 @@ class Render(_Model):
     storage: StorageDelivery | None = None
     #: The e-invoice the render made (``post={"einvoice": {...}}`` or the template's settings); ``None`` when it made none.
     einvoice: Einvoice | None = None
+    #: The validator's verdict on the file as PDF/UA-1 (``settings={"pdf": {"ua": True}}`` or the template's settings); ``None`` unless it was set.
+    accessibility: Accessibility | None = None
     timings: dict[str, float] | None = None
     error: dict[str, Any] | None = None
     meta: dict[str, Any] = {}

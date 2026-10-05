@@ -89,6 +89,9 @@ const renderSummary = (r: Render) => ({
   environment: r.environment,
   template: r.template,
   error: r.error,
+  // the validator's verdict of a render whose template declares PDF/UA-1 (plan 21): whether the
+  // file passed, and for each failed rule what to change and in which elements
+  ...(r.accessibility ? { accessibility: r.accessibility } : {}),
 });
 
 function text(data: unknown) {
@@ -105,8 +108,21 @@ function failure(e: unknown) {
       : e instanceof Error
         ? e.message
         : String(e);
+  // A strict PDF/UA render that failed (plan 21) names the rules and their elements in the problem:
+  // without them an agent knows that the template is at fault and not what to change in it.
+  const verdict =
+    e instanceof FormfeedError && e.code === 'pdfua_validation_failed'
+      ? e.problem?.['accessibility']
+      : undefined;
   return {
-    content: [{ type: 'text' as const, text: message }],
+    content: [
+      {
+        type: 'text' as const,
+        text: verdict
+          ? `${message}\n${JSON.stringify({ accessibility: verdict }, null, 2)}`
+          : message,
+      },
+    ],
     isError: true as const,
   };
 }

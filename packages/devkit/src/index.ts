@@ -58,6 +58,8 @@ export {
   localEinvoiceXml,
 } from './lib/einvoice';
 export type { DataSetDiagnostics } from './lib/einvoice';
+export { diagnoseAccessibility } from './lib/accessibility';
+export type { FileDiagnostics } from './lib/accessibility';
 export {
   contentTypeFor,
   listLocalFiles,

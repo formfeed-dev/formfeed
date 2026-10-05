@@ -97,8 +97,12 @@ describe('settings and assembly', () => {
   it('leaves the preview header and footer boxes out of the reset, as Chromium header templates are', () => {
     // a collapsed header table ignored its padding in the preview; the PDF header never gets the reset
     const css = printReset({});
-    expect(css).toContain(':where(table):where(:not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)) { break-inside: auto; border-collapse: collapse; }');
-    expect(css).toContain(':where(img, svg):where(:not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)) { max-width: 100%; }');
+    expect(css).toContain(
+      ':where(table):where(:not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)) { break-inside: auto; border-collapse: collapse; }',
+    );
+    expect(css).toContain(
+      ':where(img, svg):where(:not(.ff-running-header *, .ff-running-footer *, .formfeed-chrome *)) { max-width: 100%; }',
+    );
     expect(css).not.toMatch(/^table \{/m);
   });
 
@@ -160,21 +164,36 @@ describe('settings and assembly', () => {
 
 describe('paged preview document', () => {
   it('fills page number placeholders that carry other attributes, as Chromium does', () => {
-    const footer = '<p>Page <span class="pageNumber" data-ff-src="footer:1:9"></span> of <span class="small totalPages"></span> <span class="pageNumbers"></span></p>';
+    const footer =
+      '<p>Page <span class="pageNumber" data-ff-src="footer:1:9"></span> of <span class="small totalPages"></span> <span class="pageNumbers"></span></p>';
     expect(pageNumberSpans(footer, '2', '5')).toBe(
       '<p>Page <span class="pageNumber" data-ff-src="footer:1:9">2</span> of <span class="small totalPages">5</span> <span class="pageNumbers"></span></p>',
     );
     const paged = pagedDocument(
-      { document: assembleDocument({ html: '<p>x</p>' }), footerHtml: footer, settings: {}, kind: 'pdf' },
+      {
+        document: assembleDocument({ html: '<p>x</p>' }),
+        footerHtml: footer,
+        settings: {},
+        kind: 'pdf',
+      },
       { pagedScriptUrl: 'https://app.example/paged.js' },
     );
-    expect(paged).toContain('data-ff-src="footer:1:9"><span class="ff-page-no"></span></span>');
+    expect(paged).toContain(
+      'data-ff-src="footer:1:9"><span class="ff-page-no"></span></span>',
+    );
   });
 
   it('guards selector queries before Paged.js loads, so an unusable stylesheet cannot blank the preview', () => {
     const doc = pagedDocument(
-      { document: assembleDocument({ html: '<p>x</p>' }), settings: {}, kind: 'pdf' },
-      { pagedScriptUrl: 'https://app.example/vendor/pagedjs/paged.polyfill.min.js' },
+      {
+        document: assembleDocument({ html: '<p>x</p>' }),
+        settings: {},
+        kind: 'pdf',
+      },
+      {
+        pagedScriptUrl:
+          'https://app.example/vendor/pagedjs/paged.polyfill.min.js',
+      },
     );
     const guard = doc.indexOf('DocumentFragment.prototype.querySelectorAll');
     expect(guard).toBeGreaterThan(-1);
@@ -187,32 +206,63 @@ describe('paged preview document', () => {
 
   it('puts its styles and scripts before the template head, which may end the head early with text', () => {
     const document = assembleDocument({ html: '<p>x</p>', head: 'stray text' });
-    const draft = { document, headerHtml: '<div>h</div>', settings: {}, kind: 'pdf' as const };
-    const paged = pagedDocument(draft, { pagedScriptUrl: 'https://app.example/paged.js' });
-    expect(paged.indexOf('data-formfeed="paged"')).toBeGreaterThan(paged.indexOf('name="viewport"'));
-    expect(paged.indexOf('data-formfeed="paged"')).toBeLessThan(paged.indexOf('stray text'));
-    expect(paged.indexOf('https://app.example/paged.js')).toBeLessThan(paged.indexOf('stray text'));
+    const draft = {
+      document,
+      headerHtml: '<div>h</div>',
+      settings: {},
+      kind: 'pdf' as const,
+    };
+    const paged = pagedDocument(draft, {
+      pagedScriptUrl: 'https://app.example/paged.js',
+    });
+    expect(paged.indexOf('data-formfeed="paged"')).toBeGreaterThan(
+      paged.indexOf('name="viewport"'),
+    );
+    expect(paged.indexOf('data-formfeed="paged"')).toBeLessThan(
+      paged.indexOf('stray text'),
+    );
+    expect(paged.indexOf('https://app.example/paged.js')).toBeLessThan(
+      paged.indexOf('stray text'),
+    );
     const flow = flowDocument(draft);
-    expect(flow.indexOf('data-formfeed="preview"')).toBeLessThan(flow.indexOf('stray text'));
+    expect(flow.indexOf('data-formfeed="preview"')).toBeLessThan(
+      flow.indexOf('stray text'),
+    );
   });
 
   it('names the document for the edit session, before the session script reads the name', () => {
-    const draft = { document: assembleDocument({ html: '<p>x</p>' }), settings: {}, kind: 'pdf' as const };
+    const draft = {
+      document: assembleDocument({ html: '<p>x</p>' }),
+      settings: {},
+      kind: 'pdf' as const,
+    };
     const meta = '<meta name="formfeed:document" content="17">';
     const flow = flowDocument(draft, { editing: true, document: '17' });
     expect(flow).toContain(meta);
-    expect(flow.indexOf(meta)).toBeLessThan(flow.indexOf('formfeed:edit-request'));
-    const paged = pagedDocument(draft, { pagedScriptUrl: 'https://app.example/paged.js', editing: true, document: '17' });
-    expect(paged.indexOf(meta)).toBeLessThan(paged.indexOf('formfeed:edit-request'));
+    expect(flow.indexOf(meta)).toBeLessThan(
+      flow.indexOf('formfeed:edit-request'),
+    );
+    const paged = pagedDocument(draft, {
+      pagedScriptUrl: 'https://app.example/paged.js',
+      editing: true,
+      document: '17',
+    });
+    expect(paged.indexOf(meta)).toBeLessThan(
+      paged.indexOf('formfeed:edit-request'),
+    );
     // the session learns that the pages are laid out from the document's own config
-    expect(paged).toContain('if (window.formfeedEditReady) window.formfeedEditReady();');
+    expect(paged).toContain(
+      'if (window.formfeedEditReady) window.formfeedEditReady();',
+    );
     // a name is letters and digits; anything else never reaches the markup
-    expect(flowDocument(draft, { document: '"><script>x' })).toContain('content="scriptx"');
+    expect(flowDocument(draft, { document: '"><script>x' })).toContain(
+      'content="scriptx"',
+    );
     // no name, no meta: API renders and saved versions are never named
     expect(flowDocument(draft)).not.toContain('formfeed:document');
-    expect(pagedDocument(draft, { pagedScriptUrl: 'https://app.example/paged.js' })).not.toContain(
-      'name="formfeed:document"',
-    );
+    expect(
+      pagedDocument(draft, { pagedScriptUrl: 'https://app.example/paged.js' }),
+    ).not.toContain('name="formfeed:document"');
   });
 
   it('puts the flow preview header and footer into the page margins, from the page edges', () => {
@@ -221,19 +271,92 @@ describe('paged preview document', () => {
       document,
       headerHtml: '<div>h</div>',
       footerHtml: '<div>f</div>',
-      settings: { margin: { top: '130px', bottom: '95px' }, header: { padding: '0' } },
+      settings: {
+        margin: { top: '130px', bottom: '95px' },
+        header: { padding: '0' },
+      },
       kind: 'pdf',
     });
     expect(flow).toContain('body.formfeed-preview { position: relative;');
-    expect(flow).toContain('<div class="formfeed-chrome" style="position:absolute;top:0;left:0;width:100%;box-sizing:border-box;padding:0;"><div>h</div></div>');
-    expect(flow).toContain('style="position:absolute;bottom:0;left:0;width:100%;box-sizing:border-box;padding:0 10mm;"><div>f</div>');
+    // each box says which it is, so the template check tells a page header from the body (plan 21 §6)
+    expect(flow).toContain(
+      '<div class="formfeed-chrome" data-ff-chrome="header" style="position:absolute;top:0;left:0;width:100%;box-sizing:border-box;padding:0;"><div>h</div></div>',
+    );
+    expect(flow).toContain(
+      'style="position:absolute;bottom:0;left:0;width:100%;box-sizing:border-box;padding:0 10mm;"><div>f</div>',
+    );
+  });
+
+  // The template check's runtime parses header and footer templates, so its source holds `<body>`
+  // and `</body>`. It stands in the head, and "after the first <body" was inside that script: with
+  // the check on, both previews lost their header and footer, and the check never saw a footer.
+  it('puts header and footer into the document’s own body, also when a script of the head holds a body tag', () => {
+    const draft = {
+      // a head of the template's own that names the tag as well, and text that `replace` would read
+      // as a pattern
+      document: assembleDocument({
+        html: '<p>x</p>',
+        head: '<script>var s = "<body>y</body>";</script>',
+      }),
+      headerHtml: '<div>h $1 $&</div>',
+      footerHtml: '<div>f `x` ${y}</div>',
+      settings: {},
+      kind: 'pdf' as const,
+    };
+    const ownBody = (doc: string) =>
+      doc.slice(doc.indexOf('<body class="formfeed-body'));
+
+    const paged = pagedDocument(draft, {
+      pagedScriptUrl: 'https://app.example/paged.js',
+      audit: true,
+    });
+    expect(ownBody(paged)).toMatch(
+      /^<body[^>]*><div class="ff-running-header"><div>h \$1 \$&<\/div><\/div><div class="ff-running-footer"><div>f `x` \$\{y\}<\/div><\/div>/,
+    );
+    // once each, and nothing of them before the body: no script was written into
+    expect(paged.split('<div class="ff-running-footer">').length - 1).toBe(1);
+    expect(
+      paged.slice(0, paged.indexOf('<body class="formfeed-body')),
+    ).not.toContain('<div>f `x`');
+    expect(paged).toContain('var s = "<body>y</body>";');
+
+    const flow = flowDocument(draft, { audit: true });
+    expect(ownBody(flow)).toMatch(
+      /^<body[^>]*><div class="formfeed-chrome" data-ff-chrome="header"[^>]*><div>h \$1 \$&<\/div><\/div>/,
+    );
+    // the footer closes the page: it is the last thing of the body
+    expect(flow).toMatch(
+      /<div class="formfeed-chrome" data-ff-chrome="footer"[^>]*><div>f `x` \$\{y\}<\/div><\/div><\/body>\s*<\/html>\s*$/,
+    );
+    expect(
+      flow.slice(0, flow.indexOf('<body class="formfeed-body')),
+    ).not.toContain('formfeed-chrome" data-ff-chrome');
+    expect(flow).toContain('var s = "<body>y</body>";');
+    // the check's script is in both, with the tag it holds in its source
+    for (const doc of [paged, flow]) {
+      expect(doc).toContain('window.formfeedRunAudit');
+      expect(doc.slice(0, doc.indexOf('<body class="formfeed-body'))).toContain(
+        '<!doctype html><body>',
+      );
+    }
   });
 });
 
 describe('assembly extras (fonts, charts, tailwind)', () => {
   const fonts = [
-    { family: 'Inter', weight: 400, format: 'woff2' as const, url: 'https://s.example/inter.woff2' },
-    { family: 'Fraunces', weight: 700, style: 'italic' as const, format: 'ttf' as const, url: 'https://s.example/f.ttf' },
+    {
+      family: 'Inter',
+      weight: 400,
+      format: 'woff2' as const,
+      url: 'https://s.example/inter.woff2',
+    },
+    {
+      family: 'Fraunces',
+      weight: 700,
+      style: 'italic' as const,
+      format: 'ttf' as const,
+      url: 'https://s.example/f.ttf',
+    },
   ];
 
   it('injects @font-face only for families the template references', () => {
@@ -243,7 +366,11 @@ describe('assembly extras (fonts, charts, tailwind)', () => {
     expect(css).not.toContain('Fraunces');
     expect(fontFaceCss(fonts, 'nothing')).toBe('');
     expect(fontFaceCss(undefined, 'Inter')).toBe('');
-    const doc = assembleDocument({ html: '<p>x</p>', css: 'p { font-family: Fraunces }', fonts });
+    const doc = assembleDocument({
+      html: '<p>x</p>',
+      css: 'p { font-family: Fraunces }',
+      fonts,
+    });
     expect(doc).toContain('data-formfeed="fonts"');
     expect(doc).toContain('font-style: italic');
     expect(doc).toContain('format("truetype")');
@@ -257,7 +384,9 @@ describe('assembly extras (fonts, charts, tailwind)', () => {
       html: '<canvas data-ff-chart="{}"></canvas>',
       vendor,
     });
-    expect(withChart).toContain('<script src="https://app.example/vendor/chart.js"></script>');
+    expect(withChart).toContain(
+      '<script src="https://app.example/vendor/chart.js"></script>',
+    );
     expect(withChart).toContain('canvas[data-ff-chart]');
     const inline = assembleDocument({
       html: '<canvas data-ff-chart="{}"></canvas>',
@@ -268,12 +397,25 @@ describe('assembly extras (fonts, charts, tailwind)', () => {
 
   it('uses compiled Tailwind CSS in the worker and the browser build in the preview', () => {
     const settings = { tailwind: true };
-    const worker = assembleDocument({ html: '<p class="p-4">x</p>', settings, extraCss: '.p-4{padding:1rem}' });
-    expect(worker).toContain('<style data-formfeed="tailwind">.p-4{padding:1rem}</style>');
+    const worker = assembleDocument({
+      html: '<p class="p-4">x</p>',
+      settings,
+      extraCss: '.p-4{padding:1rem}',
+    });
+    expect(worker).toContain(
+      '<style data-formfeed="tailwind">.p-4{padding:1rem}</style>',
+    );
     expect(worker).not.toContain('<script src');
-    const preview = assembleDocument({ html: '<p class="p-4">x</p>', settings, vendor: { tailwind: { src: '/vendor/tailwind.js' } } });
+    const preview = assembleDocument({
+      html: '<p class="p-4">x</p>',
+      settings,
+      vendor: { tailwind: { src: '/vendor/tailwind.js' } },
+    });
     expect(preview).toContain('<script src="/vendor/tailwind.js"></script>');
-    const off = assembleDocument({ html: '<p>x</p>', vendor: { tailwind: { src: '/vendor/tailwind.js' } } });
+    const off = assembleDocument({
+      html: '<p>x</p>',
+      vendor: { tailwind: { src: '/vendor/tailwind.js' } },
+    });
     expect(off).not.toContain('/vendor/tailwind.js');
   });
 
@@ -290,7 +432,9 @@ describe('assembly extras (fonts, charts, tailwind)', () => {
       {
         engine: 'jinja2',
         html: '<p>{{ a }}</p>',
-        settings: { header: { html: '<span style="font-family: Inter">{{ a }}</span>' } },
+        settings: {
+          header: { html: '<span style="font-family: Inter">{{ a }}</span>' },
+        },
       },
       { a: 'x' },
       ctx,

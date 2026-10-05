@@ -1,5 +1,11 @@
 import { toSVG } from 'bwip-js';
-import { epcPayload, qrSvg, svgDataUri, type EpcInput, type QrOptions } from '../codes';
+import {
+  epcPayload,
+  qrSvg,
+  svgDataUri,
+  type EpcInput,
+  type QrOptions,
+} from '../codes';
 import type { HelperDefinition } from '../types';
 
 type BarcodeOptions = {
@@ -37,7 +43,10 @@ const ownTextLayout = new Set(['ean13', 'ean8', 'upca']);
  */
 function codeText(helper: string, value: unknown): string {
   const text = value === undefined || value === null ? '' : String(value);
-  if (text === '') throw new Error(`${helper}: nothing to encode, the value is empty or missing from the data`);
+  if (text === '')
+    throw new Error(
+      `${helper}: nothing to encode, the value is empty or missing from the data`,
+    );
   return text;
 }
 
@@ -48,11 +57,15 @@ export const codeHelpers: HelperDefinition[] = [
     doc: {
       signature:
         "qrcode(value, { size = 160, ecc = 'M', margin = 1, color, background })",
-      description: 'QR code as an SVG data URI for an <img> src.',
+      description:
+        'QR code as an SVG data URI for an <img> src. Give the image an `alt` that says where the code leads: a screen reader cannot scan it.',
       examples: {
-        jinja2: '<img src="{{ qrcode(order.url, { size: 120 }) }}">',
-        liquid: '<img src="{{ order.url | qrcode: size: 120 }}">',
-        handlebars: '<img src="{{qrcode order.url size=120}}">',
+        jinja2:
+          '<img src="{{ qrcode(order.url, { size: 120 }) }}" alt="QR code: {{ order.url }}">',
+        liquid:
+          '<img src="{{ order.url | qrcode: size: 120 }}" alt="QR code: {{ order.url }}">',
+        handlebars:
+          '<img src="{{qrcode order.url size=120}}" alt="QR code: {{order.url}}">',
       },
       category: 'code',
     },
@@ -61,7 +74,14 @@ export const codeHelpers: HelperDefinition[] = [
       const svg = qrSvg(codeText('qrcode', value), o);
       // office templates get a picture of the code's size, not a data URI as text (spec 22 §4.4)
       // the SVG carries the default size; only a size the template asks for is fixed (slides fit the rest)
-      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size, height: o.size, alt: 'QR code' });
+      if (ctx.drawing)
+        return ctx.drawing({
+          kind: 'svg',
+          svg,
+          width: o.size,
+          height: o.size,
+          alt: 'QR code',
+        });
       return svgDataUri(svg);
     },
   },
@@ -71,11 +91,11 @@ export const codeHelpers: HelperDefinition[] = [
       signature:
         "barcode(value, { type = 'code128', height = 12, width, text = true, scale = 2 })",
       description:
-        'Barcode (code128, ean13, ean8, upc, itf14, code39, datamatrix, pdf417) as an SVG data URI.',
+        'Barcode (code128, ean13, ean8, upc, itf14, code39, datamatrix, pdf417) as an SVG data URI. Give the image an `alt` with the value it encodes.',
       examples: {
-        jinja2: `<img src="{{ barcode(item.sku, { type: 'code128' }) }}">`,
-        liquid: `<img src="{{ item.sku | barcode: type: 'code128' }}">`,
-        handlebars: `<img src="{{barcode item.sku type='code128'}}">`,
+        jinja2: `<img src="{{ barcode(item.sku, { type: 'code128' }) }}" alt="Barcode {{ item.sku }}">`,
+        liquid: `<img src="{{ item.sku | barcode: type: 'code128' }}" alt="Barcode {{ item.sku }}">`,
+        handlebars: `<img src="{{barcode item.sku type='code128'}}" alt="Barcode {{item.sku}}">`,
       },
       category: 'code',
     },
@@ -93,7 +113,8 @@ export const codeHelpers: HelperDefinition[] = [
         includetext: o.text !== false,
         ...(ownTextLayout.has(bcid) ? {} : { textxalign: 'center' }),
       });
-      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, alt: `Barcode ${text}` });
+      if (ctx.drawing)
+        return ctx.drawing({ kind: 'svg', svg, alt: `Barcode ${text}` });
       return svgDataUri(svg);
     },
   },
@@ -104,11 +125,14 @@ export const codeHelpers: HelperDefinition[] = [
       signature:
         'epcQr({ name, iban, bic?, amount?, reference?, text? }, { size })',
       description:
-        'SEPA credit transfer QR code (EPC069-12 / GiroCode) that banking apps scan to prefill a payment.',
+        'SEPA credit transfer QR code (EPC069-12 / GiroCode) that banking apps scan to prefill a payment. Give the image an `alt`, and print the bank details as text as well: the code is a picture.',
       examples: {
-        jinja2: '<img src="{{ epcQr({ name: company.name, iban: company.iban, amount: invoice.total, reference: invoice.number }) }}">',
-        liquid: '<img src="{{ company.iban | epcQr: name: company.name, amount: invoice.total, reference: invoice.number }}">',
-        handlebars: '<img src="{{epcQr name=company.name iban=company.iban amount=invoice.total reference=invoice.number}}">',
+        jinja2:
+          '<img src="{{ epcQr({ name: company.name, iban: company.iban, amount: invoice.total, reference: invoice.number }) }}" alt="QR code to pay invoice {{ invoice.number }}">',
+        liquid:
+          '<img src="{{ company.iban | epcQr: name: company.name, amount: invoice.total, reference: invoice.number }}" alt="QR code to pay invoice {{ invoice.number }}">',
+        handlebars:
+          '<img src="{{epcQr name=company.name iban=company.iban amount=invoice.total reference=invoice.number}}" alt="QR code to pay invoice {{invoice.number}}">',
       },
       category: 'code',
     },
@@ -131,10 +155,25 @@ export const codeHelpers: HelperDefinition[] = [
         (EPC_FIELDS.has(key) ? payment : qr)[key] = value;
       const o = { ecc: 'M', ...(qr as QrOptions) } as QrOptions;
       const svg = qrSvg(epcPayload(payment as EpcInput), o);
-      if (ctx.drawing) return ctx.drawing({ kind: 'svg', svg, width: o.size, height: o.size, alt: 'GiroCode' });
+      if (ctx.drawing)
+        return ctx.drawing({
+          kind: 'svg',
+          svg,
+          width: o.size,
+          height: o.size,
+          alt: 'GiroCode',
+        });
       return svgDataUri(svg);
     },
   },
 ];
 
-const EPC_FIELDS = new Set(['name', 'iban', 'bic', 'amount', 'reference', 'text', 'purpose']);
+const EPC_FIELDS = new Set([
+  'name',
+  'iban',
+  'bic',
+  'amount',
+  'reference',
+  'text',
+  'purpose',
+]);

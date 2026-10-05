@@ -645,6 +645,38 @@ def test_einvoice_option_travels_and_the_report_comes_back():
     assert plain.einvoice is None
 
 
+def test_pdf_ua_setting_travels_and_the_verdict_comes_back():
+    verdict = {
+        "standard": "PDF/UA-1",
+        "check": "report",
+        "conformant": False,
+        "validator": "veraPDF 1.30.2",
+        "rules": {"passed": 105, "failed": 1},
+        "failures": [
+            {"rule": "7.4.2-1", "code": "heading-order", "count": 2, "elements": ["<h3>", "<h5>"],
+             "message": "This h3 follows an h1, so a heading level is skipped. Make it an h2 and size it with CSS."}
+        ],
+        "warnings": [{"code": "running-text", "count": 1, "elements": ["Fennlor Studio GmbH"]}],
+    }
+    problem = {"type": "https://docs.formfeed.dev/errors/pdfua-validation-failed", "title": "PDF/UA validation failed", "status": 422,
+               "code": "pdfua_validation_failed", "detail": "The PDF fails 1 rule of PDF/UA-1", "render_id": "rnd_1",
+               "accessibility": {**verdict, "check": "strict"}}
+    client, rec = sync_client(lambda req, n: _json({**RENDER, "accessibility": verdict}) if n == 1 else _json(RENDER) if n == 2 else _json(problem, 422))
+    render = client.renders.create(template="bescheid", settings={"pdf": {"ua": {"check": "report"}}})
+    assert json.loads(rec.calls[0].content)["settings"] == {"pdf": {"ua": {"check": "report"}}}
+    assert render.accessibility is not None and render.accessibility.standard == "PDF/UA-1" and not render.accessibility.conformant
+    assert render.accessibility.rules.failed == 1 and render.accessibility.validator == "veraPDF 1.30.2"
+    assert render.accessibility.failures[0].rule == "7.4.2-1" and render.accessibility.failures[0].elements == ["<h3>", "<h5>"]
+    assert render.accessibility.warnings[0].code == "running-text"
+    # a render that did not ask has none
+    assert client.renders.create(template="bescheid").accessibility is None
+    # a strict render that fails raises, and the problem names the rules
+    with pytest.raises(FormfeedError) as err:
+        client.renders.create(template="bescheid", settings={"pdf": {"ua": True}})
+    assert err.value.code == "pdfua_validation_failed" and err.value.status == 422
+    assert err.value.problem["accessibility"]["failures"][0]["rule"] == "7.4.2-1"
+
+
 def test_storage_events_and_a_missing_connection():
     from formfeed import StorageDeliveryEvent
 

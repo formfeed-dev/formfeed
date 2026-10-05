@@ -291,6 +291,53 @@ export type {
   ResolvedEinvoice,
   VatCategory,
 } from './lib/einvoice';
+// PDF/UA (plan 21) is `@formfeed/engine/accessibility` inside the workspace, for the gateway's sake
+// like the e-invoice module; named here too for the published package and the app.
+export {
+  ACCESSIBILITY_HEADER_LENGTH,
+  ACCESSIBILITY_MAX_ELEMENTS,
+  ACCESSIBILITY_MAX_FAILURES,
+  AUDIT_CODES,
+  AUDIT_RULES,
+  AUDIT_SEVERITY,
+  AUDIT_SNIPPET_LENGTH,
+  AUDIT_TITLES,
+  PDFUA_STANDARD,
+  UA_CHECKS,
+  UA_REFUSALS,
+  accessibilityHeader,
+  accessibilityHeaderValue,
+  accessibilityResult,
+  auditMessage,
+  isUaSetting,
+  resolveUa,
+} from './lib/accessibility';
+export type {
+  AccessibilityFailure,
+  AccessibilityResult,
+  AccessibilityWarning,
+  AuditArgs,
+  AuditCode,
+  AuditFinding,
+  AuditLink,
+  AuditOptions,
+  AuditReport,
+  AuditSeverity,
+  UaCheck,
+  UaOptions,
+  UaSetting,
+  ValidatorFailure,
+  ValidatorVerdict,
+} from './lib/accessibility';
+export {
+  staticAudit,
+  staticAuditDiagnostics,
+} from './lib/accessibility/static';
+export type {
+  StaticAuditDiagnostic,
+  StaticAuditInput,
+} from './lib/accessibility/static';
+export { auditRuntime } from './lib/generated/frames';
 export { encodeTemplateText } from './lib/source-edit';
 export type { Dictionaries } from './lib/translation';
 export type {

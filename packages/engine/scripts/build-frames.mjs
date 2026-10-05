@@ -16,6 +16,7 @@ const entries = {
   textEditRuntime: 'src/frame/text-edit.entry.ts',
   fitRuntime: 'src/frame/fit.entry.ts',
   stageRuntime: 'src/frame/stage.entry.ts',
+  auditRuntime: 'src/frame/audit.entry.ts',
 };
 
 async function bundle(entry) {
