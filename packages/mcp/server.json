@@ -3,7 +3,7 @@
   "name": "io.github.formfeed-dev/formfeed",
   "title": "Formfeed",
   "description": "Render PDFs and images from templates, validate data and convert Office files to PDF.",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "websiteUrl": "https://docs.formfeed.dev/integrations/mcp",
   "repository": {
     "url": "https://github.com/formfeed-dev/formfeed",
@@ -12,13 +12,17 @@
   },
   "icons": [
     { "src": "https://formfeed.dev/favicon.svg", "mimeType": "image/svg+xml" },
-    { "src": "https://formfeed.dev/brand/formfeed-512.png", "mimeType": "image/png", "sizes": ["512x512"] }
+    {
+      "src": "https://formfeed.dev/brand/formfeed-512.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    }
   ],
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@formfeed/mcp",
-      "version": "0.3.11",
+      "version": "0.3.12",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {

@@ -1,5 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getEngine, inferSchema, outputFormats, type Diagnostic } from '@formfeed/engine';
+import {
+  getEngine,
+  inferSchema,
+  outputFormats,
+  type Diagnostic,
+} from '@formfeed/engine';
 import { Formfeed, FormfeedError, type Render } from '@formfeed/sdk-ts';
 import { z } from 'zod';
 
@@ -27,7 +32,7 @@ export interface ServerOptions {
 /** The converter's upload limit; larger files are refused before they are read or sent. */
 const CONVERT_LIMIT_BYTES = 20 * 1024 * 1024;
 
-export const SERVER_INFO = { name: 'formfeed', version: '0.3.11' };
+export const SERVER_INFO = { name: 'formfeed', version: '0.3.12' };
 
 /**
  * Tool annotations, spelled out in full because directories read them literally: ChatGPT's wants
@@ -36,14 +41,33 @@ export const SERVER_INFO = { name: 'formfeed', version: '0.3.11' };
  * outside the key's workspace and the user's own files: a render's output is reachable only through
  * its signed link.
  */
-const READS = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
-const CREATES = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
+const READS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  openWorldHint: false,
+} as const;
+const CREATES = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
 
 const engineSchema = z.enum(['jinja2', 'liquid', 'handlebars']);
 const outputSchema = z.enum(outputFormats);
 const kindSchema = z.enum(['pdf', 'image', 'docx', 'pptx']);
 
-const templateSummary = (t: { id: string; slug: string; name: string; kind: string; engine: string; description: string | null; tags: string[]; published_version: number | null; updated_at: string }) => ({
+const templateSummary = (t: {
+  id: string;
+  slug: string;
+  name: string;
+  kind: string;
+  engine: string;
+  description: string | null;
+  tags: string[];
+  published_version: number | null;
+  updated_at: string;
+}) => ({
   id: t.id,
   slug: t.slug,
   name: t.name,
@@ -68,18 +92,34 @@ const renderSummary = (r: Render) => ({
 });
 
 function text(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }], structuredContent: data as Record<string, unknown> };
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+    structuredContent: data as Record<string, unknown>,
+  };
 }
 
 function failure(e: unknown) {
-  const message = e instanceof FormfeedError ? `${e.code}: ${e.message}` : e instanceof Error ? e.message : String(e);
-  return { content: [{ type: 'text' as const, text: message }], isError: true as const };
+  const message =
+    e instanceof FormfeedError
+      ? `${e.code}: ${e.message}`
+      : e instanceof Error
+        ? e.message
+        : String(e);
+  return {
+    content: [{ type: 'text' as const, text: message }],
+    isError: true as const,
+  };
 }
 
 export function createFormfeedServer(options: ServerOptions): McpServer {
   const client = new Formfeed({
     apiKey: options.apiKey,
-    headers: { 'user-agent': `formfeed-mcp/${SERVER_INFO.version}`, ...(options.workspaceId ? { 'x-formfeed-workspace': options.workspaceId } : {}) },
+    headers: {
+      'user-agent': `formfeed-mcp/${SERVER_INFO.version}`,
+      ...(options.workspaceId
+        ? { 'x-formfeed-workspace': options.workspaceId }
+        : {}),
+    },
     ...(options.region ? { region: options.region } : {}),
     ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -96,10 +136,24 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       description:
         'Lists the templates of the workspace the API key belongs to, most recently changed first: id, slug, name, kind (pdf, image, docx for Word, pptx for PowerPoint), engine, tags and published_version. Call it first to find the slug that get_template_schema, validate_template and render take; skip it when the user already named the template. Returns every match in one answer, without archived templates, and an empty list when nothing matches. A template whose published_version is null has never been published, so render cannot use it yet. Read-only and free.',
       inputSchema: {
-        kind: kindSchema.optional().describe('Only templates that produce this kind of document'),
-        engine: engineSchema.optional().describe('Only templates written in this template language'),
-        tag: z.string().optional().describe('Only templates with this tag; exact match, tags are lowercase with dashes (e.g. billing)'),
-        q: z.string().optional().describe('Text to find in the name or slug, case-insensitive (e.g. invoice)'),
+        kind: kindSchema
+          .optional()
+          .describe('Only templates that produce this kind of document'),
+        engine: engineSchema
+          .optional()
+          .describe('Only templates written in this template language'),
+        tag: z
+          .string()
+          .optional()
+          .describe(
+            'Only templates with this tag; exact match, tags are lowercase with dashes (e.g. billing)',
+          ),
+        q: z
+          .string()
+          .optional()
+          .describe(
+            'Text to find in the name or slug, case-insensitive (e.g. invoice)',
+          ),
       },
       annotations: READS,
     },
@@ -119,17 +173,33 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       title: 'Get the data schema of a template',
       description:
         'Returns the JSON Schema of the `data` object a template expects and the sample data it was designed with, from its published version, else its latest draft. Call it after list_templates and before render or validate_template, to build data that fits; ad-hoc html has no stored schema to read. When the template stores no schema, one is inferred from the sample data: treat that as a guide, not a contract. Read-only and free; an unknown slug returns an error.',
-      inputSchema: { template: z.string().describe('Slug (e.g. invoice) or tpl_ id, as list_templates returns them') },
+      inputSchema: {
+        template: z
+          .string()
+          .describe(
+            'Slug (e.g. invoice) or tpl_ id, as list_templates returns them',
+          ),
+      },
       annotations: READS,
     },
     async ({ template }) => {
       try {
-        const version = await client.templates.versions.get(template, 'published').catch(async (e: FormfeedError) => {
-          if (e.status === 404) return client.templates.versions.get(template, 'latest');
-          throw e;
+        const version = await client.templates.versions
+          .get(template, 'published')
+          .catch(async (e: FormfeedError) => {
+            if (e.status === 404)
+              return client.templates.versions.get(template, 'latest');
+            throw e;
+          });
+        const schema =
+          version.data_schema ?? inferSchema(version.sample_data ?? {});
+        return text({
+          template,
+          version: version.number,
+          status: version.status,
+          schema,
+          sample_data: version.sample_data ?? {},
         });
-        const schema = version.data_schema ?? inferSchema(version.sample_data ?? {});
-        return text({ template, version: version.number, status: version.status, schema, sample_data: version.sample_data ?? {} });
       } catch (e) {
         return failure(e);
       }
@@ -143,13 +213,25 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       description:
         'Checks a template and its data without rendering: free, no units, nothing stored, no document produced. Call it before render when you assembled the data yourself, or after writing ad-hoc html. With template, the API checks the published version (else the latest) as a render would: syntax, header and footer, errors only this data triggers, and the data against the stored JSON Schema (a wrong type or a missing required field is an error). With html and engine it compiles offline and reports syntax errors, unknown filters and variables missing from data. Returns ok and diagnostics (severity, code, message, plus path, line and column, or part and paragraph for Word and PowerPoint). Warnings leave ok true: settle each before rendering.',
       inputSchema: {
-        template: z.string().optional().describe('Slug or tpl_ id of a stored template; pass this or html'),
-        html: z.string().optional().describe('Template source to check offline, when there is no stored template; pass this or template'),
-        engine: engineSchema.optional().describe('Template language of html; required with html'),
+        template: z
+          .string()
+          .optional()
+          .describe('Slug or tpl_ id of a stored template; pass this or html'),
+        html: z
+          .string()
+          .optional()
+          .describe(
+            'Template source to check offline, when there is no stored template; pass this or template',
+          ),
+        engine: engineSchema
+          .optional()
+          .describe('Template language of html; required with html'),
         data: z
           .record(z.string(), z.unknown())
           .optional()
-          .describe('The data the document will be rendered with, shaped as get_template_schema describes. Left out, a stored template is checked with its sample data'),
+          .describe(
+            'The data the document will be rendered with, shaped as get_template_schema describes. Left out, a stored template is checked with its sample data',
+          ),
       },
       annotations: READS,
     },
@@ -159,7 +241,11 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           // The server's check is the one a render would pass: it knows the stored schema, so a rate
           // written as "19 %" fails here instead of printing NaN. Free, and it counts no unit. The
           // version is the one render and get_template_schema use: published, else the latest.
-          const check = (version: string) => client.templates.validate(template, { version, ...(data ? { data } : {}) });
+          const check = (version: string) =>
+            client.templates.validate(template, {
+              version,
+              ...(data ? { data } : {}),
+            });
           const result = await check('published').catch((e: FormfeedError) => {
             if (e.status === 404) return check('latest');
             throw e;
@@ -172,23 +258,42 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
               code: d.code,
               message: d.message,
               ...(d.path ? { path: d.path } : {}),
-              ...(d.location ? { line: d.location.line, column: d.location.column } : {}),
+              ...(d.location
+                ? { line: d.location.line, column: d.location.column }
+                : {}),
               ...(d.part ? { part: d.part, paragraph: d.paragraph } : {}),
             })),
           });
         }
-        if (!html || !engine) return failure(new Error('Pass a template slug, or html and engine'));
+        if (!html || !engine)
+          return failure(new Error('Pass a template slug, or html and engine'));
         const eng = getEngine(engine);
         const diagnostics: Diagnostic[] = [];
         try {
           eng.compile(html, { name: 'ad-hoc' });
         } catch (e) {
-          diagnostics.push({ severity: 'error', code: 'syntax-error', message: e instanceof Error ? e.message : String(e), range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } } });
+          diagnostics.push({
+            severity: 'error',
+            code: 'syntax-error',
+            message: e instanceof Error ? e.message : String(e),
+            range: {
+              start: { line: 1, column: 1 },
+              end: { line: 1, column: 2 },
+            },
+          });
         }
-        diagnostics.push(...eng.analyze(html, { sampleData: data ?? {} }).diagnostics);
+        diagnostics.push(
+          ...eng.analyze(html, { sampleData: data ?? {} }).diagnostics,
+        );
         return text({
           ok: !diagnostics.some((d) => d.severity === 'error'),
-          diagnostics: diagnostics.map((d) => ({ severity: d.severity, code: d.code, message: d.message, line: d.range.start.line, column: d.range.start.column })),
+          diagnostics: diagnostics.map((d) => ({
+            severity: d.severity,
+            code: d.code,
+            message: d.message,
+            line: d.range.start.line,
+            column: d.range.start.column,
+          })),
         });
       } catch (e) {
         return failure(e);
@@ -203,30 +308,64 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       description:
         'Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url. Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. The link expires at expires_at; get_render issues a fresh one.',
       inputSchema: {
-        template: z.string().optional().describe('Slug or tpl_ id of a stored template; pass this or html'),
-        html: z.string().optional().describe('A complete HTML document to render instead of a stored template, up to 5 MB'),
-        engine: engineSchema.optional().describe('Template language of html, when it contains expressions to fill from data'),
+        template: z
+          .string()
+          .optional()
+          .describe('Slug or tpl_ id of a stored template; pass this or html'),
+        html: z
+          .string()
+          .optional()
+          .describe(
+            'A complete HTML document to render instead of a stored template, up to 5 MB',
+          ),
+        engine: engineSchema
+          .optional()
+          .describe(
+            'Template language of html, when it contains expressions to fill from data',
+          ),
         data: z
           .record(z.string(), z.unknown())
           .optional()
-          .describe('Values for the template, shaped as get_template_schema describes; leave out when it needs none'),
+          .describe(
+            'Values for the template, shaped as get_template_schema describes; leave out when it needs none',
+          ),
         output: outputSchema
           .optional()
           .describe(
             'Left out, the template decides: PDF for PDF templates and html, its image format for image templates, its default output for Word and PowerPoint templates. Word templates render docx or pdf, PowerPoint templates pptx or pdf',
           ),
-        filename: z.string().optional().describe('Name of the file behind download_url, e.g. invoice-2026-0042.pdf'),
-        locale: z.string().optional().describe('BCP 47 tag for helpers and translations, e.g. de-DE'),
+        filename: z
+          .string()
+          .optional()
+          .describe(
+            'Name of the file behind download_url, e.g. invoice-2026-0042.pdf',
+          ),
+        locale: z
+          .string()
+          .optional()
+          .describe('BCP 47 tag for helpers and translations, e.g. de-DE'),
         wait: z
           .boolean()
           .default(true)
-          .describe('Most renders are finished when the call returns; true also waits for one that continues in the background, false returns it as it is (queued or rendering) to check later with get_render'),
+          .describe(
+            'Most renders are finished when the call returns; true also waits for one that continues in the background, false returns it as it is (queued or rendering) to check later with get_render',
+          ),
       },
       annotations: CREATES,
     },
-    async ({ template, html, engine, data, output, filename, locale, wait }) => {
+    async ({
+      template,
+      html,
+      engine,
+      data,
+      output,
+      filename,
+      locale,
+      wait,
+    }) => {
       try {
-        if (!template && !html) return failure(new Error('Pass template or html'));
+        if (!template && !html)
+          return failure(new Error('Pass template or html'));
         let render = await client.renders.create({
           ...(template ? { template } : {}),
           ...(html ? { html } : {}),
@@ -237,7 +376,8 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           ...(locale ? { locale } : {}),
           meta: { source: 'mcp' },
         });
-        if (wait && render.status !== 'succeeded' && render.status !== 'failed') render = await client.renders.waitFor(render.id);
+        if (wait && render.status !== 'succeeded' && render.status !== 'failed')
+          render = await client.renders.waitFor(render.id);
         return text(renderSummary(render));
       } catch (e) {
         return failure(e);
@@ -259,23 +399,74 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
         'Every call is a new render that counts units like a PDF; the Free plan cannot convert (Starter and above). The document is converted and not kept.',
       ].join(' '),
       inputSchema: {
-        render_id: z.string().optional().describe('rnd_ id of a render whose output is docx or pptx, to get that document as a PDF'),
-        ...(options.localFiles ? { path: z.string().optional().describe('Absolute path of the document on this machine') } : {}),
-        file_base64: z.string().optional().describe('The document to convert, base64 encoded; needs file_name'),
-        file_name: z.string().optional().describe('Name of the document, e.g. report.xlsx; the type is read from the content'),
-        page_ranges: z.string().regex(/^\d+(-\d+)?(,\d+(-\d+)?)*$/).optional().describe('Pages to convert, e.g. 1-3,5; all pages when left out'),
-        landscape: z.boolean().optional().describe('Landscape for spreadsheets and documents without their own page setup'),
-        single_page_sheets: z.boolean().optional().describe('Each spreadsheet sheet on one page'),
-        filename: z.string().optional().describe('Name of the PDF behind download_url, e.g. report.pdf'),
+        render_id: z
+          .string()
+          .optional()
+          .describe(
+            'rnd_ id of a render whose output is docx or pptx, to get that document as a PDF',
+          ),
+        ...(options.localFiles
+          ? {
+              path: z
+                .string()
+                .optional()
+                .describe('Absolute path of the document on this machine'),
+            }
+          : {}),
+        file_base64: z
+          .string()
+          .optional()
+          .describe('The document to convert, base64 encoded; needs file_name'),
+        file_name: z
+          .string()
+          .optional()
+          .describe(
+            'Name of the document, e.g. report.xlsx; the type is read from the content',
+          ),
+        page_ranges: z
+          .string()
+          .regex(/^\d+(-\d+)?(,\d+(-\d+)?)*$/)
+          .optional()
+          .describe('Pages to convert, e.g. 1-3,5; all pages when left out'),
+        landscape: z
+          .boolean()
+          .optional()
+          .describe(
+            'Landscape for spreadsheets and documents without their own page setup',
+          ),
+        single_page_sheets: z
+          .boolean()
+          .optional()
+          .describe('Each spreadsheet sheet on one page'),
+        filename: z
+          .string()
+          .optional()
+          .describe('Name of the PDF behind download_url, e.g. report.pdf'),
       },
       annotations: CREATES,
     },
     async (args) => {
       try {
-        const { render_id, file_base64, file_name, page_ranges, landscape, single_page_sheets, filename } = args;
+        const {
+          render_id,
+          file_base64,
+          file_name,
+          page_ranges,
+          landscape,
+          single_page_sheets,
+          filename,
+        } = args;
         const path = (args as { path?: string }).path;
-        const sources = [render_id, file_base64, path].filter((s) => s !== undefined && s !== '');
-        if (sources.length !== 1) return failure(new Error('Pass exactly one of render_id, file_base64' + (options.localFiles ? ' or path' : '')));
+        const sources = [render_id, file_base64, path].filter(
+          (s) => s !== undefined && s !== '',
+        );
+        if (sources.length !== 1)
+          return failure(
+            new Error(
+              'Pass exactly one of render_id, file_base64' +
+                (options.localFiles ? ' or path' : ''),
+            ),
+          );
         const convert = {
           meta: { source: 'mcp' },
           ...(page_ranges ? { page_ranges } : {}),
@@ -292,19 +483,42 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           if (path) {
             const { readFile, stat } = await import('node:fs/promises');
             const { basename } = await import('node:path');
-            if ((await stat(path)).size > CONVERT_LIMIT_BYTES) return failure(new Error(`${path} is larger than 20 MB, the limit for conversions`));
+            if ((await stat(path)).size > CONVERT_LIMIT_BYTES)
+              return failure(
+                new Error(
+                  `${path} is larger than 20 MB, the limit for conversions`,
+                ),
+              );
             data = new Uint8Array(await readFile(path));
             name = file_name ?? basename(path);
           } else {
-            if (!file_name) return failure(new Error('file_name is required with file_base64'));
+            if (!file_name)
+              return failure(
+                new Error('file_name is required with file_base64'),
+              );
             data = Uint8Array.from(Buffer.from(file_base64!, 'base64'));
-            if (data.length === 0) return failure(new Error('file_base64 is empty or not base64'));
-            if (data.length > CONVERT_LIMIT_BYTES) return failure(new Error('The document is larger than 20 MB, the limit for conversions'));
+            if (data.length === 0)
+              return failure(new Error('file_base64 is empty or not base64'));
+            if (data.length > CONVERT_LIMIT_BYTES)
+              return failure(
+                new Error(
+                  'The document is larger than 20 MB, the limit for conversions',
+                ),
+              );
             name = file_name;
           }
-          render = await client.pdf.convert({ file: { data, name } }, { ...convert, ...(filename ? {} : { filename: `${name.replace(/\.[^.]+$/, '')}.pdf` }) });
+          render = await client.pdf.convert(
+            { file: { data, name } },
+            {
+              ...convert,
+              ...(filename
+                ? {}
+                : { filename: `${name.replace(/\.[^.]+$/, '')}.pdf` }),
+            },
+          );
         }
-        if (render.status !== 'succeeded' && render.status !== 'failed') render = await client.renders.waitFor(render.id);
+        if (render.status !== 'succeeded' && render.status !== 'failed')
+          render = await client.renders.waitFor(render.id);
         return text(renderSummary(render));
       } catch (e) {
         return failure(e);
@@ -318,7 +532,13 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       title: 'Get a render',
       description:
         'Returns the current state of a render: status (queued, rendering, succeeded or failed), download_url with expires_at, page_count, units and error. Use it to follow a render started with wait false, or to get a fresh link once the old one has expired; render and convert_to_pdf already return this for the render they just made. Read-only and free; an unknown id returns an error.',
-      inputSchema: { id: z.string().describe('rnd_ id of the render, as render or convert_to_pdf returned it') },
+      inputSchema: {
+        id: z
+          .string()
+          .describe(
+            'rnd_ id of the render, as render or convert_to_pdf returned it',
+          ),
+      },
       annotations: READS,
     },
     async ({ id }) => {
