@@ -42,16 +42,14 @@ export function resolveUa(setting: unknown): UaOptions | null {
 /**
  * What `pdf.ua` cannot go with, in the words every place that refuses it uses (the gateway before a
  * render costs anything, the worker for whoever calls it directly, `formfeed validate`, the API's
- * template validation). Merged pages lose their tags while the validator still passes the file; an
- * e-invoice is a PDF/A-3, and both standards in one file follow; the tags of Word and PowerPoint
- * documents are LibreOffice's and not measured yet.
+ * template validation). Merged pages lose their tags while the validator still passes the file;
+ * the tags of Word and PowerPoint documents are LibreOffice's and not measured yet. An e-invoice
+ * is not among them: its PDF/A-3 keeps the tags, and the file is held to both standards (plan 22).
  */
 export const UA_REFUSALS = {
   office: 'pdf.ua is not available for Word and PowerPoint templates yet',
   merge:
     'pdf.ua cannot be combined with post.merge_after: the tags of merged documents do not survive the merge',
-  einvoice:
-    'pdf.ua cannot be combined with an e-invoice yet: a file that is PDF/A-3 and PDF/UA-1 at once is not available',
 } as const;
 
 /** Whether a `pdf.ua` value is one the API takes: a boolean, null, or `{ check }` and nothing else. */

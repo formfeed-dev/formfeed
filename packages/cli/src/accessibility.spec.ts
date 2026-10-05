@@ -161,13 +161,14 @@ describe('formfeed CLI: accessible PDFs (plan 21)', () => {
   });
 
   it('validate refuses a declaration the API refuses', async () => {
+    // an e-invoice beside pdf.ua is none of them: the two go together since plan 22
     writeLetter({
       pdf: { ua: true, metadata: { title: 'Rechnung' } },
       einvoice: {},
     });
-    // (the e-invoice check reports the missing _invoice block of the data set as well)
-    expect(await run(['validate'], ctx)).toBe(1);
-    expect(out.join('\n')).toContain('accessibility-einvoice');
+    await run(['validate'], ctx);
+    // (what is reported is the e-invoice check's own: the data set has no _invoice block)
+    expect(out.join('\n')).not.toContain('accessibility-');
 
     writeLetter({ pdf: { ua: 'yes', metadata: { title: 'Bescheid' } } });
     out = [];

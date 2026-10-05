@@ -2,7 +2,6 @@ import {
   UA_REFUSALS,
   isOfficeKind,
   isUaSetting,
-  resolveEinvoiceOptions,
   resolveUa,
   staticAuditDiagnostics,
 } from '@formfeed/engine';
@@ -63,10 +62,8 @@ export function diagnoseAccessibility(tpl: LocalTemplate): FileDiagnostics[] {
   // what the API refuses when the template renders a PDF, in the API's words
   if (isOfficeKind(tpl.meta.kind))
     return [about('error', 'accessibility-office', UA_REFUSALS.office)];
+  // an e-invoice beside it is no fault: the two go together, and a render carries both reports
   const out: FileDiagnostics[] = [];
-  const einvoice = resolveEinvoiceOptions(tpl.settings.einvoice);
-  if (!einvoice.ok || einvoice.options)
-    out.push(about('error', 'accessibility-einvoice', UA_REFUSALS.einvoice));
   const body: LocalDiagnostic[] = [];
   for (const found of staticAuditDiagnostics(
     {
