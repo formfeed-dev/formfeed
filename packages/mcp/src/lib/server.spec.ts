@@ -91,6 +91,25 @@ function fakeApi(seenKeys: string[] = []) {
       });
     if (call.path === '/v1/templates')
       return json({ data: [template], next_cursor: null });
+    if (call.path === '/v1/account')
+      return json({
+        workspace: {
+          id: 'f0000000-0000-4000-8000-000000000001',
+          slug: 'production',
+          name: 'Production',
+          region: 'eu',
+        },
+        organization: {
+          id: '0a000000-0000-4000-8000-00000000000a',
+          slug: 'fennlor',
+          name: 'Fennlor Studio',
+        },
+        plan: { id: 'starter', name: 'Starter', monthly_units: 3000 },
+        period: { start: '2026-10-01T00:00:00Z', end: '2026-11-01T00:00:00Z' },
+        units: { included: 3000, used: 12, overage_balance: 0 },
+        limits: {},
+        environment: 'live',
+      });
     if (call.path === '/v1/templates/invoice') return json(template);
     const validate = /^\/v1\/templates\/([^/]+)\/validate$/.exec(call.path);
     if (validate && call.method === 'POST') {
@@ -242,13 +261,14 @@ const structured = (r: { structuredContent?: unknown }) =>
   r.structuredContent as Record<string, unknown>;
 
 describe('@formfeed/mcp', () => {
-  it('lists the six tools with schemas', async () => {
+  it('lists the seven tools with schemas', async () => {
     const { client, close } = await connectedClient(fakeApi().fetchImpl);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       'convert_to_pdf',
       'get_render',
       'get_template_schema',
+      'get_workspace',
       'list_templates',
       'render',
       'validate_template',
@@ -309,6 +329,35 @@ describe('@formfeed/mcp', () => {
       }
       await close();
     }
+  });
+
+  it('says which workspace the server works in, from the account (plan 23)', async () => {
+    const api = fakeApi();
+    const { client, close } = await connectedClient(api.fetchImpl);
+    const result = structured(
+      await client.callTool({ name: 'get_workspace', arguments: {} }),
+    );
+    expect(result).toMatchObject({
+      workspace: { slug: 'production', name: 'Production', region: 'eu' },
+      organization: { slug: 'fennlor' },
+      plan: { id: 'starter' },
+      environment: 'live',
+      units: { included: 3000, used: 12 },
+    });
+    // nothing the API did not say: no limits, no ids an agent has no use for beyond the workspace's
+    expect(Object.keys(result).sort()).toEqual([
+      'environment',
+      'organization',
+      'period',
+      'plan',
+      'units',
+      'workspace',
+    ]);
+    expect(api.calls.at(-1)).toMatchObject({
+      method: 'GET',
+      path: '/v1/account',
+    });
+    await close();
   });
 
   it('converts a render, an uploaded document and, on the user machine, a local file', async () => {

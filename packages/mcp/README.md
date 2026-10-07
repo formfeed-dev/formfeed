@@ -3,9 +3,9 @@
 [![formfeed MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/formfeed-dev/formfeed/badges/score.svg)](https://glama.ai/mcp/servers/formfeed-dev/formfeed)
 
 Model Context Protocol server for [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=mcp).
-Gives Claude, Cursor and other agents six tools: `list_templates`, `get_template_schema`,
+Gives Claude, Cursor and other agents seven tools: `list_templates`, `get_template_schema`,
 `validate_template` (free: the data against the template's schema, ad-hoc HTML offline), `render`, `convert_to_pdf` (Word, Excel,
-PowerPoint and OpenDocument to PDF) and `get_render`.
+PowerPoint and OpenDocument to PDF), `get_render` and `get_workspace` (which workspace the server works in, and the units left).
 
 ## stdio (Claude Desktop, Cursor, Claude Code)
 
@@ -26,9 +26,10 @@ A test key renders free with a watermark; a live key consumes units. `FORMFEED_R
 
 ## Hosted (Streamable HTTP)
 
-`https://mcp.formfeed.dev/mcp/<workspace id>` signs in with your Formfeed account (OAuth; the client
-opens the browser), `https://mcp.formfeed.dev/mcp` takes `Authorization: Bearer ff_…`. Self-host the
-same endpoint with `formfeed-mcp --http --port 8790`, plus `--auth-server <issuer>` for OAuth sign-in
-against your own Supabase Auth.
+`https://mcp.formfeed.dev/mcp` takes `Authorization: Bearer ff_…`, or signs in with your Formfeed
+account when no key is sent (OAuth; the client opens the browser, and you choose the workspace the
+agent works in). `https://mcp.formfeed.dev/mcp/<workspace id>` pins another workspace for a signed-in
+client. Self-host the same endpoint with `formfeed-mcp --http --port 8790`, plus `--auth-server <issuer>`
+for OAuth sign-in against your own Supabase Auth.
 
 Documentation: <https://docs.formfeed.dev/integrations/mcp>

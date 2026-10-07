@@ -47,8 +47,8 @@
       "headers": [
         {
           "name": "Authorization",
-          "description": "Bearer followed by a Formfeed API key (ff_test_… or ff_live_…)",
-          "isRequired": true,
+          "description": "Bearer followed by a Formfeed API key (ff_test_… or ff_live_…); without it the client signs in with your Formfeed account (OAuth) and you choose the workspace",
+          "isRequired": false,
           "isSecret": true
         }
       ]
@@ -58,7 +58,7 @@
       "url": "https://mcp.formfeed.dev/mcp/{workspace_id}",
       "variables": {
         "workspace_id": {
-          "description": "Workspace id from the Formfeed app; the client signs in with your Formfeed account (OAuth)",
+          "description": "Workspace id from the Formfeed app, for a connection that should work in another workspace than the one chosen at sign-in (OAuth)",
           "isRequired": true
         }
       }

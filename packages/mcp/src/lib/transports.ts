@@ -1,4 +1,9 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createFormfeedServer, type ServerOptions } from './server';
@@ -25,9 +30,11 @@ export interface HttpHandle {
 /**
  * Hosted Streamable HTTP endpoint (`mcp.<domain>/mcp`) on Node: the web-standard handler behind
  * `node:http`. Stateless, one server per request bound to the credential of the `Authorization`
- * header; `/mcp/<workspace id>` takes OAuth access tokens once `authorizationServer` is set.
+ * header; `/mcp` and `/mcp/<workspace id>` take OAuth access tokens once `authorizationServer` is set.
  */
-export async function startHttp(options: HttpOptions = {}): Promise<HttpHandle> {
+export async function startHttp(
+  options: HttpOptions = {},
+): Promise<HttpHandle> {
   const host = options.host ?? '127.0.0.1';
   const { port: _port, host: _host, ...handlerOptions } = options;
   void _port;
@@ -38,8 +45,11 @@ export async function startHttp(options: HttpOptions = {}): Promise<HttpHandle> 
       .then(handler)
       .then((response) => send(response, res))
       .catch((e) => {
-        if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+        if (!res.headersSent)
+          res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({ error: e instanceof Error ? e.message : String(e) }),
+        );
       });
   });
 
@@ -66,14 +76,18 @@ async function toRequest(req: IncomingMessage, host: string): Promise<Request> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   const method = req.method ?? 'GET';
-  const body = method === 'GET' || method === 'HEAD' ? undefined : new Uint8Array(Buffer.concat(chunks));
+  const body =
+    method === 'GET' || method === 'HEAD'
+      ? undefined
+      : new Uint8Array(Buffer.concat(chunks));
   return new Request(url, { method, headers, ...(body ? { body } : {}) });
 }
 
 async function send(response: Response, res: ServerResponse): Promise<void> {
   const headers: Record<string, string | string[]> = {};
   response.headers.forEach((value, name) => {
-    headers[name] = name === 'set-cookie' ? [...(headers[name] ?? []), value] : value;
+    headers[name] =
+      name === 'set-cookie' ? [...(headers[name] ?? []), value] : value;
   });
   res.writeHead(response.status, headers);
   if (!response.body) {

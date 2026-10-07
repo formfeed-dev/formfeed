@@ -142,7 +142,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   });
   const server = new McpServer(SERVER_INFO, {
     instructions:
-      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. convert_to_pdf turns office documents into PDFs.',
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. convert_to_pdf turns office documents into PDFs. get_workspace says which workspace this server works in and what the period has left.',
   });
 
   server.registerTool(
@@ -560,6 +560,33 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     async ({ id }) => {
       try {
         return text(renderSummary(await client.renders.get(id)));
+      } catch (e) {
+        return failure(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'get_workspace',
+    {
+      title: 'Which workspace this server works in',
+      description:
+        'Returns the workspace and organisation this server acts in, the plan, the environment (live or test) and the units of the current period: included, used and the balance of prepaid units. Call it when the user asks where a document will land or how many renders are left, or when list_templates returns nothing you expected. A signed-in agent works in the workspace chosen when it was connected, which the person changes in Formfeed under Account → Connected agents; an API key works in the workspace it was made for. Read-only and free.',
+      inputSchema: {},
+      annotations: READS,
+    },
+    async () => {
+      try {
+        const { workspace, organization, plan, environment, period, units } =
+          await client.account.get();
+        return text({
+          workspace,
+          organization,
+          plan,
+          environment,
+          period,
+          units,
+        });
       } catch (e) {
         return failure(e);
       }

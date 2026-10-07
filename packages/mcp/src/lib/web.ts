@@ -8,13 +8,17 @@ import { createFormfeedServer } from './server';
  * between requests.
  *
  * Two ways in:
- * - `/mcp` with an API key, which carries its workspace.
- * - `/mcp/<workspace id>` with an OAuth access token from Supabase Auth, which carries a user; the
- *   URL names the workspace, the gateway checks the membership and cuts the token down to the MCP
- *   scopes. Without a token the answer is `401` with a `WWW-Authenticate` header that points at the
- *   protected-resource metadata, which is what makes an MCP client start the OAuth flow instead of
- *   asking for a key. The metadata names the authorization server; without one configured the
- *   workspace path is closed.
+ * - `/mcp`, the fixed address, with an API key, which carries its workspace, or with an OAuth
+ *   access token from Supabase Auth, which carries a user: the workspace is the one the person chose
+ *   for the client on the consent page, and the token carries it (plan 23), so the server sends no
+ *   workspace header and the gateway reads it from the token.
+ * - `/mcp/<workspace id>` with an access token: the URL names the workspace for a client that
+ *   should work in another one than the chosen.
+ * Either way the gateway checks the membership on every call and cuts the token down to the MCP
+ * scopes. Without a credential the answer is `401` with a `WWW-Authenticate` header that points at
+ * the protected-resource metadata, which is what makes an MCP client start the OAuth flow instead
+ * of asking for a key. The metadata names the authorization server; without one configured only
+ * API keys are taken.
  */
 export interface WebHandlerOptions {
   baseUrl?: string;
@@ -30,7 +34,8 @@ export interface WebHandlerOptions {
   publicOrigin?: string;
 }
 
-const WORKSPACE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const WORKSPACE_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const API_KEY = /^ff_(live|test)_/;
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
@@ -41,7 +46,11 @@ export const MCP_PATH = '/mcp';
 export const RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /** RFC 9728 protected-resource metadata of one workspace endpoint. */
-export function resourceMetadata(origin: string, workspaceId: string, authorizationServer: string): Record<string, unknown> {
+export function resourceMetadata(
+  origin: string,
+  workspaceId: string,
+  authorizationServer: string,
+): Record<string, unknown> {
   return {
     resource: `${origin}${MCP_PATH}/${workspaceId}`,
     authorization_servers: [authorizationServer.replace(/\/$/, '')],
@@ -65,13 +74,36 @@ export function tokenExpired(token: string, now = Date.now()): boolean {
   }
 }
 
-function json(body: unknown, status: number, headers: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
+function json(
+  body: unknown,
+  status: number,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json', ...headers },
+  });
 }
 
 function bearer(request: Request): string {
   const auth = request.headers.get('authorization') ?? '';
   return /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '').trim() : '';
+}
+
+/**
+ * The `WWW-Authenticate` value that makes a client fetch the metadata and sign in (RFC 9728 §5.1).
+ * A description marks the token as invalid (RFC 6750 §3.1); a request that brought none gets the
+ * pointer alone.
+ */
+function challenge(
+  metadata: string,
+  description?: string,
+): Record<string, string> {
+  return {
+    'www-authenticate': description
+      ? `Bearer realm="formfeed", resource_metadata="${metadata}", error="invalid_token", error_description="${description}"`
+      : `Bearer realm="formfeed", resource_metadata="${metadata}"`,
+  };
 }
 
 export function mcpFetchHandler(options: WebHandlerOptions = {}): WebHandler {
@@ -84,46 +116,118 @@ export function mcpFetchHandler(options: WebHandlerOptions = {}): WebHandler {
 
     if (path === '/healthz') return json({ ok: true }, 200);
 
-    // RFC 9728: the metadata of a workspace endpoint, and of the bare path so a client that probes it learns the shape
-    if (path === RESOURCE_METADATA_PATH || path.startsWith(`${RESOURCE_METADATA_PATH}${MCP_PATH}`)) {
-      if (!authorizationServer) return json({ error: 'This endpoint takes API keys only; no authorization server is configured' }, 404);
-      const workspaceId = path.slice(`${RESOURCE_METADATA_PATH}${MCP_PATH}/`.length);
-      if (path === RESOURCE_METADATA_PATH || path === `${RESOURCE_METADATA_PATH}${MCP_PATH}`)
+    // RFC 9728: the metadata of the fixed address (also answered at the root, where a probing client looks first) and of a workspace endpoint
+    if (
+      path === RESOURCE_METADATA_PATH ||
+      path.startsWith(`${RESOURCE_METADATA_PATH}${MCP_PATH}`)
+    ) {
+      if (!authorizationServer)
+        return json(
+          {
+            error:
+              'This endpoint takes API keys only; no authorization server is configured',
+          },
+          404,
+        );
+      const workspaceId = path.slice(
+        `${RESOURCE_METADATA_PATH}${MCP_PATH}/`.length,
+      );
+      if (
+        path === RESOURCE_METADATA_PATH ||
+        path === `${RESOURCE_METADATA_PATH}${MCP_PATH}`
+      )
         return json(
           {
             resource: `${origin}${MCP_PATH}`,
             authorization_servers: [authorizationServer],
             bearer_methods_supported: ['header'],
+            scopes_supported: ['openid', 'email', 'profile'],
             resource_name: 'Formfeed',
-            resource_documentation: 'https://docs.formfeed.dev/integrations/mcp',
-            // the OAuth resource is one workspace: add its id to the path
+            resource_documentation:
+              'https://docs.formfeed.dev/integrations/mcp',
+            // a signed-in client works in the workspace chosen at consent; this path pins another one
             formfeed_workspace_path: `${origin}${MCP_PATH}/{workspace_id}`,
           },
           200,
         );
-      if (!WORKSPACE_ID.test(workspaceId)) return json({ error: 'The workspace id is not a UUID' }, 404);
-      return json(resourceMetadata(origin, workspaceId, authorizationServer), 200);
+      if (!WORKSPACE_ID.test(workspaceId))
+        return json({ error: 'The workspace id is not a UUID' }, 404);
+      return json(
+        resourceMetadata(origin, workspaceId, authorizationServer),
+        200,
+      );
     }
 
-    if (path !== MCP_PATH && !path.startsWith(`${MCP_PATH}/`)) return new Response(null, { status: 404 });
-    const workspaceId = path === MCP_PATH ? null : path.slice(MCP_PATH.length + 1);
+    if (path !== MCP_PATH && !path.startsWith(`${MCP_PATH}/`))
+      return new Response(null, { status: 404 });
+    const workspaceId =
+      path === MCP_PATH ? null : path.slice(MCP_PATH.length + 1);
     if (workspaceId !== null && !WORKSPACE_ID.test(workspaceId))
-      return json({ error: `The path is /mcp for an API key or /mcp/<workspace id> for a signed-in member` }, 404);
+      return json(
+        {
+          error: `The path is /mcp for an API key or /mcp/<workspace id> for a signed-in member`,
+        },
+        404,
+      );
 
     const credential = bearer(request);
     if (workspaceId === null) {
-      // the API key path: any bearer the gateway accepts, but a token on this path lacks its workspace
-      if (!credential) return json({ error: 'Authorization: Bearer <formfeed api key> required; a signed-in member connects to /mcp/<workspace id>' }, 401, { 'www-authenticate': 'Bearer realm="formfeed"' });
-      if (!API_KEY.test(credential) && JWT.test(credential))
-        return json({ error: 'An access token needs its workspace: connect to /mcp/<workspace id>' }, 401, { 'www-authenticate': 'Bearer realm="formfeed"' });
+      // the fixed address: a key, which carries its workspace, or a token, whose workspace the gateway reads from it
+      const metadata = `${origin}${RESOURCE_METADATA_PATH}${MCP_PATH}`;
+      if (!credential)
+        return authorizationServer
+          ? json(
+              {
+                error:
+                  'Authorization: Bearer <formfeed api key> required, or sign in with your Formfeed account',
+              },
+              401,
+              challenge(metadata),
+            )
+          : json(
+              { error: 'Authorization: Bearer <formfeed api key> required' },
+              401,
+              { 'www-authenticate': 'Bearer realm="formfeed"' },
+            );
+      if (!API_KEY.test(credential) && JWT.test(credential)) {
+        if (!authorizationServer)
+          return json(
+            {
+              error:
+                'This endpoint takes API keys only; no authorization server is configured for a sign-in',
+            },
+            401,
+            { 'www-authenticate': 'Bearer realm="formfeed"' },
+          );
+        if (tokenExpired(credential))
+          return json(
+            { error: 'The access token expired' },
+            401,
+            challenge(metadata, 'the access token expired'),
+          );
+      }
     } else {
-      if (!authorizationServer) return json({ error: 'This endpoint takes API keys only; connect to /mcp with a key' }, 404);
+      if (!authorizationServer)
+        return json(
+          {
+            error:
+              'This endpoint takes API keys only; connect to /mcp with a key',
+          },
+          404,
+        );
       const metadata = `${origin}${RESOURCE_METADATA_PATH}${MCP_PATH}/${workspaceId}`;
-      const challenge = (description: string) => ({
-        'www-authenticate': `Bearer realm="formfeed", resource_metadata="${metadata}", error="invalid_token", error_description="${description}"`,
-      });
-      if (!credential || !JWT.test(credential)) return json({ error: 'Sign in: this endpoint takes an OAuth access token' }, 401, challenge('an access token is required'));
-      if (tokenExpired(credential)) return json({ error: 'The access token expired' }, 401, challenge('the access token expired'));
+      if (!credential || !JWT.test(credential))
+        return json(
+          { error: 'Sign in: this endpoint takes an OAuth access token' },
+          401,
+          challenge(metadata, 'an access token is required'),
+        );
+      if (tokenExpired(credential))
+        return json(
+          { error: 'The access token expired' },
+          401,
+          challenge(metadata, 'the access token expired'),
+        );
     }
 
     const mcp = createFormfeedServer({
@@ -135,7 +239,10 @@ export function mcpFetchHandler(options: WebHandlerOptions = {}): WebHandler {
     });
     // JSON answers: the transport resolves once the reply is complete, so the server can go with the
     // response; an SSE stream would still be open when handleRequest returns.
-    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
     await mcp.connect(transport);
     try {
       return await transport.handleRequest(request);
