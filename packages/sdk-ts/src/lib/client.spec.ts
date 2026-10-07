@@ -64,6 +64,30 @@ const render = {
 };
 
 describe('Formfeed client', () => {
+  it('calls fetch without a `this`, as browsers and Cloudflare Workers require', async () => {
+    // The hosted MCP Worker answered every tool call with "Illegal invocation" until 2026-10-07:
+    // the global fetch had been called as a method of the client. Node tolerates that, so only a
+    // fetch that records its `this` can hold the line here.
+    const seen: unknown[] = [];
+    function recording(this: unknown) {
+      seen.push(this);
+      return Promise.resolve(json({ workspace: { id: 'w1' } }));
+    }
+    const given = new Formfeed({
+      apiKey: 'ff_test_k',
+      fetch: recording as unknown as typeof fetch,
+    });
+    await given.account.get();
+    vi.stubGlobal('fetch', recording);
+    try {
+      const global = new Formfeed({ apiKey: 'ff_test_k' });
+      await global.account.get();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(seen).toEqual([undefined, undefined]);
+  });
+
   it('sends the key, an idempotency key and the region host', async () => {
     const { calls, fetchImpl } = stub(() => json(render));
     const client = new Formfeed({

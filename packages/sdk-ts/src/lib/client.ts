@@ -959,7 +959,8 @@ export class Formfeed {
           `render ${target.id} has no output (${target.status})`,
           0,
         );
-      const res = await this.fetchImpl(target.download_url, {
+      const fetchImpl = this.fetchImpl;
+      const res = await fetchImpl(target.download_url, {
         signal: options.signal,
       });
       if (!res.ok)
@@ -1674,8 +1675,12 @@ export class Formfeed {
         controller.abort(options.signal?.reason),
       );
       let res: Response;
+      // A plain call, never `this.fetchImpl(...)`: browsers and Cloudflare Workers refuse the global
+      // fetch with another `this` ("Illegal invocation"), Node does not, which is why only the hosted
+      // MCP Worker ever showed it (2026-10-07, the first tool call through mcp.formfeed.dev).
+      const fetchImpl = this.fetchImpl;
       try {
-        res = await this.fetchImpl(url, {
+        res = await fetchImpl(url, {
           method,
           headers,
           body:
