@@ -72,6 +72,52 @@ describe('einvoiceResult', () => {
     });
   });
 
+  it('keeps what judged the file and the hashes of what it judged', () => {
+    const proof = {
+      id: 'b6f7c1d2',
+      versions: { mustang: '2.26.0', verapdf: '1.30.2', pdfbox: '3.0.8' },
+      xml_sha256: 'a'.repeat(64),
+      pdf_sha256: 'b'.repeat(64),
+    };
+    const result = einvoiceResult(
+      { profile: 'en16931', flavour: 'factur-x' },
+      '1.09',
+      {
+        valid: true,
+        schematron: 'rules',
+        pdfa: 'PDF/A-3b',
+        messages: [],
+        ...proof,
+      },
+      null,
+    );
+    expect(result.validation).toEqual({
+      valid: true,
+      schematron: 'rules',
+      pdfa: 'PDF/A-3b',
+      messages: [],
+      ...proof,
+    });
+    // a refusal before the conversion names the XML only
+    const refused = einvoiceResult(
+      { profile: 'en16931', flavour: 'factur-x' },
+      '1.09',
+      {
+        valid: false,
+        schematron: 'rules',
+        pdfa: null,
+        messages: [],
+        xml_sha256: proof.xml_sha256,
+        pdf_sha256: null,
+      },
+      null,
+    );
+    expect(refused.validation).toMatchObject({
+      xml_sha256: proof.xml_sha256,
+      pdf_sha256: null,
+    });
+  });
+
   it('has neither report nor display before the validator answered', () => {
     expect(
       einvoiceResult(

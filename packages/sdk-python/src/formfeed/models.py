@@ -90,6 +90,14 @@ class EinvoiceValidation(_Model):
     #: At most 50, errors first.
     messages: list[EinvoiceMessage] = []
     truncated: bool = False
+    #: The validator's own id for this report; ``None`` before 9 October 2026, like the fields below.
+    id: str | None = None
+    #: The versions of the validator's parts that judged the file: ``mustang``, ``verapdf``, ``pdfbox``.
+    versions: dict[str, str] = {}
+    #: SHA-256 of the XML that was judged, which is the XML inside the PDF.
+    xml_sha256: str | None = None
+    #: SHA-256 of the PDF that was judged, the delivered file of a render that succeeded.
+    pdf_sha256: str | None = None
 
 
 class EinvoiceDisplay(_Model):

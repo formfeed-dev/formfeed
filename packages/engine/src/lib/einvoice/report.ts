@@ -31,6 +31,20 @@ export interface EinvoiceValidation {
   messages: EinvoiceMessage[];
   /** More findings than the render keeps. */
   truncated?: boolean;
+  /**
+   * The validator's own id for this report, which its log names too. Absent in reports from before
+   * 2026-10-09, like the three fields below.
+   */
+  id?: string;
+  /** The versions of the validator's parts that judged the file: `mustang`, `verapdf`, `pdfbox`. */
+  versions?: Record<string, string>;
+  /** SHA-256 of the XML that was judged, which is the XML inside the PDF. */
+  xml_sha256?: string;
+  /**
+   * SHA-256 of the PDF that was judged: the delivered file when the render succeeded. `null` when the
+   * validator ended before there was a converted file.
+   */
+  pdf_sha256?: string | null;
 }
 
 export interface EinvoiceDisplay {
@@ -86,6 +100,15 @@ export function einvoiceResult(
           schematron: validation.schematron,
           pdfa: validation.pdfa,
           ...capMessages(validation.messages),
+          // what judged which bytes: the report a business keeps as its proof names both
+          ...(validation.id ? { id: validation.id } : {}),
+          ...(validation.versions ? { versions: validation.versions } : {}),
+          ...(validation.xml_sha256
+            ? { xml_sha256: validation.xml_sha256 }
+            : {}),
+          ...(validation.pdf_sha256 !== undefined
+            ? { pdf_sha256: validation.pdf_sha256 }
+            : {}),
         }
       : null,
     display: display

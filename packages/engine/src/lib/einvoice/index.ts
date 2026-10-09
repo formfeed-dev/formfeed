@@ -25,6 +25,7 @@ export {
   type InvoiceTax,
 } from './check';
 export { CII_GUIDELINES, EINVOICE_XML_NAME, invoiceToCii } from './cii';
+export { EN16931_TERMS, carriesTerm, type EinvoiceTerm } from './coverage';
 export { CODE_LIST_RELEASE } from './codes.generated';
 export {
   DISPLAY_TERMS,

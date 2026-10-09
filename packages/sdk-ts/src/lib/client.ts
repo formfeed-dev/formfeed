@@ -225,6 +225,14 @@ export interface Einvoice {
     /** At most 50, errors first. */
     messages: EinvoiceMessage[];
     truncated?: boolean;
+    /** The validator's own id for this report; absent before 9 October 2026, like the fields below. */
+    id?: string;
+    /** The versions of the validator's parts that judged the file: `mustang`, `verapdf`, `pdfbox`. */
+    versions?: Record<string, string>;
+    /** SHA-256 of the XML that was judged, which is the XML inside the PDF. */
+    xml_sha256?: string;
+    /** SHA-256 of the PDF that was judged, the delivered file of a render that succeeded. */
+    pdf_sha256?: string | null;
   } | null;
   /** The business terms of the XML looked for in the PDF's text, and those it does not show. */
   display: { checked: string[]; missing: string[] } | null;
