@@ -1,7 +1,12 @@
 import Handlebars from 'handlebars';
 import { unavailableHelper } from '../unavailable';
 import { missingPathDiagnostics, rangeAt } from '../analysis/tags';
-import { EngineSyntaxError, RenderError, RenderLimitError } from '../errors';
+import {
+  EngineSyntaxError,
+  notText,
+  RenderError,
+  RenderLimitError,
+} from '../errors';
 import { defaultHelpers } from '../helpers';
 import { enforceLimits } from '../limits';
 import type {
@@ -52,7 +57,8 @@ const builtinRoots = new Set([
  */
 function withBrand(data: unknown, ctx: RenderContext): unknown {
   const root = data ?? {};
-  if (!ctx.brand || typeof root !== 'object' || Array.isArray(root)) return root;
+  if (!ctx.brand || typeof root !== 'object' || Array.isArray(root))
+    return root;
   return { brand: ctx.brand, ...(root as Record<string, unknown>) };
 }
 
@@ -195,7 +201,8 @@ function walk(node: Node | undefined, w: Walk): void {
       // A bare `{{date}}` reads the data field, as the runtime does (createInstance), so it is a
       // variable for the schema and the data check. Only a helper that takes no arguments at all,
       // like `{{pageBreak}}`, is a call without them.
-      const isHelper = !bare || builtinHelpers.has(name) || takesNoArguments(w.helpers, name);
+      const isHelper =
+        !bare || builtinHelpers.has(name) || takesNoArguments(w.helpers, name);
       if (isHelper && path.type === 'PathExpression') {
         w.filters.push({
           name,
@@ -428,8 +435,14 @@ class HandlebarsCompiled implements CompiledTemplate {
             `Partials nest deeper than ${ctx.limits.includeDepth} (${inc.name})`,
           );
         }
-        const src = ctx.partials(inc.name);
+        const src: unknown = ctx.partials(inc.name);
         if (src === undefined) continue;
+        // Handlebars would compile a partial that is a tree as well (`notText`)
+        if (typeof src !== 'string')
+          throw new RenderError(
+            'handlebars',
+            `Partial "${inc.name}" is not text`,
+          );
         partials[inc.name] = src;
         collect(src, depth + 1);
       }
@@ -462,6 +475,8 @@ class HandlebarsCompiled implements CompiledTemplate {
 export const handlebarsEngine: Engine = {
   id: 'handlebars',
   compile(source: string, opts: CompileOptions = {}): CompiledTemplate {
+    // Handlebars takes a parsed tree as well as text, and a tree from JSON can carry code (`notText`)
+    if (typeof source !== 'string') throw notText('handlebars', source);
     const name = opts.name ?? 'template';
     try {
       createInstance(validationContext).precompile(source, { strict: false });

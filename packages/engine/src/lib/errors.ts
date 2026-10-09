@@ -17,6 +17,29 @@ export class EngineSyntaxError extends Error {
   }
 }
 
+/**
+ * A template source that is not text. JSON can carry an object where a source belongs (a version's
+ * settings, a render request's `settings`), and Handlebars compiles an object as a parsed syntax tree
+ * whose values went into the generated code unchecked up to 4.7.9 (GHSA-8r5x-fm3f-whwj): a header
+ * sent as a tree ran as JavaScript in the render-worker. Every engine takes text only.
+ */
+export function notText(engine: EngineId, source: unknown): EngineSyntaxError {
+  const kind =
+    source === null || source === undefined
+      ? String(source)
+      : Array.isArray(source)
+        ? 'an array'
+        : typeof source === 'object'
+          ? 'an object'
+          : `a ${typeof source}`;
+  return new EngineSyntaxError(
+    engine,
+    `A template must be text, not ${kind}`,
+    1,
+    1,
+  );
+}
+
 /** A render exceeded one of the limits in `RenderLimits` (spec 05 §7). */
 export class RenderLimitError extends Error {
   override readonly name = 'RenderLimitError';

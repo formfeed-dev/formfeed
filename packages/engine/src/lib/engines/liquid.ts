@@ -6,7 +6,7 @@ import {
   rangeOf,
   scanBlocks,
 } from '../analysis/tags';
-import { EngineSyntaxError, RenderError } from '../errors';
+import { EngineSyntaxError, notText, RenderError } from '../errors';
 import { defaultHelpers } from '../helpers';
 import { enforceLimits } from '../limits';
 import type {
@@ -191,17 +191,23 @@ function createLiquid(ctx: RenderContext): Liquid {
     parseLimit: 2_000_000,
   });
   for (const [name, { fn }] of ctx.helpers.bind(ctx))
-    liquid.registerFilter(name, function (
-      this: { token?: { args?: unknown[] } },
-      input: unknown,
-      ...argv: unknown[]
-    ) {
-      // argv[i] was evaluated from token.args[i], where a keyword argument is a [name, token] pair
-      const tokens = this.token?.args ?? [];
-      return fn(
-        ...collectKeywordArgs([input, ...argv], (i) => i > 0 && Array.isArray(tokens[i - 1])),
-      );
-    });
+    liquid.registerFilter(
+      name,
+      function (
+        this: { token?: { args?: unknown[] } },
+        input: unknown,
+        ...argv: unknown[]
+      ) {
+        // argv[i] was evaluated from token.args[i], where a keyword argument is a [name, token] pair
+        const tokens = this.token?.args ?? [];
+        return fn(
+          ...collectKeywordArgs(
+            [input, ...argv],
+            (i) => i > 0 && Array.isArray(tokens[i - 1]),
+          ),
+        );
+      },
+    );
   return liquid;
 }
 
@@ -489,6 +495,7 @@ class LiquidCompiled implements CompiledTemplate {
 export const liquidEngine: Engine = {
   id: 'liquid',
   compile(source: string, opts: CompileOptions = {}): CompiledTemplate {
+    if (typeof source !== 'string') throw notText('liquid', source);
     const name = opts.name ?? 'template';
     try {
       createLiquid(validationContext).parse(source, name);

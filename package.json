@@ -24,7 +24,7 @@
     "commander": "^14.0.3",
     "date-fns": "4.4.0",
     "fflate": "0.8.3",
-    "handlebars": "4.7.9",
+    "handlebars": "4.7.10",
     "liquidjs": "10.29.0",
     "marked": "18.0.11",
     "n2words": "^6.1.2",

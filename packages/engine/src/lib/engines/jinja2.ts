@@ -6,7 +6,7 @@ import {
   rangeAt,
   scanBlocks,
 } from '../analysis/tags';
-import { EngineSyntaxError, RenderError } from '../errors';
+import { EngineSyntaxError, notText, RenderError } from '../errors';
 import { defaultHelpers } from '../helpers';
 import { enforceLimits } from '../limits';
 import { pythonFormat } from './python-format';
@@ -147,7 +147,12 @@ const stringMethods: StringMethods = {
 /** Nunjucks passes `name=value` arguments as a trailing object marked `__keywords`. */
 function keywordArgs(args: unknown[]): Record<string, unknown> | undefined {
   const last = args.at(-1);
-  if (!last || typeof last !== 'object' || !Object.prototype.hasOwnProperty.call(last, '__keywords')) return undefined;
+  if (
+    !last ||
+    typeof last !== 'object' ||
+    !Object.prototype.hasOwnProperty.call(last, '__keywords')
+  )
+    return undefined;
   const { __keywords: _marker, ...named } = last as Record<string, unknown>;
   return named;
 }
@@ -165,18 +170,35 @@ function namespace(...args: unknown[]): JinjaNamespace {
   return ns;
 }
 
-function setNamespaceAttribute(target: unknown, key: unknown, value: unknown): void {
-  if (!(target instanceof JinjaNamespace)) throw new Error('Cannot assign attribute on non-namespace object');
+function setNamespaceAttribute(
+  target: unknown,
+  key: unknown,
+  value: unknown,
+): void {
+  if (!(target instanceof JinjaNamespace))
+    throw new Error('Cannot assign attribute on non-namespace object');
   target[String(key)] = value;
 }
 
 const toList = (v: unknown): unknown[] =>
-  Array.isArray(v) ? v : v === undefined || v === null ? [] : typeof v === 'string' ? [...v] : [v];
+  Array.isArray(v)
+    ? v
+    : v === undefined || v === null
+      ? []
+      : typeof v === 'string'
+        ? [...v]
+        : [v];
 
 const attributeOf = (item: unknown, path: unknown): unknown =>
   String(path ?? '')
     .split('.')
-    .reduce<unknown>((acc, key) => (acc !== null && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined), item);
+    .reduce<unknown>(
+      (acc, key) =>
+        acc !== null && typeof acc === 'object'
+          ? (acc as Record<string, unknown>)[key]
+          : undefined,
+      item,
+    );
 
 /** Jinja2 test names Nunjucks spells differently or does not have. */
 const jinjaTests: Record<string, (value: unknown, arg: unknown) => boolean> = {
@@ -188,7 +210,9 @@ const jinjaTests: Record<string, (value: unknown, arg: unknown) => boolean> = {
       ? container.includes(String(v))
       : Array.isArray(container)
         ? container.includes(v)
-        : !!container && typeof container === 'object' && String(v) in container,
+        : !!container &&
+          typeof container === 'object' &&
+          String(v) in container,
   '==': (v, a) => v === a,
   '!=': (v, a) => v !== a,
   '>': (v, a) => (v as number) > (a as number),
@@ -197,9 +221,19 @@ const jinjaTests: Record<string, (value: unknown, arg: unknown) => boolean> = {
   '<=': (v, a) => (v as number) <= (a as number),
 };
 
-type FilterThis = { env: { getTest(name: string): (this: unknown, v: unknown, a?: unknown) => boolean; getFilter(name: string): (...a: unknown[]) => unknown } };
+type FilterThis = {
+  env: {
+    getTest(name: string): (this: unknown, v: unknown, a?: unknown) => boolean;
+    getFilter(name: string): (...a: unknown[]) => unknown;
+  };
+};
 
-function runTest(self: FilterThis, name: string, value: unknown, arg: unknown): boolean {
+function runTest(
+  self: FilterThis,
+  name: string,
+  value: unknown,
+  arg: unknown,
+): boolean {
   const own = jinjaTests[name];
   if (own) return own(value, arg);
   return self.env.getTest(name).call(self, value, arg) === true;
@@ -210,65 +244,97 @@ function runTest(self: FilterThis, name: string, value: unknown, arg: unknown): 
  * recognises the Jinja2 form and otherwise hands the call to the helper, so the documented helper
  * signature keeps working in Jinja2 templates too.
  */
-function installJinjaFilters(env: InstanceType<typeof nunjucks.Environment>): void {
-  const lookup = env as unknown as FilterThis['env'] & { addFilter(name: string, fn: unknown): void };
+function installJinjaFilters(
+  env: InstanceType<typeof nunjucks.Environment>,
+): void {
+  const lookup = env as unknown as FilterThis['env'] & {
+    addFilter(name: string, fn: unknown): void;
+  };
   const helperTruncate = lookup.getFilter('truncate');
   // truncate(s, length=255, killwords=False, end='...', leeway=5)
-  lookup.addFilter('truncate', function (this: FilterThis, value: unknown, ...args: unknown[]) {
-    const named = keywordArgs(args);
-    const p = named ? args.slice(0, -1) : args;
-    if (!named && typeof p[1] !== 'boolean' && p.length < 3) return helperTruncate.call(this, value, ...args);
-    const s = String(value ?? '');
-    const length = Number(p[0] ?? named?.['length'] ?? 255);
-    const killwords = Boolean(p[1] ?? named?.['killwords'] ?? false);
-    const end = String(p[2] ?? named?.['end'] ?? '...');
-    const leeway = Number(p[3] ?? named?.['leeway'] ?? 5);
-    if (s.length <= length + leeway) return s;
-    const cut = s.slice(0, Math.max(0, length - end.length));
-    if (killwords) return cut + end;
-    const space = cut.lastIndexOf(' ');
-    return (space >= 0 ? cut.slice(0, space) : cut) + end;
-  });
+  lookup.addFilter(
+    'truncate',
+    function (this: FilterThis, value: unknown, ...args: unknown[]) {
+      const named = keywordArgs(args);
+      const p = named ? args.slice(0, -1) : args;
+      if (!named && typeof p[1] !== 'boolean' && p.length < 3)
+        return helperTruncate.call(this, value, ...args);
+      const s = String(value ?? '');
+      const length = Number(p[0] ?? named?.['length'] ?? 255);
+      const killwords = Boolean(p[1] ?? named?.['killwords'] ?? false);
+      const end = String(p[2] ?? named?.['end'] ?? '...');
+      const leeway = Number(p[3] ?? named?.['leeway'] ?? 5);
+      if (s.length <= length + leeway) return s;
+      const cut = s.slice(0, Math.max(0, length - end.length));
+      if (killwords) return cut + end;
+      const space = cut.lastIndexOf(' ');
+      return (space >= 0 ? cut.slice(0, space) : cut) + end;
+    },
+  );
 
   const helperSum = lookup.getFilter('sum');
   // sum(attribute='total', start=0); sum('total') stays the helper
-  lookup.addFilter('sum', function (this: FilterThis, value: unknown, ...args: unknown[]) {
-    const named = keywordArgs(args);
-    if (!named) return helperSum.call(this, value, ...args);
-    const p = args.slice(0, -1);
-    const total = helperSum.call(this, value, p[0] ?? named['attribute']) as number;
-    return total + Number(p[1] ?? named['start'] ?? 0);
-  });
+  lookup.addFilter(
+    'sum',
+    function (this: FilterThis, value: unknown, ...args: unknown[]) {
+      const named = keywordArgs(args);
+      if (!named) return helperSum.call(this, value, ...args);
+      const p = args.slice(0, -1);
+      const total = helperSum.call(
+        this,
+        value,
+        p[0] ?? named['attribute'],
+      ) as number;
+      return total + Number(p[1] ?? named['start'] ?? 0);
+    },
+  );
 
   const helperMap = lookup.getFilter('map');
   // map(attribute='x', default=…) and map('upper'); map('field') on objects stays the pluck helper
-  lookup.addFilter('map', function (this: FilterThis, value: unknown, ...args: unknown[]) {
-    const named = keywordArgs(args);
-    const p = named ? args.slice(0, -1) : args;
-    if (named && 'attribute' in named)
-      return toList(value).map((item) => {
-        const v = attributeOf(item, named['attribute']);
-        return v === undefined && 'default' in named ? named['default'] : v;
-      });
-    const items = toList(value);
-    if (typeof p[0] === 'string' && !items.some((item) => item !== null && typeof item === 'object')) {
-      let filter: ((...a: unknown[]) => unknown) | undefined;
-      try {
-        filter = lookup.getFilter(p[0]);
-      } catch {
-        filter = undefined;
+  lookup.addFilter(
+    'map',
+    function (this: FilterThis, value: unknown, ...args: unknown[]) {
+      const named = keywordArgs(args);
+      const p = named ? args.slice(0, -1) : args;
+      if (named && 'attribute' in named)
+        return toList(value).map((item) => {
+          const v = attributeOf(item, named['attribute']);
+          return v === undefined && 'default' in named ? named['default'] : v;
+        });
+      const items = toList(value);
+      if (
+        typeof p[0] === 'string' &&
+        !items.some((item) => item !== null && typeof item === 'object')
+      ) {
+        let filter: ((...a: unknown[]) => unknown) | undefined;
+        try {
+          filter = lookup.getFilter(p[0]);
+        } catch {
+          filter = undefined;
+        }
+        if (filter)
+          return items.map((item) => filter.call(this, item, ...p.slice(1)));
       }
-      if (filter) return items.map((item) => filter.call(this, item, ...p.slice(1)));
-    }
-    return helperMap.call(this, value, ...args);
-  });
+      return helperMap.call(this, value, ...args);
+    },
+  );
 
   // selectattr('category', 'equalto', 'ROOF'); Nunjucks only knows the one-argument form
   const byAttribute = (keep: boolean) =>
-    function (this: FilterThis, value: unknown, attribute: unknown, test?: unknown, arg?: unknown) {
+    function (
+      this: FilterThis,
+      value: unknown,
+      attribute: unknown,
+      test?: unknown,
+      arg?: unknown,
+    ) {
       return toList(value).filter((item) => {
         const v = attributeOf(item, attribute);
-        return (test === undefined ? Boolean(v) : runTest(this, String(test), v, arg)) === keep;
+        return (
+          (test === undefined
+            ? Boolean(v)
+            : runTest(this, String(test), v, arg)) === keep
+        );
       });
     };
   lookup.addFilter('selectattr', byAttribute(true));
@@ -305,7 +371,14 @@ function pythonRepr(v: unknown): string {
   if (v === null || v === undefined) return 'None';
   if (v === true) return 'True';
   if (v === false) return 'False';
-  if (typeof v === 'number') return Number.isNaN(v) ? 'nan' : Number.isFinite(v) ? String(v) : v > 0 ? 'inf' : '-inf';
+  if (typeof v === 'number')
+    return Number.isNaN(v)
+      ? 'nan'
+      : Number.isFinite(v)
+        ? String(v)
+        : v > 0
+          ? 'inf'
+          : '-inf';
   if (typeof v === 'string') {
     const quote = v.includes("'") && !v.includes('"') ? '"' : "'";
     const escaped = v
@@ -313,10 +386,15 @@ function pythonRepr(v: unknown): string {
       .replace(/\n/g, '\\n')
       .replace(/\r/g, '\\r')
       .replace(/\t/g, '\\t');
-    return quote + (quote === "'" ? escaped.replace(/'/g, "\\'") : escaped) + quote;
+    return (
+      quote + (quote === "'" ? escaped.replace(/'/g, "\\'") : escaped) + quote
+    );
   }
   if (Array.isArray(v)) return `[${v.map(pythonRepr).join(', ')}]`;
-  if (isPlainObject(v)) return `{${Object.entries(v).map(([k, item]) => `${pythonRepr(k)}: ${pythonRepr(item)}`).join(', ')}}`;
+  if (isPlainObject(v))
+    return `{${Object.entries(v)
+      .map(([k, item]) => `${pythonRepr(k)}: ${pythonRepr(item)}`)
+      .join(', ')}}`;
   return String(v);
 }
 
@@ -337,10 +415,13 @@ function installCompat(): void {
   // `{% set ns.total = ns.total + 1 %}` (Jinja2 namespaces): nunjucks' parser accepts an attribute as
   // the target, but its code generator only handles names and crashed reading the target's name.
   const compileSet = nunjucks.compiler.Compiler.prototype.compileSet;
-  (nunjucks.runtime as unknown as Record<string, unknown>)['formfeedSetAttribute'] = setNamespaceAttribute;
+  (nunjucks.runtime as unknown as Record<string, unknown>)[
+    'formfeedSetAttribute'
+  ] = setNamespaceAttribute;
   nunjucks.compiler.Compiler.prototype.compileSet = function (node, frame) {
     const [target, ...more] = node.targets;
-    if (!target || more.length || target.typename !== 'LookupVal') return compileSet.call(this, node, frame);
+    if (!target || more.length || target.typename !== 'LookupVal')
+      return compileSet.call(this, node, frame);
     this._emit('runtime.formfeedSetAttribute(');
     this._compileExpression(target['target'], frame);
     this._emit(', ');
@@ -354,9 +435,16 @@ function installCompat(): void {
   // templates such as chart scripts (`"data": {{ values }}`) rely on; JavaScript would print `1,2`
   const suppressValue = nunjucks.runtime.suppressValue;
   nunjucks.runtime.suppressValue = (val: unknown, autoescape: boolean) =>
-    suppressValue(Array.isArray(val) || isPlainObject(val) ? pythonRepr(val) : val, autoescape);
+    suppressValue(
+      Array.isArray(val) || isPlainObject(val) ? pythonRepr(val) : val,
+      autoescape,
+    );
   const original = nunjucks.runtime.memberLookup;
-  nunjucks.runtime.memberLookup = (obj: unknown, val: unknown, ...rest: unknown[]) => {
+  nunjucks.runtime.memberLookup = (
+    obj: unknown,
+    val: unknown,
+    ...rest: unknown[]
+  ) => {
     if (
       typeof obj === 'string' &&
       typeof val === 'string' &&
@@ -378,7 +466,8 @@ function installCompat(): void {
     ) {
       const own = (obj as Record<string, unknown>)[val];
       return typeof own === 'function'
-        ? (...args: unknown[]) => (own as (...a: unknown[]) => unknown).apply(obj, args)
+        ? (...args: unknown[]) =>
+            (own as (...a: unknown[]) => unknown).apply(obj, args)
         : own;
     }
     if (
@@ -530,7 +619,8 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
     case 'LookupVal': {
       const p = pathOf(node);
       // `True`, `False` and `None` parse as names but are literals: never a read of the data
-      if (node.typename === 'Symbol' && jinjaLiterals.has(String(node.value))) return;
+      if (node.typename === 'Symbol' && jinjaLiterals.has(String(node.value)))
+        return;
       if (p) {
         const root = p.path[0] ?? '';
         const bound = inScope(w, root);
@@ -595,7 +685,9 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
       const items = !source
         ? null
         : inScope(w, root)
-          ? ((s) => (s ? [...s, ...source.path.slice(1)] : null))(sourceOf(w, root))
+          ? ((s) => (s ? [...s, ...source.path.slice(1)] : null))(
+              sourceOf(w, root),
+            )
           : source.path;
       const scope = new Map<string, string[] | null>();
       for (const n of names) {
@@ -626,7 +718,8 @@ function walk(node: NunjucksNode | undefined, w: Walk): void {
             kind: 'assigned',
           });
           // `{% set ns.total = … %}` changes a namespace that is already bound; do not rebind it
-          if (p.path.length === 1 || !inScope(w, p.path[0] ?? '')) w.scopes[0]?.set(p.path[0] ?? '', null);
+          if (p.path.length === 1 || !inScope(w, p.path[0] ?? ''))
+            w.scopes[0]?.set(p.path[0] ?? '', null);
         }
       }
       walk(node['value'] as NunjucksNode, w);
@@ -846,6 +939,7 @@ class Jinja2Template implements CompiledTemplate {
 export const jinja2Engine: Engine = {
   id: 'jinja2',
   compile(source: string, opts: CompileOptions = {}): CompiledTemplate {
+    if (typeof source !== 'string') throw notText('jinja2', source);
     const name = opts.name ?? 'template';
     try {
       installCompat();
