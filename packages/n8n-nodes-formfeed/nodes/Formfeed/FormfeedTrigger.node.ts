@@ -7,7 +7,11 @@ import type {
   IWebhookResponseData,
 } from 'n8n-workflow';
 import { NodeConnectionTypes } from 'n8n-workflow';
-import { TRIGGER_EVENTS, baseUrl, type FormfeedCredentials } from '../../lib/api';
+import {
+  TRIGGER_EVENTS,
+  baseUrl,
+  type FormfeedCredentials,
+} from '../../lib/api';
 
 /**
  * Starts a workflow when Formfeed reports a finished render, batch or quota warning. The node
@@ -17,9 +21,13 @@ export class FormfeedTrigger implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Formfeed Trigger',
     name: 'formfeedTrigger',
-    icon: 'file:formfeed.svg',
+    icon: {
+      light: 'file:../../icons/formfeed.svg',
+      dark: 'file:../../icons/formfeed.dark.svg',
+    },
     group: ['trigger'],
     version: 1,
+    subtitle: '={{$parameter["events"].join(", ")}}',
     description: 'Runs when a Formfeed render or batch finishes',
     defaults: { name: 'Formfeed Trigger' },
     inputs: [],
@@ -49,9 +57,12 @@ export class FormfeedTrigger implements INodeType {
   webhookMethods = {
     default: {
       async checkExists(this: IHookFunctions): Promise<boolean> {
-        const stored = this.getWorkflowStaticData('node')['webhookId'] as string | undefined;
+        const stored = this.getWorkflowStaticData('node')['webhookId'] as
+          string | undefined;
         if (!stored) return false;
-        const list = (await apiRequest(this, 'GET', '/webhooks')) as { data?: Array<{ id: string }> };
+        const list = (await apiRequest(this, 'GET', '/webhooks')) as {
+          data?: Array<{ id: string }>;
+        };
         return (list.data ?? []).some((endpoint) => endpoint.id === stored);
       },
 
@@ -73,9 +84,21 @@ export class FormfeedTrigger implements INodeType {
         const id = data['webhookId'] as string | undefined;
         if (!id) return true;
         try {
-          await apiRequest(this, 'DELETE', `/webhooks/${encodeURIComponent(id)}`);
-        } catch {
-          // already gone: nothing to clean up
+          await apiRequest(
+            this,
+            'DELETE',
+            `/webhooks/${encodeURIComponent(id)}`,
+          );
+        } catch (error) {
+          // Deactivation goes on either way: an endpoint deleted in the app is already gone, and one
+          // that could not be deleted now is still listed in the app, where the log says to look.
+          this.logger.warn(
+            'Formfeed: the webhook endpoint could not be deleted',
+            {
+              webhookId: id,
+              error: (error as Error).message,
+            },
+          );
         }
         delete data['webhookId'];
         delete data['secret'];
@@ -96,11 +119,17 @@ async function apiRequest(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
-  const credentials = (await context.getCredentials('formfeedApi')) as unknown as FormfeedCredentials;
-  return context.helpers.httpRequestWithAuthentication.call(context, 'formfeedApi', {
-    method,
-    url: `${baseUrl(credentials)}${path}`,
-    json: true,
-    ...(body === undefined ? {} : { body }),
-  });
+  const credentials = (await context.getCredentials(
+    'formfeedApi',
+  )) as unknown as FormfeedCredentials;
+  return context.helpers.httpRequestWithAuthentication.call(
+    context,
+    'formfeedApi',
+    {
+      method,
+      url: `${baseUrl(credentials)}${path}`,
+      json: true,
+      ...(body === undefined ? {} : { body }),
+    },
+  );
 }

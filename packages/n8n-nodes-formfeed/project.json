@@ -1,17 +1,18 @@
 {
   "name": "n8n-nodes-formfeed",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "sourceRoot": "packages/n8n-nodes-formfeed/src",
+  "sourceRoot": "packages/n8n-nodes-formfeed",
   "projectType": "library",
   "tags": [],
   "targets": {
     "bundle": {
       "executor": "nx:run-commands",
-      "outputs": [
-        "{workspaceRoot}/dist/packages/n8n-nodes-formfeed"
-      ],
+      "outputs": ["{workspaceRoot}/dist/packages/n8n-nodes-formfeed"],
       "inputs": [
-        "{projectRoot}/src/**/*",
+        "{projectRoot}/credentials/**/*",
+        "{projectRoot}/nodes/**/*",
+        "{projectRoot}/lib/**/*",
+        "{projectRoot}/icons/**/*",
         "{projectRoot}/package.json",
         "{projectRoot}/README.md"
       ],
@@ -21,9 +22,7 @@
     },
     "smoke": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "bundle"
-      ],
+      "dependsOn": ["bundle"],
       "options": {
         "command": "node packages/n8n-nodes-formfeed/smoke.mjs"
       }

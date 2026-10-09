@@ -6,8 +6,13 @@ import type {
   INodePropertyOptions,
   INodeType,
   INodeTypeDescription,
+  JsonObject,
 } from 'n8n-workflow';
-import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+import {
+  NodeApiError,
+  NodeConnectionTypes,
+  NodeOperationError,
+} from 'n8n-workflow';
 import {
   baseUrl,
   channelOptions,
@@ -33,11 +38,15 @@ export class Formfeed implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Formfeed',
     name: 'formfeed',
-    icon: 'file:formfeed.svg',
+    icon: {
+      light: 'file:../../icons/formfeed.svg',
+      dark: 'file:../../icons/formfeed.dark.svg',
+    },
     group: ['transform'],
     version: 1,
     subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-    description: 'Generate PDFs, images and Word or PowerPoint documents from templates, and convert office files to PDF',
+    description:
+      'Generate PDFs, images and Word or PowerPoint documents from templates, and convert office files to PDF',
     defaults: { name: 'Formfeed' },
     inputs: [NodeConnectionTypes.Main],
     outputs: [NodeConnectionTypes.Main],
@@ -51,12 +60,13 @@ export class Formfeed implements INodeType {
         type: 'options',
         noDataExpression: true,
         default: 'render',
+        // n8n's verification wants every option list in alphabetical order
         options: [
+          { name: 'File', value: 'file' },
+          { name: 'Job', value: 'job' },
+          { name: 'PDF', value: 'pdf' },
           { name: 'Render', value: 'render' },
           { name: 'Template', value: 'template' },
-          { name: 'Job', value: 'job' },
-          { name: 'File', value: 'file' },
-          { name: 'PDF', value: 'pdf' },
         ],
       },
       {
@@ -70,7 +80,8 @@ export class Formfeed implements INodeType {
           {
             name: 'Convert Office Document',
             value: 'convert',
-            description: 'Turn a Word, Excel, PowerPoint, OpenDocument or RTF file into a PDF (Starter plan and above)',
+            description:
+              'Turn a Word, Excel, PowerPoint, OpenDocument or RTF file into a PDF (Starter plan and above)',
             action: 'Convert an office document to PDF',
           },
         ],
@@ -83,10 +94,30 @@ export class Formfeed implements INodeType {
         displayOptions: { show: { resource: ['render'] } },
         default: 'create',
         options: [
-          { name: 'Create', value: 'create', description: 'Render a document', action: 'Render a document' },
-          { name: 'Get', value: 'get', description: 'Read one render', action: 'Get a render' },
-          { name: 'Get Many', value: 'getAll', description: 'List renders', action: 'Get many renders' },
-          { name: 'Delete Outputs', value: 'deleteOutputs', description: 'Remove the stored files', action: 'Delete render outputs' },
+          {
+            name: 'Create',
+            value: 'create',
+            description: 'Render a document',
+            action: 'Render a document',
+          },
+          {
+            name: 'Get',
+            value: 'get',
+            description: 'Read one render',
+            action: 'Get a render',
+          },
+          {
+            name: 'Get Many',
+            value: 'getAll',
+            description: 'List renders',
+            action: 'Get many renders',
+          },
+          {
+            name: 'Delete Outputs',
+            value: 'deleteOutputs',
+            description: 'Remove the stored files',
+            action: 'Delete render outputs',
+          },
         ],
       },
       {
@@ -97,9 +128,24 @@ export class Formfeed implements INodeType {
         displayOptions: { show: { resource: ['template'] } },
         default: 'getAll',
         options: [
-          { name: 'Get Many', value: 'getAll', description: 'List templates', action: 'Get many templates' },
-          { name: 'Get', value: 'get', description: 'Read one template', action: 'Get a template' },
-          { name: 'Get Schema', value: 'getSchema', description: 'Read the data schema', action: 'Get a template schema' },
+          {
+            name: 'Get Many',
+            value: 'getAll',
+            description: 'List templates',
+            action: 'Get many templates',
+          },
+          {
+            name: 'Get',
+            value: 'get',
+            description: 'Read one template',
+            action: 'Get a template',
+          },
+          {
+            name: 'Get Schema',
+            value: 'getSchema',
+            description: 'Read the data schema',
+            action: 'Get a template schema',
+          },
         ],
       },
       {
@@ -109,7 +155,14 @@ export class Formfeed implements INodeType {
         noDataExpression: true,
         displayOptions: { show: { resource: ['job'] } },
         default: 'get',
-        options: [{ name: 'Get', value: 'get', description: 'Read a batch job', action: 'Get a job' }],
+        options: [
+          {
+            name: 'Get',
+            value: 'get',
+            description: 'Read a batch job',
+            action: 'Get a job',
+          },
+        ],
       },
 
       {
@@ -120,9 +173,24 @@ export class Formfeed implements INodeType {
         displayOptions: { show: { resource: ['file'] } },
         default: 'upload',
         options: [
-          { name: 'Upload', value: 'upload', description: 'Upload an image or PDF to the file library', action: 'Upload a file' },
-          { name: 'Get Many', value: 'getAll', description: 'List the file library', action: 'Get many files' },
-          { name: 'Delete', value: 'delete', description: 'Remove a file from the library', action: 'Delete a file' },
+          {
+            name: 'Upload',
+            value: 'upload',
+            description: 'Upload an image or PDF to the file library',
+            action: 'Upload a file',
+          },
+          {
+            name: 'Get Many',
+            value: 'getAll',
+            description: 'List the file library',
+            action: 'Get many files',
+          },
+          {
+            name: 'Delete',
+            value: 'delete',
+            description: 'Remove a file from the library',
+            action: 'Delete a file',
+          },
         ],
       },
 
@@ -134,7 +202,8 @@ export class Formfeed implements INodeType {
         displayOptions: { show: { resource: ['file'], operation: ['upload'] } },
         default: 'data',
         required: true,
-        description: 'The binary field of the incoming item that holds the image or PDF',
+        description:
+          'The binary field of the incoming item that holds the image or PDF',
       },
       {
         displayName: 'Name in Library',
@@ -173,24 +242,46 @@ export class Formfeed implements INodeType {
         displayOptions: { show: { resource: ['pdf'], operation: ['convert'] } },
         default: 'binary',
         options: [
-          { name: 'Binary Field of the Item', value: 'binary', description: 'An uploaded document of up to 20 MB; it is converted and not kept' },
-          { name: 'Render of a Word or PowerPoint Template', value: 'render', description: 'A render whose output is DOCX or PPTX' },
+          {
+            name: 'Binary Field of the Item',
+            value: 'binary',
+            description:
+              'An uploaded document of up to 20 MB; it is converted and not kept',
+          },
+          {
+            name: 'Render of a Word or PowerPoint Template',
+            value: 'render',
+            description: 'A render whose output is DOCX or PPTX',
+          },
         ],
       },
       {
         displayName: 'Input Binary Field',
         name: 'convertBinaryPropertyName',
         type: 'string',
-        displayOptions: { show: { resource: ['pdf'], operation: ['convert'], convertSource: ['binary'] } },
+        displayOptions: {
+          show: {
+            resource: ['pdf'],
+            operation: ['convert'],
+            convertSource: ['binary'],
+          },
+        },
         default: 'data',
         required: true,
-        description: 'The binary field of the incoming item that holds the document',
+        description:
+          'The binary field of the incoming item that holds the document',
       },
       {
         displayName: 'Render ID',
         name: 'convertRenderId',
         type: 'string',
-        displayOptions: { show: { resource: ['pdf'], operation: ['convert'], convertSource: ['render'] } },
+        displayOptions: {
+          show: {
+            resource: ['pdf'],
+            operation: ['convert'],
+            convertSource: ['render'],
+          },
+        },
         default: '',
         required: true,
         placeholder: 'rnd_…',
@@ -201,7 +292,8 @@ export class Formfeed implements INodeType {
         type: 'boolean',
         displayOptions: { show: { resource: ['pdf'], operation: ['convert'] } },
         default: true,
-        description: 'Whether to attach the PDF as binary data instead of returning only the URL',
+        description:
+          'Whether to attach the PDF as binary data instead of returning only the URL',
       },
       {
         displayName: 'Options',
@@ -211,15 +303,28 @@ export class Formfeed implements INodeType {
         displayOptions: { show: { resource: ['pdf'], operation: ['convert'] } },
         default: {},
         options: [
-          { displayName: 'Filename', name: 'filename', type: 'string', default: '', description: 'Name of the PDF' },
+          {
+            displayName: 'Filename',
+            name: 'filename',
+            type: 'string',
+            default: '',
+            description: 'Name of the PDF',
+          },
           {
             displayName: 'Landscape',
             name: 'landscape',
             type: 'boolean',
             default: false,
-            description: 'Whether spreadsheets and documents without their own page setup are converted in landscape',
+            description:
+              'Whether spreadsheets and documents without their own page setup are converted in landscape',
           },
-          { displayName: 'Page Ranges', name: 'pageRanges', type: 'string', default: '', placeholder: '1-3,5' },
+          {
+            displayName: 'Page Ranges',
+            name: 'pageRanges',
+            type: 'string',
+            default: '',
+            placeholder: '1-3,5',
+          },
           {
             displayName: 'Single Page Sheets',
             name: 'singlePageSheets',
@@ -235,7 +340,9 @@ export class Formfeed implements INodeType {
         displayName: 'Source',
         name: 'source',
         type: 'options',
-        displayOptions: { show: { resource: ['render'], operation: ['create'] } },
+        displayOptions: {
+          show: { resource: ['render'], operation: ['create'] },
+        },
         default: 'template',
         options: [
           { name: 'Template', value: 'template' },
@@ -248,7 +355,13 @@ export class Formfeed implements INodeType {
         name: 'template',
         type: 'options',
         typeOptions: { loadOptionsMethod: 'getTemplates' },
-        displayOptions: { show: { resource: ['render'], operation: ['create'], source: ['template'] } },
+        displayOptions: {
+          show: {
+            resource: ['render'],
+            operation: ['create'],
+            source: ['template'],
+          },
+        },
         default: '',
         required: true,
         description:
@@ -259,9 +372,16 @@ export class Formfeed implements INodeType {
         name: 'fields',
         type: 'fixedCollection',
         typeOptions: { multipleValues: true },
-        displayOptions: { show: { resource: ['render'], operation: ['create'], source: ['template'] } },
+        displayOptions: {
+          show: {
+            resource: ['render'],
+            operation: ['create'],
+            source: ['template'],
+          },
+        },
         default: {},
-        description: 'Values for the template fields; the names come from the template data schema',
+        description:
+          'Values for the template fields; the names come from the template data schema',
         options: [
           {
             name: 'field',
@@ -271,12 +391,20 @@ export class Formfeed implements INodeType {
                 displayName: 'Field Name or ID',
                 name: 'path',
                 type: 'options',
-                typeOptions: { loadOptionsMethod: 'getTemplateFields', loadOptionsDependsOn: ['template'] },
+                typeOptions: {
+                  loadOptionsMethod: 'getTemplateFields',
+                  loadOptionsDependsOn: ['template'],
+                },
                 default: '',
                 description:
                   'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
               },
-              { displayName: 'Value', name: 'value', type: 'string', default: '' },
+              {
+                displayName: 'Value',
+                name: 'value',
+                type: 'string',
+                default: '',
+              },
             ],
           },
         ],
@@ -285,16 +413,25 @@ export class Formfeed implements INodeType {
         displayName: 'Data (JSON)',
         name: 'dataJson',
         type: 'json',
-        displayOptions: { show: { resource: ['render'], operation: ['create'] } },
+        displayOptions: {
+          show: { resource: ['render'], operation: ['create'] },
+        },
         default: '{}',
-        description: 'Merged with the mapped fields; use it for lists and nested objects',
+        description:
+          'Merged with the mapped fields; use it for lists and nested objects',
       },
       {
         displayName: 'HTML',
         name: 'html',
         type: 'string',
         typeOptions: { rows: 6 },
-        displayOptions: { show: { resource: ['render'], operation: ['create'], source: ['html'] } },
+        displayOptions: {
+          show: {
+            resource: ['render'],
+            operation: ['create'],
+            source: ['html'],
+          },
+        },
         default: '',
         required: true,
       },
@@ -302,7 +439,13 @@ export class Formfeed implements INodeType {
         displayName: 'Engine',
         name: 'engine',
         type: 'options',
-        displayOptions: { show: { resource: ['render'], operation: ['create'], source: ['html'] } },
+        displayOptions: {
+          show: {
+            resource: ['render'],
+            operation: ['create'],
+            source: ['html'],
+          },
+        },
         default: 'jinja2',
         options: [
           { name: 'Jinja2', value: 'jinja2' },
@@ -314,7 +457,13 @@ export class Formfeed implements INodeType {
         displayName: 'URL',
         name: 'url',
         type: 'string',
-        displayOptions: { show: { resource: ['render'], operation: ['create'], source: ['url'] } },
+        displayOptions: {
+          show: {
+            resource: ['render'],
+            operation: ['create'],
+            source: ['url'],
+          },
+        },
         default: '',
         required: true,
         placeholder: 'https://example.com/invoice/42',
@@ -323,38 +472,56 @@ export class Formfeed implements INodeType {
         displayName: 'Output',
         name: 'output',
         type: 'options',
-        displayOptions: { show: { resource: ['render'], operation: ['create'] } },
+        displayOptions: {
+          show: { resource: ['render'], operation: ['create'] },
+        },
         default: '',
         description:
           'The format of the file. As the Template renders PDF, the image format of an image template, or the default output of a Word or PowerPoint template; HTML and URLs render PDF. Word templates render DOCX or PDF, PowerPoint templates PPTX or PDF.',
         options: [
           { name: 'As the Template', value: '' },
+          { name: 'JPG', value: 'jpg' },
           { name: 'PDF', value: 'pdf' },
           { name: 'PNG', value: 'png' },
-          { name: 'JPG', value: 'jpg' },
+          { name: 'PowerPoint (PPTX)', value: 'pptx' },
           { name: 'WebP', value: 'webp' },
           { name: 'Word (DOCX)', value: 'docx' },
-          { name: 'PowerPoint (PPTX)', value: 'pptx' },
         ],
       },
       {
         displayName: 'Download File',
         name: 'download',
         type: 'boolean',
-        displayOptions: { show: { resource: ['render'], operation: ['create'] } },
+        displayOptions: {
+          show: { resource: ['render'], operation: ['create'] },
+        },
         default: true,
-        description: 'Whether to attach the rendered document as binary data instead of returning only the URL',
+        description:
+          'Whether to attach the rendered document as binary data instead of returning only the URL',
       },
       {
         displayName: 'Options',
         name: 'options',
         type: 'collection',
         placeholder: 'Add option',
-        displayOptions: { show: { resource: ['render'], operation: ['create'] } },
+        displayOptions: {
+          show: { resource: ['render'], operation: ['create'] },
+        },
         default: {},
         options: [
-          { displayName: 'Filename', name: 'filename', type: 'string', default: '' },
-          { displayName: 'Locale', name: 'locale', type: 'string', default: '', placeholder: 'de-DE' },
+          {
+            displayName: 'Filename',
+            name: 'filename',
+            type: 'string',
+            default: '',
+          },
+          {
+            displayName: 'Locale',
+            name: 'locale',
+            type: 'string',
+            default: '',
+            placeholder: 'de-DE',
+          },
           {
             displayName: 'Mode',
             name: 'mode',
@@ -366,16 +533,31 @@ export class Formfeed implements INodeType {
             ],
           },
           {
+            displayName: 'Settings (JSON)',
+            name: 'settingsJson',
+            type: 'json',
+            default: '{}',
+          },
+          {
             displayName: 'Version Name or ID',
             name: 'version',
             type: 'options',
-            typeOptions: { loadOptionsMethod: 'getTemplateVersions', loadOptionsDependsOn: ['template'] },
+            typeOptions: {
+              loadOptionsMethod: 'getTemplateVersions',
+              loadOptionsDependsOn: ['template'],
+            },
             default: 'published',
+            // n8n's verification wants exactly this sentence under a list it loads; ours goes in the hint
             description:
-              'The release channel to render. Choose from the list, or specify a version number using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+              'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+            hint: 'The release channel to render, or a version number',
           },
-          { displayName: 'Webhook URL', name: 'webhookUrl', type: 'string', default: '' },
-          { displayName: 'Settings (JSON)', name: 'settingsJson', type: 'json', default: '{}' },
+          {
+            displayName: 'Webhook URL',
+            name: 'webhookUrl',
+            type: 'string',
+            default: '',
+          },
         ],
       },
 
@@ -384,7 +566,9 @@ export class Formfeed implements INodeType {
         displayName: 'Render ID',
         name: 'renderId',
         type: 'string',
-        displayOptions: { show: { resource: ['render'], operation: ['get', 'deleteOutputs'] } },
+        displayOptions: {
+          show: { resource: ['render'], operation: ['get', 'deleteOutputs'] },
+        },
         default: '',
         required: true,
       },
@@ -401,7 +585,9 @@ export class Formfeed implements INodeType {
         name: 'templateId',
         type: 'options',
         typeOptions: { loadOptionsMethod: 'getTemplates' },
-        displayOptions: { show: { resource: ['template'], operation: ['get', 'getSchema'] } },
+        displayOptions: {
+          show: { resource: ['template'], operation: ['get', 'getSchema'] },
+        },
         default: '',
         required: true,
         description:
@@ -411,17 +597,30 @@ export class Formfeed implements INodeType {
         displayName: 'Return All',
         name: 'returnAll',
         type: 'boolean',
-        displayOptions: { show: { resource: ['render', 'template', 'file'], operation: ['getAll'] } },
+        displayOptions: {
+          show: {
+            resource: ['render', 'template', 'file'],
+            operation: ['getAll'],
+          },
+        },
         default: false,
-        description: 'Whether to return all results or only up to a given limit',
+        description:
+          'Whether to return all results or only up to a given limit',
       },
       {
         displayName: 'Limit',
         name: 'limit',
         type: 'number',
         typeOptions: { minValue: 1, maxValue: 100 },
-        displayOptions: { show: { resource: ['render', 'template', 'file'], operation: ['getAll'], returnAll: [false] } },
-        default: 25,
+        displayOptions: {
+          show: {
+            resource: ['render', 'template', 'file'],
+            operation: ['getAll'],
+            returnAll: [false],
+          },
+        },
+        // n8n's convention for a limit, which its verification holds nodes to
+        default: 50,
         description: 'Max number of results to return',
       },
     ],
@@ -429,7 +628,9 @@ export class Formfeed implements INodeType {
 
   methods = {
     loadOptions: {
-      async getTemplates(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+      async getTemplates(
+        this: ILoadOptionsFunctions,
+      ): Promise<INodePropertyOptions[]> {
         const page = (await request(this, 'GET', '/templates?limit=100')) as {
           data?: Array<{ slug: string; name: string; kind: string }>;
         };
@@ -439,23 +640,41 @@ export class Formfeed implements INodeType {
         }));
       },
 
-      async getTemplateVersions(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+      async getTemplateVersions(
+        this: ILoadOptionsFunctions,
+      ): Promise<INodePropertyOptions[]> {
         const template = this.getNodeParameter('template', '') as string;
-        const published = [{ name: 'published', value: 'published', description: 'The published version, the default' }];
+        const published = [
+          {
+            name: 'Published',
+            value: 'published',
+            description: 'The published version, the default',
+          },
+        ];
         if (!template) return published;
         try {
-          const channels = (await request(this, 'GET', `/templates/${encodeURIComponent(template)}/channels`)) as { data?: ChannelSummary[] };
+          const channels = (await request(
+            this,
+            'GET',
+            `/templates/${encodeURIComponent(template)}/channels`,
+          )) as { data?: ChannelSummary[] };
           return channelOptions(channels.data ?? []);
         } catch {
           return published;
         }
       },
 
-      async getTemplateFields(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+      async getTemplateFields(
+        this: ILoadOptionsFunctions,
+      ): Promise<INodePropertyOptions[]> {
         const template = this.getNodeParameter('template', '') as string;
         if (!template) return [];
         try {
-          const schema = await request(this, 'GET', `/templates/${encodeURIComponent(template)}/schema`);
+          const schema = await request(
+            this,
+            'GET',
+            `/templates/${encodeURIComponent(template)}/schema`,
+          );
           return schemaFields(schema).map((field) => ({
             name: `${field.path}${field.required ? ' *' : ''} (${field.type})`,
             value: field.path,
@@ -479,37 +698,94 @@ export class Formfeed implements INodeType {
         const operation = this.getNodeParameter('operation', i) as string;
 
         if (resource === 'render' && operation === 'create') {
-          const source = this.getNodeParameter('source', i) as 'template' | 'html' | 'url';
-          const options = this.getNodeParameter('options', i, {}) as IDataObject;
-          const mapped = this.getNodeParameter('fields.field', i, []) as Array<{ path: string; value: string }>;
-          const json = parseJson(this, i, this.getNodeParameter('dataJson', i, '{}'));
-          const settings = parseJson(this, i, (options['settingsJson'] as string) ?? '{}');
+          const source = this.getNodeParameter('source', i) as
+            'template' | 'html' | 'url';
+          const options = this.getNodeParameter(
+            'options',
+            i,
+            {},
+          ) as IDataObject;
+          const mapped = this.getNodeParameter('fields.field', i, []) as Array<{
+            path: string;
+            value: string;
+          }>;
+          const json = parseJson(
+            this,
+            i,
+            this.getNodeParameter('dataJson', i, '{}'),
+          );
+          const settings = parseJson(
+            this,
+            i,
+            (options['settingsJson'] as string) ?? '{}',
+          );
 
           const body = renderBody({
             source,
-            template: source === 'template' ? (this.getNodeParameter('template', i) as string) : undefined,
-            html: source === 'html' ? (this.getNodeParameter('html', i) as string) : undefined,
-            engine: source === 'html' ? (this.getNodeParameter('engine', i) as 'jinja2') : undefined,
-            url: source === 'url' ? (this.getNodeParameter('url', i) as string) : undefined,
-            data: mergeData(nestData(Object.fromEntries(mapped.map((f) => [f.path, f.value]))), json),
-            output: (this.getNodeParameter('output', i, '') as OutputFormat | '') || undefined,
+            template:
+              source === 'template'
+                ? (this.getNodeParameter('template', i) as string)
+                : undefined,
+            html:
+              source === 'html'
+                ? (this.getNodeParameter('html', i) as string)
+                : undefined,
+            engine:
+              source === 'html'
+                ? (this.getNodeParameter('engine', i) as 'jinja2')
+                : undefined,
+            url:
+              source === 'url'
+                ? (this.getNodeParameter('url', i) as string)
+                : undefined,
+            data: mergeData(
+              nestData(
+                Object.fromEntries(mapped.map((f) => [f.path, f.value])),
+              ),
+              json,
+            ),
+            output:
+              (this.getNodeParameter('output', i, '') as OutputFormat | '') ||
+              undefined,
             filename: options['filename'] as string,
             locale: options['locale'] as string,
-            version: source === 'template' ? (options['version'] as string) : undefined,
+            version:
+              source === 'template'
+                ? (options['version'] as string)
+                : undefined,
             mode: options['mode'] as 'sync' | 'async',
             webhookUrl: options['webhookUrl'] as string,
             settings,
           });
 
-          const render = (await request(this, 'POST', '/renders', body)) as IDataObject & {
+          const render = (await request(
+            this,
+            'POST',
+            '/renders',
+            body,
+          )) as IDataObject & {
             download_url?: string;
             output?: string;
           };
-          const item: INodeExecutionData = { json: render, pairedItem: { item: i } };
+          const item: INodeExecutionData = {
+            json: render,
+            pairedItem: { item: i },
+          };
 
-          if (this.getNodeParameter('download', i, true) && render.download_url) {
+          if (
+            this.getNodeParameter('download', i, true) &&
+            render.download_url
+          ) {
             item.binary = {
-              data: await downloadBinary(this, render.download_url, downloadName(options['filename'] as string, render['id'] as string, render.output)),
+              data: await downloadBinary(
+                this,
+                render.download_url,
+                downloadName(
+                  options['filename'] as string,
+                  render['id'] as string,
+                  render.output,
+                ),
+              ),
             };
           }
           out.push(item);
@@ -517,10 +793,17 @@ export class Formfeed implements INodeType {
         }
 
         if (resource === 'pdf' && operation === 'convert') {
-          const options = this.getNodeParameter('convertOptions', i, {}) as IDataObject;
-          const fromRender = this.getNodeParameter('convertSource', i, 'binary') === 'render';
+          const options = this.getNodeParameter(
+            'convertOptions',
+            i,
+            {},
+          ) as IDataObject;
+          const fromRender =
+            this.getNodeParameter('convertSource', i, 'binary') === 'render';
           const fields = convertFields({
-            renderId: fromRender ? (this.getNodeParameter('convertRenderId', i) as string) : undefined,
+            renderId: fromRender
+              ? (this.getNodeParameter('convertRenderId', i) as string)
+              : undefined,
             pageRanges: options['pageRanges'] as string,
             landscape: options['landscape'] as boolean,
             singlePageSheets: options['singlePageSheets'] as boolean,
@@ -528,22 +811,45 @@ export class Formfeed implements INodeType {
           });
           let body: unknown = fields;
           if (!fromRender) {
-            const property = this.getNodeParameter('convertBinaryPropertyName', i) as string;
+            const property = this.getNodeParameter(
+              'convertBinaryPropertyName',
+              i,
+            ) as string;
             const binary = this.helpers.assertBinaryData(i, property);
             const bytes = await this.helpers.getBinaryDataBuffer(i, property);
             const fileName = binary.fileName || 'document';
             // the uploaded name, as a PDF, unless one was chosen
             fields['filename'] ??= pdfNameFor(fileName);
             const form = new FormData();
-            form.append('file', new Blob([new Uint8Array(bytes)], { type: binary.mimeType }), fileName);
-            for (const [key, value] of Object.entries(fields)) form.append(key, formValue(value));
+            form.append(
+              'file',
+              new Blob([new Uint8Array(bytes)], { type: binary.mimeType }),
+              fileName,
+            );
+            for (const [key, value] of Object.entries(fields))
+              form.append(key, formValue(value));
             body = form;
           }
-          const render = (await request(this, 'POST', '/pdf/convert', body)) as IDataObject & { download_url?: string };
-          const item: INodeExecutionData = { json: render, pairedItem: { item: i } };
-          if (this.getNodeParameter('convertDownload', i, true) && render.download_url) {
-            const name = (fields['filename'] as string | undefined) ?? `${render['id'] as string}.pdf`;
-            item.binary = { data: await downloadBinary(this, render.download_url, name) };
+          const render = (await request(
+            this,
+            'POST',
+            '/pdf/convert',
+            body,
+          )) as IDataObject & { download_url?: string };
+          const item: INodeExecutionData = {
+            json: render,
+            pairedItem: { item: i },
+          };
+          if (
+            this.getNodeParameter('convertDownload', i, true) &&
+            render.download_url
+          ) {
+            const name =
+              (fields['filename'] as string | undefined) ??
+              `${render['id'] as string}.pdf`;
+            item.binary = {
+              data: await downloadBinary(this, render.download_url, name),
+            };
           }
           out.push(item);
           continue;
@@ -551,21 +857,38 @@ export class Formfeed implements INodeType {
 
         if (resource === 'render' && operation === 'get') {
           const id = this.getNodeParameter('renderId', i) as string;
-          out.push({ json: (await request(this, 'GET', `/renders/${encodeURIComponent(id)}`)) as IDataObject, pairedItem: { item: i } });
+          out.push({
+            json: (await request(
+              this,
+              'GET',
+              `/renders/${encodeURIComponent(id)}`,
+            )) as IDataObject,
+            pairedItem: { item: i },
+          });
           continue;
         }
 
         if (resource === 'render' && operation === 'deleteOutputs') {
           const id = this.getNodeParameter('renderId', i) as string;
-          await request(this, 'DELETE', `/renders/${encodeURIComponent(id)}/outputs`);
+          await request(
+            this,
+            'DELETE',
+            `/renders/${encodeURIComponent(id)}/outputs`,
+          );
           out.push({ json: { id, deleted: true }, pairedItem: { item: i } });
           continue;
         }
 
         if (resource === 'file' && operation === 'upload') {
-          const property = this.getNodeParameter('binaryPropertyName', i) as string;
+          const property = this.getNodeParameter(
+            'binaryPropertyName',
+            i,
+          ) as string;
           const binary = this.helpers.assertBinaryData(i, property);
-          const name = libraryName(this.getNodeParameter('fileName', i, '') as string, binary.fileName);
+          const name = libraryName(
+            this.getNodeParameter('fileName', i, '') as string,
+            binary.fileName,
+          );
           if (!name)
             throw new NodeOperationError(
               this.getNode(),
@@ -574,9 +897,16 @@ export class Formfeed implements INodeType {
             );
           const bytes = await this.helpers.getBinaryDataBuffer(i, property);
           const form = new FormData();
-          form.append('file', new Blob([new Uint8Array(bytes)], { type: binary.mimeType }), name.split('/').pop());
+          form.append(
+            'file',
+            new Blob([new Uint8Array(bytes)], { type: binary.mimeType }),
+            name.split('/').pop(),
+          );
           form.append('name', name);
-          out.push({ json: (await request(this, 'POST', '/files', form)) as IDataObject, pairedItem: { item: i } });
+          out.push({
+            json: (await request(this, 'POST', '/files', form)) as IDataObject,
+            pairedItem: { item: i },
+          });
           continue;
         }
 
@@ -587,11 +917,30 @@ export class Formfeed implements INodeType {
           continue;
         }
 
-        if ((resource === 'render' || resource === 'template' || resource === 'file') && operation === 'getAll') {
-          const prefix = resource === 'file' ? (this.getNodeParameter('prefix', i, '') as string) : '';
-          const path = resource === 'render' ? '/renders' : resource === 'template' ? '/templates' : '/files';
-          const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
-          const limit = returnAll ? 100 : (this.getNodeParameter('limit', i, 25) as number);
+        if (
+          (resource === 'render' ||
+            resource === 'template' ||
+            resource === 'file') &&
+          operation === 'getAll'
+        ) {
+          const prefix =
+            resource === 'file'
+              ? (this.getNodeParameter('prefix', i, '') as string)
+              : '';
+          const path =
+            resource === 'render'
+              ? '/renders'
+              : resource === 'template'
+                ? '/templates'
+                : '/files';
+          const returnAll = this.getNodeParameter(
+            'returnAll',
+            i,
+            false,
+          ) as boolean;
+          const limit = returnAll
+            ? 100
+            : (this.getNodeParameter('limit', i, 25) as number);
           let cursor: string | null = null;
           do {
             const query = `?limit=${limit}${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
@@ -599,7 +948,8 @@ export class Formfeed implements INodeType {
               data?: IDataObject[];
               next_cursor?: string | null;
             };
-            for (const row of page.data ?? []) out.push({ json: row, pairedItem: { item: i } });
+            for (const row of page.data ?? [])
+              out.push({ json: row, pairedItem: { item: i } });
             cursor = returnAll ? (page.next_cursor ?? null) : null;
           } while (cursor);
           continue;
@@ -607,30 +957,66 @@ export class Formfeed implements INodeType {
 
         if (resource === 'template' && operation === 'get') {
           const id = this.getNodeParameter('templateId', i) as string;
-          out.push({ json: (await request(this, 'GET', `/templates/${encodeURIComponent(id)}`)) as IDataObject, pairedItem: { item: i } });
+          out.push({
+            json: (await request(
+              this,
+              'GET',
+              `/templates/${encodeURIComponent(id)}`,
+            )) as IDataObject,
+            pairedItem: { item: i },
+          });
           continue;
         }
 
         if (resource === 'template' && operation === 'getSchema') {
           const id = this.getNodeParameter('templateId', i) as string;
-          const schema = await request(this, 'GET', `/templates/${encodeURIComponent(id)}/schema`);
-          out.push({ json: { schema, fields: schemaFields(schema) } as IDataObject, pairedItem: { item: i } });
+          const schema = await request(
+            this,
+            'GET',
+            `/templates/${encodeURIComponent(id)}/schema`,
+          );
+          out.push({
+            json: { schema, fields: schemaFields(schema) } as IDataObject,
+            pairedItem: { item: i },
+          });
           continue;
         }
 
         if (resource === 'job' && operation === 'get') {
           const id = this.getNodeParameter('jobId', i) as string;
-          out.push({ json: (await request(this, 'GET', `/jobs/${encodeURIComponent(id)}`)) as IDataObject, pairedItem: { item: i } });
+          out.push({
+            json: (await request(
+              this,
+              'GET',
+              `/jobs/${encodeURIComponent(id)}`,
+            )) as IDataObject,
+            pairedItem: { item: i },
+          });
           continue;
         }
 
-        throw new NodeOperationError(this.getNode(), `Unsupported operation ${resource}.${operation}`, { itemIndex: i });
+        throw new NodeOperationError(
+          this.getNode(),
+          `Unsupported operation ${resource}.${operation}`,
+          { itemIndex: i },
+        );
       } catch (error) {
         if (this.continueOnFail()) {
-          out.push({ json: { error: (error as Error).message }, pairedItem: { item: i } });
+          out.push({
+            json: { error: (error as Error).message },
+            pairedItem: { item: i },
+          });
           continue;
         }
-        throw error;
+        // Both constructors hand back an error that already is of their class, so an API error keeps
+        // its HTTP details and our own NodeOperationError stays as it was; anything else is wrapped.
+        throw error instanceof NodeApiError
+          ? new NodeApiError(this.getNode(), error as unknown as JsonObject, {
+              itemIndex: i,
+            })
+          : new NodeOperationError(this.getNode(), error as Error, {
+              itemIndex: i,
+            });
       }
     }
 
@@ -645,19 +1031,29 @@ async function request(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
-  const credentials = (await context.getCredentials('formfeedApi')) as unknown as FormfeedCredentials;
+  const credentials = (await context.getCredentials(
+    'formfeedApi',
+  )) as unknown as FormfeedCredentials;
   // A FormData body is a file upload: the HTTP helper sets the multipart boundary itself.
   const isForm = body instanceof FormData;
-  return context.helpers.httpRequestWithAuthentication.call(context, 'formfeedApi', {
-    method,
-    url: `${baseUrl(credentials)}${path}`,
-    json: !isForm,
-    ...(body === undefined ? {} : { body: body as IDataObject }),
-  });
+  return context.helpers.httpRequestWithAuthentication.call(
+    context,
+    'formfeedApi',
+    {
+      method,
+      url: `${baseUrl(credentials)}${path}`,
+      json: !isForm,
+      ...(body === undefined ? {} : { body: body as IDataObject }),
+    },
+  );
 }
 
 /** Downloads a stored output (a signed URL, no key needed) as n8n binary data. */
-async function downloadBinary(context: IExecuteFunctions, url: string, name: string) {
+async function downloadBinary(
+  context: IExecuteFunctions,
+  url: string,
+  name: string,
+) {
   const file = (await context.helpers.httpRequest({
     method: 'GET',
     url,
@@ -677,6 +1073,10 @@ function parseJson(
   try {
     return JSON.parse(String(value)) as Record<string, unknown>;
   } catch {
-    throw new NodeOperationError(context.getNode(), 'The JSON field is not valid JSON', { itemIndex });
+    throw new NodeOperationError(
+      context.getNode(),
+      'The JSON field is not valid JSON',
+      { itemIndex },
+    );
   }
 }

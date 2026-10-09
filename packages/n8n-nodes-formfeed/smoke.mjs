@@ -1,4 +1,5 @@
 // Loads the compiled node the way n8n does and checks the parts n8n relies on.
+import { existsSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,8 @@ const fail = (message) => {
 };
 
 if (!manifest.n8n?.nodes?.length) fail('package.json has no n8n.nodes');
-if (!manifest.keywords?.includes('n8n-community-node-package')) fail('missing community node keyword');
+if (!manifest.keywords?.includes('n8n-community-node-package'))
+  fail('missing community node keyword');
 
 for (const relative of [...manifest.n8n.nodes, ...manifest.n8n.credentials]) {
   const loaded = require(join(out, relative));
@@ -29,11 +31,27 @@ for (const relative of [...manifest.n8n.nodes, ...manifest.n8n.credentials]) {
   if (!subject.name) fail(`${relative} has no name`);
   if (!subject.displayName) fail(`${subject.name} has no displayName`);
   for (const property of subject.properties ?? []) {
-    if (!property.name || !property.type) fail(`${subject.name}: property without name or type`);
-    if (property.displayName === undefined) fail(`${subject.name}: property ${property.name} has no displayName`);
+    if (!property.name || !property.type)
+      fail(`${subject.name}: property without name or type`);
+    if (property.displayName === undefined)
+      fail(`${subject.name}: property ${property.name} has no displayName`);
   }
   // n8n offers the action node to its AI Agent as a tool only while the description says so
-  if (subject.name === 'formfeed' && subject.usableAsTool !== true) fail('the Formfeed node is not usable as a tool');
+  if (subject.name === 'formfeed' && subject.usableAsTool !== true)
+    fail('the Formfeed node is not usable as a tool');
+  // n8n's verification wants an icon on every node and credential, and resolves a `file:` icon
+  // against the compiled file, so each one has to exist beside it in dist/
+  const icons =
+    typeof subject.icon === 'string'
+      ? [subject.icon]
+      : Object.values(subject.icon ?? {});
+  if (icons.length === 0) fail(`${subject.name} has no icon`);
+  for (const icon of icons
+    .map(String)
+    .filter((icon) => icon.startsWith('file:'))) {
+    const file = join(dirname(join(out, relative)), icon.slice('file:'.length));
+    if (!existsSync(file)) fail(`${subject.name}: ${icon} is not at ${file}`);
+  }
   console.log('ok', subject.name);
 }
 

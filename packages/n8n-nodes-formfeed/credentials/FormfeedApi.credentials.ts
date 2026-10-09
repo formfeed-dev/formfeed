@@ -2,6 +2,7 @@ import type {
   IAuthenticateGeneric,
   ICredentialTestRequest,
   ICredentialType,
+  Icon,
   INodeProperties,
 } from 'n8n-workflow';
 
@@ -9,6 +10,11 @@ import type {
 export class FormfeedApi implements ICredentialType {
   name = 'formfeedApi';
   displayName = 'Formfeed API';
+  // relative to the compiled file in dist/credentials; build.mjs copies icons/ to dist/icons
+  icon: Icon = {
+    light: 'file:../icons/formfeed.svg',
+    dark: 'file:../icons/formfeed.dark.svg',
+  };
   documentationUrl = 'https://docs.formfeed.dev/integrations/n8n';
 
   properties: INodeProperties[] = [
@@ -20,7 +26,8 @@ export class FormfeedApi implements ICredentialType {
       default: '',
       required: true,
       placeholder: 'ff_live_… or ff_test_…',
-      description: 'Created in the app under API keys. A test key renders for free with a watermark.',
+      description:
+        'Created in the app under API keys. A test key renders for free with a watermark.',
     },
     {
       displayName: 'Region',
@@ -31,7 +38,8 @@ export class FormfeedApi implements ICredentialType {
         { name: 'Europe (Frankfurt)', value: 'eu' },
         { name: 'United States (Ashburn)', value: 'us' },
       ],
-      description: 'Where documents are rendered and stored. Only the EU region exists at launch.',
+      description:
+        'Where documents are rendered and stored. Only the EU region exists at launch.',
     },
     {
       displayName: 'Custom Base URL',
@@ -39,7 +47,8 @@ export class FormfeedApi implements ICredentialType {
       type: 'string',
       default: '',
       placeholder: 'https://api-eu.formfeed.dev/v1',
-      description: 'Overrides the region host, for staging or a self-hosted gateway',
+      description:
+        'Overrides the region host, for staging or a self-hosted gateway',
     },
   ];
 

@@ -12,17 +12,28 @@ const require = createRequire(import.meta.url);
 
 mkdirSync(out, { recursive: true });
 // run tsc through node: spawning npx.cmd fails with EINVAL on Windows since Node 22
-execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', join(here, 'tsconfig.lib.json')], {
-  stdio: 'inherit',
-  cwd: here,
-});
+execFileSync(
+  process.execPath,
+  [
+    require.resolve('typescript/bin/tsc'),
+    '-p',
+    join(here, 'tsconfig.lib.json'),
+  ],
+  {
+    stdio: 'inherit',
+    cwd: here,
+  },
+);
 
-// the icon lives next to the node source and must sit next to the compiled node
-cpSync(join(here, 'src/nodes/Formfeed/formfeed.svg'), join(out, 'dist/nodes/Formfeed/formfeed.svg'));
+// The layout is n8n's starter's (nodes/, credentials/, icons/ at the package root), because n8n's
+// verification finds a node's sources by its `dist/` path. Nodes and credential name their icons
+// relative to the compiled file, so icons/ sits beside them in dist/.
+cpSync(join(here, 'icons'), join(out, 'dist/icons'), { recursive: true });
 
 const pkg = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'));
 delete pkg.devDependencies;
 writeFileSync(join(out, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');
-for (const file of ['README.md', 'LICENSE']) cpSync(join(here, file), join(out, file));
+for (const file of ['README.md', 'LICENSE'])
+  cpSync(join(here, file), join(out, file));
 writeFileSync(join(out, 'index.js'), 'module.exports = {};\n');
 console.log('n8n-nodes-formfeed ->', out);
