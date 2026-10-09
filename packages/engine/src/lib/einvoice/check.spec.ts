@@ -555,10 +555,50 @@ describe('checkInvoice', () => {
     });
 
     it('asks for none of it when one of the two is elsewhere', () => {
-      const problems = problemsOf('simple', (invoice) => {
-        invoice.buyer.address.country = 'FR';
+      for (const profile of ['en16931', 'basic'] as const) {
+        const problems = problemsOf(
+          'simple',
+          (invoice) => {
+            invoice.buyer.address.country = 'FR';
+          },
+          profile,
+        );
+        expect(problems, profile).toEqual([]);
+      }
+    });
+
+    it('asks for the three statutory notes and both electronic addresses', () => {
+      const problems = problemsOf('france-domestic', (invoice) => {
+        // a subject code is read as it is meant, whatever its case
+        invoice.notes = [
+          {
+            subject_code: 'pmd',
+            text: 'Pénalités de retard : trois fois le taux légal.',
+          },
+        ];
+        delete invoice.seller.electronic_address;
+        delete invoice.buyer.electronic_address;
       });
-      expect(problems).toEqual([]);
+      expect(
+        problems.map((problem) => [problem.code, problem.path, problem.rule]),
+      ).toEqual([
+        ['fr_note', 'notes', 'BR-FR-05'],
+        ['fr_note', 'notes', 'BR-FR-05'],
+        ['fr_electronic_address', 'seller.electronic_address', 'BR-FR-13'],
+        ['fr_electronic_address', 'buyer.electronic_address', 'BR-FR-12'],
+      ]);
+      expect(
+        problems.slice(0, 2).map((problem) => problem.args['subject_code']),
+      ).toEqual(['PMT', 'AAB']);
+    });
+
+    it('refuses the profile basic, which the French reform does not accept', () => {
+      const problems = problemsOf('france-domestic', () => undefined, 'basic');
+      expect(
+        problems.map((problem) => [problem.code, problem.path, problem.args]),
+      ).toEqual([['fr_profile', '', { path: '', profile: 'basic' }]]);
+      expect(problems[0]?.message).toContain('XP Z12-012');
+      expect(problemsOf('france-domestic', () => undefined)).toEqual([]);
     });
 
     it('takes the framework code as it is where the plain case does not fit', () => {
@@ -568,6 +608,14 @@ describe('checkInvoice', () => {
       });
       if (!check.ok) throw new Error(JSON.stringify(check.problems));
       expect(check.invoice.business_process).toBe('S2');
+      // the frameworks of public buyers and of invoices with several sellers are on the list too
+      for (const code of ['S3', 'B8', 'S8', 'M8'])
+        expect(
+          problemsOf('france-domestic', (invoice) => {
+            invoice.operation_code = code;
+          }),
+          code,
+        ).toEqual([]);
       const problems = problemsOf('france-domestic', (invoice) => {
         invoice.operation_code = 'X9';
       });

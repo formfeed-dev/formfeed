@@ -87,6 +87,9 @@ export type InvoiceProblemCode =
   | 'fr_buyer_siren'
   | 'fr_operation'
   | 'fr_vat_on_debits'
+  | 'fr_note'
+  | 'fr_electronic_address'
+  | 'fr_profile'
   | 'profile';
 
 export interface Identifier {
@@ -320,7 +323,11 @@ const UNIT_SUGGESTIONS: Record<string, string> = {
   pauschal: 'LS',
 };
 
-/** The billing frameworks the French specifications allow in BT-23 (BR-FR-08). */
+/**
+ * The billing frameworks France allows in BT-23, as rule BR-FR-08 of AFNOR XP Z12-012 lists them
+ * (the revision of 26 February 2026, read on 9 October 2026). S3 is for public buyers only; B8, S8
+ * and M8 are invoices of several sellers.
+ */
 const FRENCH_FRAMEWORKS = new Set([
   'B1',
   'S1',
@@ -328,6 +335,7 @@ const FRENCH_FRAMEWORKS = new Set([
   'B2',
   'S2',
   'M2',
+  'S3',
   'B4',
   'S4',
   'M4',
@@ -335,8 +343,17 @@ const FRENCH_FRAMEWORKS = new Set([
   'S6',
   'B7',
   'S7',
+  'B8',
+  'S8',
+  'M8',
 ]);
 const FRENCH_OPERATION = { goods: 'B1', services: 'S1', mixed: 'M1' } as const;
+/** The statutory mentions France asks for as notes (BR-FR-05), by their subject code (BT-21). */
+const FRENCH_NOTES: ReadonlyArray<[code: string, what: string]> = [
+  ['PMT', 'the fixed compensation of €40 for recovery costs'],
+  ['PMD', 'the penalties for late payment'],
+  ['AAB', 'the discount for early payment, or that none is given'],
+];
 
 /** Payment means that are a credit transfer, for which BR-61 asks for the account. */
 const CREDIT_TRANSFER = new Set(['30', '58']);
@@ -409,7 +426,7 @@ export function checkInvoice(
 
   const invoice = normalise(parsed.data, add, options);
   if (problems.length > 0) return { ok: false, invoice: null, problems };
-  rules(invoice, add);
+  rules(invoice, add, options);
   return problems.length > 0
     ? { ok: false, invoice: null, problems }
     : { ok: true, invoice, problems: [] };
@@ -974,7 +991,7 @@ const rateKey = (tax: InvoiceTax): string =>
   `${tax.category}|${tax.rate ?? ''}`;
 
 /** The business rules of EN 16931 that need no validator to check (and the French ones of spec 17 §4.4). */
-function rules(invoice: Invoice, add: Add): void {
+function rules(invoice: Invoice, add: Add, options: CheckOptions): void {
   const { totals } = invoice;
 
   // --- the totals, each the sum the standard defines it as --------------------------------
@@ -1463,6 +1480,16 @@ function rules(invoice: Invoice, add: Add): void {
     invoice.seller.address.country === 'FR' &&
     invoice.buyer.address.country === 'FR'
   ) {
+    // basic could carry every statement below, but France's reform takes the profiles EN 16931 and
+    // EXTENDED-CTC-FR only ("ce profil n'est donc pas retenu", AFNOR XP Z12-012 section 4), and the
+    // French rule set the sidecar runs never looks at the profile, so this is the one place it is held
+    if (options.profile === 'basic')
+      add(
+        'fr_profile',
+        '',
+        "_invoice is an invoice between French businesses, which France's e-invoicing reform does not accept in the profile basic (AFNOR XP Z12-012 takes EN 16931 and EXTENDED-CTC-FR); use en16931",
+        { args: { profile: 'basic' } },
+      );
     const digits = (id: Identifier | undefined): string =>
       (id?.value ?? '').replace(/\s/g, '');
     if (!/^\d{9}$/.test(digits(invoice.seller.legal_registration)))
@@ -1504,6 +1531,31 @@ function rules(invoice: Invoice, add: Add): void {
         'fr_vat_on_debits',
         'seller.vat_on_debits',
         '_invoice.seller.vat_on_debits is missing: an invoice between French businesses says whether the seller pays VAT on invoicing (true) or on payment (false)',
+      );
+    // France's rules call the statutory mentions and both electronic addresses mandatory, and the
+    // rule set the sidecar runs reports their absence only as a warning, so they are held here
+    const subjects = new Set(invoice.notes.map((note) => note.subject_code));
+    for (const [code, what] of FRENCH_NOTES)
+      if (!subjects.has(code))
+        add(
+          'fr_note',
+          'notes',
+          `_invoice.notes has no note with the subject_code ${code}: an invoice between French businesses states ${what} as a note (BT-21, BT-22)`,
+          { rule: 'BR-FR-05', args: { subject_code: code } },
+        );
+    if (!invoice.seller.electronic_address)
+      add(
+        'fr_electronic_address',
+        'seller.electronic_address',
+        "_invoice.seller.electronic_address is missing: an invoice between French businesses names the seller's electronic address (BT-34)",
+        { rule: 'BR-FR-13', args: { term: 'BT-34' } },
+      );
+    if (!invoice.buyer.electronic_address)
+      add(
+        'fr_electronic_address',
+        'buyer.electronic_address',
+        "_invoice.buyer.electronic_address is missing: an invoice between French businesses names the buyer's electronic address (BT-49)",
+        { rule: 'BR-FR-12', args: { term: 'BT-49' } },
       );
   }
 }

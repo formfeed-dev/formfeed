@@ -27,7 +27,7 @@ const golden: Array<[name: string, profiles: EinvoiceProfile[]]> = [
   ['allowance-charge', ['en16931', 'basic']],
   ['rounding', ['en16931']],
   ['foreign-currency', ['en16931']],
-  ['france-domestic', ['en16931', 'basic']],
+  ['france-domestic', ['en16931']],
   ['small-business', ['en16931']],
 ];
 
@@ -128,25 +128,31 @@ describe('invoiceToCii', () => {
     expect(xml).toContain('<ram:Content>Tab\tandnull</ram:Content>');
   });
 
-  it("carries a French invoice's four statements in both profiles", () => {
-    for (const profile of ['en16931', 'basic'] as const) {
-      const result = einvoiceXml(
-        { _invoice: fixture('france-domestic') },
-        { profile },
-      );
-      if (!result.ok) throw new Error(JSON.stringify(result.problems));
-      // the buyer's SIREN, the delivery address, the billing framework, VAT on debits
-      expect(result.xml).toContain(
-        '<ram:ID schemeID="0002">000000018</ram:ID>',
-      );
-      expect(result.xml).toContain('<ram:ShipToTradeParty>');
-      expect(result.xml).toMatch(
-        /<ram:BusinessProcessSpecifiedDocumentContextParameter>\s*<ram:ID>S1<\/ram:ID>/,
-      );
-      expect(result.xml).toContain(
-        '<ram:DueDateTypeCode>5</ram:DueDateTypeCode>',
-      );
-    }
+  it("carries a French invoice's four statements, in the one profile France takes", () => {
+    const result = einvoiceXml(
+      { _invoice: fixture('france-domestic') },
+      { profile: 'en16931' },
+    );
+    if (!result.ok) throw new Error(JSON.stringify(result.problems));
+    // the buyer's SIREN, the delivery address, the billing framework, VAT on debits
+    expect(result.xml).toContain('<ram:ID schemeID="0002">000000018</ram:ID>');
+    expect(result.xml).toContain('<ram:ShipToTradeParty>');
+    expect(result.xml).toMatch(
+      /<ram:BusinessProcessSpecifiedDocumentContextParameter>\s*<ram:ID>S1<\/ram:ID>/,
+    );
+    expect(result.xml).toContain(
+      '<ram:DueDateTypeCode>5</ram:DueDateTypeCode>',
+    );
+    // basic would carry them too, but the French reform does not accept that profile
+    const basic = einvoiceXml(
+      { _invoice: fixture('france-domestic') },
+      { profile: 'basic' },
+    );
+    expect(basic.ok).toBe(false);
+    if (!basic.ok)
+      expect(basic.problems.map((problem) => problem.code)).toEqual([
+        'fr_profile',
+      ]);
   });
 });
 
