@@ -10,7 +10,7 @@ Self-hosted installs can also run `npm install n8n-nodes-formfeed` in the n8n us
 
 ## Credentials
 
-Create an API key in the Formfeed app (**API keys**) and paste it into the *Formfeed API*
+Create an API key in the Formfeed app (**API keys**) and paste it into the _Formfeed API_
 credential. A `ff_test_` key renders for free with a watermark, which is what you want while
 building a workflow. The region selects the API host; a custom base URL points at staging or a
 self-hosted gateway.
@@ -19,17 +19,24 @@ self-hosted gateway.
 
 **Formfeed**
 
-| Resource | Operations |
-|---|---|
-| Render | Create (template, HTML or URL), Get, Get Many, Delete Outputs |
-| Template | Get Many, Get, Get Schema |
-| Job | Get |
-| File | Upload, Get Many, Delete |
-| PDF | Convert Office Document (Word, Excel, PowerPoint, OpenDocument or RTF from a binary field, or a Word or PowerPoint render) |
+| Resource | Operations                                                                                                                 |
+| -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Render   | Create (template, HTML or URL), Create E-Invoice, Get, Get Many, Delete Outputs                                            |
+| Template | Get Many, Get, Get Schema                                                                                                  |
+| Job      | Get                                                                                                                        |
+| File     | Upload, Get Many, Delete                                                                                                   |
+| PDF      | Convert Office Document (Word, Excel, PowerPoint, OpenDocument or RTF from a binary field, or a Word or PowerPoint render) |
 
 Choosing a template loads its fields from its data schema (or its sample data), so you map named fields
 (`invoice.number`) instead of pasting JSON; the JSON field covers lists and nested objects. With
-*Download File* the rendered document is attached as binary data, ready for an email or an upload.
+_Download File_ the rendered document is attached as binary data, ready for an email or an upload.
+
+_Create E-Invoice_ renders a ZUGFeRD / Factur-X e-invoice: a PDF/A-3 that carries the invoice as XML,
+validated before the node receives it (Starter plan and above; a test key makes up to 20 a day on
+Free). It asks for the invoice itself (seller, buyer, lines, VAT breakdown, totals, payment) and
+sends it as the `_invoice` block, which the template prints as well; the E-invoice example in the
+Formfeed app is such a template. What the fields do not offer goes into _Invoice (JSON)_, with the
+names of the [field reference](https://docs.formfeed.dev/templates/e-invoices#invoice-block).
 
 The node also works as a tool: connect it to the **Tools** input of n8n's AI Agent node and the agent
 picks the operation and fills in its fields. A self-hosted n8n offers community nodes as tools only

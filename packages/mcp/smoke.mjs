@@ -18,6 +18,7 @@ await client.connect(transport);
 const { tools } = await client.listTools();
 const names = tools.map((t) => t.name).sort();
 const expected = [
+  'check_invoice',
   'convert_to_pdf',
   'get_render',
   'get_template_schema',
@@ -42,7 +43,17 @@ const result = await client.callTool({
 });
 if (result.structuredContent?.ok !== true)
   throw new Error(`validate_template failed: ${JSON.stringify(result)}`);
+// the e-invoice check is bundled too: an empty block is refused with what is missing
+const invoice = await client.callTool({
+  name: 'check_invoice',
+  arguments: { invoice: {} },
+});
+if (
+  invoice.structuredContent?.ok !== false ||
+  !invoice.structuredContent?.problems?.length
+)
+  throw new Error(`check_invoice failed: ${JSON.stringify(invoice)}`);
 await client.close();
 console.log(
-  `formfeed-mcp smoke ok: ${names.length} tools, offline validation works`,
+  `formfeed-mcp smoke ok: ${names.length} tools, offline validation and invoice check work`,
 );

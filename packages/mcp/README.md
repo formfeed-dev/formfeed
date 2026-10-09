@@ -3,9 +3,11 @@
 [![formfeed MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/formfeed-dev/formfeed/badges/score.svg)](https://glama.ai/mcp/servers/formfeed-dev/formfeed)
 
 Model Context Protocol server for [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=mcp).
-Gives Claude, Cursor and other agents seven tools: `list_templates`, `get_template_schema`,
-`validate_template` (free: the data against the template's schema, ad-hoc HTML offline), `render`, `convert_to_pdf` (Word, Excel,
-PowerPoint and OpenDocument to PDF), `get_render` and `get_workspace` (which workspace the server works in, and the units left).
+Gives Claude, Cursor and other agents eight tools: `list_templates`, `get_template_schema`,
+`validate_template` (free: the data against the template's schema, ad-hoc HTML offline), `check_invoice` (free and offline: the
+`_invoice` block of a ZUGFeRD / Factur-X e-invoice against EN 16931), `render` (with `einvoice`, the PDF becomes that e-invoice),
+`convert_to_pdf` (Word, Excel, PowerPoint and OpenDocument to PDF), `get_render` and `get_workspace` (which workspace the
+server works in, and the units left).
 
 ## stdio (Claude Desktop, Cursor, Claude Code)
 

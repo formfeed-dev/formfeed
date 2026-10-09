@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
+  checkInvoice,
   getEngine,
   inferSchema,
   outputFormats,
@@ -92,7 +93,16 @@ const renderSummary = (r: Render) => ({
   // the validator's verdict of a render whose template declares PDF/UA-1 (plan 21): whether the
   // file passed, and for each failed rule what to change and in which elements
   ...(r.accessibility ? { accessibility: r.accessibility } : {}),
+  // the report of an e-invoice (spec 17): valid, the findings, the XML's link, the hashes it checked
+  ...(r.einvoice ? { einvoice: r.einvoice } : {}),
 });
+
+/** Problems of an e-invoice that carry what to fix: the findings of the check, or the validator's report. */
+const EINVOICE_PROBLEMS = new Set([
+  'einvoice_data_invalid',
+  'einvoice_display_mismatch',
+  'pdfa_conversion_failed',
+]);
 
 function text(data: unknown) {
   return {
@@ -114,13 +124,28 @@ function failure(e: unknown) {
     e instanceof FormfeedError && e.code === 'pdfua_validation_failed'
       ? e.problem?.['accessibility']
       : undefined;
+  // A refused e-invoice names the fields and rules to fix (`errors`) or carries the validator's
+  // report (`einvoice`): an agent can correct the _invoice block only with them.
+  const invoice =
+    e instanceof FormfeedError && EINVOICE_PROBLEMS.has(e.code)
+      ? Object.fromEntries(
+          ['errors', 'einvoice']
+            .filter((key) => e.problem?.[key] !== undefined)
+            .map((key) => [key, e.problem?.[key]]),
+        )
+      : {};
+  const details = {
+    ...(verdict ? { accessibility: verdict } : {}),
+    ...invoice,
+  };
   return {
     content: [
       {
         type: 'text' as const,
-        text: verdict
-          ? `${message}\n${JSON.stringify({ accessibility: verdict }, null, 2)}`
-          : message,
+        text:
+          Object.keys(details).length > 0
+            ? `${message}\n${JSON.stringify(details, null, 2)}`
+            : message,
       },
     ],
     isError: true as const,
@@ -142,7 +167,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   });
   const server = new McpServer(SERVER_INFO, {
     instructions:
-      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. convert_to_pdf turns office documents into PDFs. get_workspace says which workspace this server works in and what the period has left.',
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. convert_to_pdf turns office documents into PDFs. get_workspace says which workspace this server works in and what the period has left.',
   });
 
   server.registerTool(
@@ -318,11 +343,45 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   );
 
   server.registerTool(
+    'check_invoice',
+    {
+      title: 'Check an e-invoice',
+      description:
+        "Checks the _invoice block of an e-invoice offline, as the API does before it renders one: the fields EN 16931 asks for, the totals to the cent, VAT categories and code lists, and France's rules for an invoice between two French businesses. Free, no units, nothing sent. Returns ok and problems, each with the field, the rule (BR-…) where one applies and a message. Nothing is computed for you: change the values a problem names, check again, then call render with einvoice and the block as data._invoice. The validator that runs during the render holds the file to the full rule set and to PDF/A-3b as well.",
+      inputSchema: {
+        invoice: z
+          .record(z.string(), z.unknown())
+          .describe(
+            'The _invoice block as it goes into data._invoice: number, issue_date, currency, seller, buyer, lines, tax.breakdown, totals and payment, as https://docs.formfeed.dev/templates/e-invoices#invoice-block describes',
+          ),
+        profile: z
+          .enum(['en16931', 'basic'])
+          .optional()
+          .describe(
+            'The profile the render will ask for; en16931 when left out. basic cannot carry a rounding amount and is refused between two French businesses',
+          ),
+      },
+      annotations: READS,
+    },
+    async ({ invoice, profile }) => {
+      const check = checkInvoice(invoice, { profile: profile ?? 'en16931' });
+      return text({
+        ok: check.ok,
+        problems: check.problems.map((problem) => ({
+          path: problem.path ? `_invoice.${problem.path}` : '_invoice',
+          ...(problem.rule ? { rule: problem.rule } : {}),
+          message: problem.message,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
     'render',
     {
       title: 'Render a document',
       description:
-        'Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url. Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. The link expires at expires_at; get_render issues a fresh one.',
+        "Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url. Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. With einvoice the PDF becomes a ZUGFeRD / Factur-X e-invoice built from data._invoice (check the block with check_invoice first): the render then carries einvoice, the validator's report, and a refused invoice names the fields and rules to fix. The link expires at expires_at; get_render issues a fresh one.",
       inputSchema: {
         template: z
           .string()
@@ -366,6 +425,40 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           .describe(
             'Most renders are finished when the call returns; true also waits for one that continues in the background, false returns it as it is (queued or rendering) to check later with get_render',
           ),
+        einvoice: z
+          .union([
+            z.boolean(),
+            z.object({
+              profile: z
+                .enum(['en16931', 'basic'])
+                .optional()
+                .describe(
+                  'en16931 (default) carries the whole European standard; basic is the smallest full invoice and is refused between two French businesses',
+                ),
+              flavour: z
+                .enum(['factur-x', 'zugferd'])
+                .optional()
+                .describe(
+                  'One specification under two names; the default factur-x and zugferd make the same file',
+                ),
+              xml: z
+                .enum(['embedded', 'both'])
+                .optional()
+                .describe(
+                  'both also stores the XML as a file of its own, linked as einvoice.xml_url',
+                ),
+              display_check: z
+                .enum(['warn', 'strict'])
+                .optional()
+                .describe(
+                  'What a value of the XML that the PDF does not show does: a warning in the report (default) or a failed render',
+                ),
+            }),
+          ])
+          .optional()
+          .describe(
+            'Makes the PDF a ZUGFeRD / Factur-X e-invoice whose XML is built from data._invoice: true for the defaults, an object to choose, false to switch off what the template declares. PDF only; live renders from the Starter plan, test keys on Free make 20 marked ones a day',
+          ),
       },
       annotations: CREATES,
     },
@@ -378,6 +471,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       filename,
       locale,
       wait,
+      einvoice,
     }) => {
       try {
         if (!template && !html)
@@ -390,6 +484,9 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           ...(output ? { output } : {}),
           ...(filename ? { filename } : {}),
           ...(locale ? { locale } : {}),
+          ...(einvoice !== undefined
+            ? { post: { einvoice: einvoice === true ? {} : einvoice } }
+            : {}),
           meta: { source: 'mcp' },
         });
         if (wait && render.status !== 'succeeded' && render.status !== 'failed')

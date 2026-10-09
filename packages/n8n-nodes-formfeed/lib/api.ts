@@ -95,6 +95,8 @@ export interface RenderInput {
   mode?: 'sync' | 'async';
   webhookUrl?: string;
   settings?: Record<string, unknown>;
+  /** Post-processing, such as `{ einvoice: {} }` for a ZUGFeRD / Factur-X invoice. */
+  post?: Record<string, unknown>;
   meta?: Record<string, unknown>;
 }
 
@@ -120,8 +122,211 @@ export function renderBody(input: RenderInput): Record<string, unknown> {
   if (input.webhookUrl) body['webhook_url'] = input.webhookUrl;
   if (input.settings && Object.keys(input.settings).length > 0)
     body['settings'] = input.settings;
+  if (input.post && Object.keys(input.post).length > 0)
+    body['post'] = input.post;
   body['meta'] = { source: 'n8n', ...(input.meta ?? {}) };
   return body;
+}
+
+/** A party of an e-invoice as the node's fields hold it; the API names the fields that are missing. */
+export interface InvoicePartyFields {
+  name?: string;
+  street?: string;
+  postcode?: string;
+  city?: string;
+  country?: string;
+  vatId?: string;
+  /** The register entry: a company number, a SIREN. */
+  legalRegistration?: string;
+  /** Register court, capital and the like (the seller only). */
+  legalInfo?: string;
+  /** Where the party receives e-invoices: an e-mail address, or a Peppol id with its scheme in the JSON field. */
+  electronicAddress?: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+}
+
+export interface InvoiceLineFields {
+  name?: string;
+  description?: string;
+  quantity?: number;
+  /** UN/ECE Recommendation 20: C62 a piece, HUR an hour, DAY a day. */
+  unitCode?: string;
+  netPrice?: number;
+  netAmount?: number;
+  vatCategory?: string;
+  vatRate?: number;
+}
+
+export interface InvoiceBreakdownFields {
+  vatCategory?: string;
+  vatRate?: number;
+  basis?: number;
+  amount?: number;
+  exemptionReason?: string;
+}
+
+/** The fields of the node's Create E-Invoice operation (spec 17 §4.3). */
+export interface InvoiceFields {
+  number?: string;
+  issueDate?: string;
+  currency?: string;
+  /** UNTDID 1001: 380 an invoice, 381 a credit note. */
+  typeCode?: string;
+  buyerReference?: string;
+  orderReference?: string;
+  note?: string;
+  seller?: InvoicePartyFields;
+  buyer?: InvoicePartyFields;
+  lines?: InvoiceLineFields[];
+  breakdown?: InvoiceBreakdownFields[];
+  totals?: {
+    lineNet?: number;
+    taxBasis?: number;
+    taxTotal?: number;
+    grand?: number;
+    prepaid?: number;
+    due?: number;
+  };
+  payment?: {
+    meansCode?: string;
+    iban?: string;
+    bic?: string;
+    reference?: string;
+    terms?: string;
+    dueDate?: string;
+  };
+}
+
+/** A day as the block takes it: n8n's date fields give a timestamp, of which the date counts. */
+export function isoDay(value: string | undefined): string | undefined {
+  const text = value?.trim();
+  if (!text) return undefined;
+  const day = /^(\d{4}-\d{2}-\d{2})(?:[T ]|$)/.exec(text);
+  return day ? day[1] : text;
+}
+
+/** Leaves out what the user left empty, so the API sees only what was filled in. */
+function filled(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([, v]) =>
+        v !== undefined &&
+        v !== '' &&
+        !(isPlainObject(v) && Object.keys(v).length === 0),
+    ),
+  );
+}
+
+function party(
+  fields: InvoicePartyFields | undefined,
+): Record<string, unknown> | undefined {
+  if (!fields) return undefined;
+  const block = filled({
+    name: fields.name?.trim(),
+    vat_id: fields.vatId?.trim(),
+    legal_registration: fields.legalRegistration?.trim(),
+    legal_info: fields.legalInfo?.trim(),
+    electronic_address: fields.electronicAddress?.trim(),
+    address: filled({
+      street: fields.street?.trim(),
+      postcode: fields.postcode?.trim(),
+      city: fields.city?.trim(),
+      country: fields.country?.trim().toUpperCase(),
+    }),
+    contact: filled({
+      name: fields.contactName?.trim(),
+      phone: fields.contactPhone?.trim(),
+      email: fields.contactEmail?.trim(),
+    }),
+  });
+  return Object.keys(block).length > 0 ? block : undefined;
+}
+
+/**
+ * The `_invoice` block of an e-invoice from the node's fields (spec 17 §4.3): the same shape the API
+ * documents, with the lines numbered in order. Nothing is computed: the totals and the VAT breakdown
+ * are the source system's, and the API refuses a total that does not add up to the cent.
+ */
+export function invoiceBlock(fields: InvoiceFields): Record<string, unknown> {
+  const lines = (fields.lines ?? []).map((line, index) =>
+    filled({
+      id: String(index + 1),
+      name: line.name?.trim(),
+      description: line.description?.trim(),
+      quantity: line.quantity,
+      unit_code: line.unitCode?.trim(),
+      net_price: line.netPrice,
+      net_amount: line.netAmount,
+      // a category without VAT (O) has no rate
+      tax: filled({
+        category: line.vatCategory,
+        rate: line.vatCategory === 'O' ? undefined : line.vatRate,
+      }),
+    }),
+  );
+  const breakdown = (fields.breakdown ?? []).map((row) =>
+    filled({
+      category: row.vatCategory,
+      rate: row.vatCategory === 'O' ? undefined : row.vatRate,
+      basis: row.basis,
+      amount: row.amount,
+      exemption_reason: row.exemptionReason?.trim(),
+    }),
+  );
+  const totals = fields.totals ?? {};
+  const payment = fields.payment ?? {};
+  return filled({
+    number: fields.number?.trim(),
+    issue_date: isoDay(fields.issueDate),
+    type_code: fields.typeCode,
+    currency: fields.currency?.trim().toUpperCase(),
+    buyer_reference: fields.buyerReference?.trim(),
+    order_reference: fields.orderReference?.trim(),
+    note: fields.note?.trim(),
+    seller: party(fields.seller),
+    buyer: party(fields.buyer),
+    lines: lines.length > 0 ? lines : undefined,
+    tax: breakdown.length > 0 ? { breakdown } : undefined,
+    totals: filled({
+      line_net: totals.lineNet,
+      tax_basis: totals.taxBasis,
+      tax_total: totals.taxTotal,
+      grand: totals.grand,
+      prepaid: totals.prepaid,
+      due: totals.due,
+    }),
+    payment: filled({
+      means_code: payment.meansCode,
+      iban: payment.iban?.trim(),
+      bic: payment.bic?.trim(),
+      reference: payment.reference?.trim(),
+      terms: payment.terms?.trim(),
+      due_date: isoDay(payment.dueDate),
+    }),
+  });
+}
+
+/** `post.einvoice` from the node's options, leaving the API's defaults (EN 16931, Factur-X) unsaid. */
+export function einvoiceOptions(options: {
+  profile?: string;
+  flavour?: string;
+  storeXml?: boolean;
+  strictDisplayCheck?: boolean;
+}): Record<string, unknown> {
+  return filled({
+    profile:
+      options.profile && options.profile !== 'en16931'
+        ? options.profile
+        : undefined,
+    flavour:
+      options.flavour && options.flavour !== 'factur-x'
+        ? options.flavour
+        : undefined,
+    xml: options.storeXml ? 'both' : undefined,
+    display_check: options.strictDisplayCheck ? 'strict' : undefined,
+  });
 }
 
 /** A channel as `GET /templates/{id}/channels` lists it; what the version dropdown shows. */

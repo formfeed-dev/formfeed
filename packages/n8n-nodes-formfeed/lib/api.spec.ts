@@ -1,15 +1,20 @@
+import { checkInvoice } from '@formfeed/engine/einvoice';
 import {
   baseUrl,
   channelOptions,
   convertFields,
   downloadName,
+  einvoiceOptions,
   formValue,
+  invoiceBlock,
+  isoDay,
   libraryName,
   mergeData,
   nestData,
   pdfNameFor,
   renderBody,
   schemaFields,
+  type InvoiceFields,
 } from './api';
 
 describe('baseUrl', () => {
@@ -264,5 +269,191 @@ describe('libraryName', () => {
     expect(libraryName('', 'Logo Final (2).png')).toBe('Logo-Final-2-.png');
     expect(libraryName(undefined, 'brand\\logo.png')).toBe('brand/logo.png');
     expect(libraryName(undefined, '')).toBeNull();
+  });
+});
+
+describe('invoiceBlock', () => {
+  const fields: InvoiceFields = {
+    number: ' RE-2026-0042 ',
+    issueDate: '2026-10-09T00:00:00.000+02:00',
+    currency: 'eur',
+    typeCode: '380',
+    buyerReference: 'PO-0000',
+    seller: {
+      name: 'Fennlor Studio GmbH',
+      street: 'Musterstraße 1',
+      postcode: '12345',
+      city: 'Musterstadt',
+      country: 'de',
+      vatId: 'DE000000000',
+      legalInfo: 'Amtsgericht Musterstadt, HRB 00000',
+      electronicAddress: 'rechnung@fennlor.example',
+      contactName: 'Erika Mustermann',
+    },
+    buyer: {
+      name: 'Olvarest GmbH',
+      street: 'Beispielweg 2',
+      postcode: '54321',
+      city: 'Beispielstadt',
+      country: 'DE',
+      electronicAddress: 'eingang@olvarest.example',
+    },
+    lines: [
+      {
+        name: 'Consulting',
+        quantity: 8,
+        unitCode: 'HUR',
+        netPrice: 120,
+        netAmount: 960,
+        vatCategory: 'S',
+        vatRate: 19,
+      },
+    ],
+    breakdown: [{ vatCategory: 'S', vatRate: 19, basis: 960, amount: 182.4 }],
+    totals: {
+      lineNet: 960,
+      taxBasis: 960,
+      taxTotal: 182.4,
+      grand: 1142.4,
+      due: 1142.4,
+    },
+    payment: {
+      meansCode: '58',
+      iban: 'DE36 0000 0000 0000 0000 00',
+      dueDate: '2026-10-23',
+    },
+  };
+
+  it('builds the _invoice block the API documents, with the lines numbered in order', () => {
+    expect(invoiceBlock(fields)).toEqual({
+      number: 'RE-2026-0042',
+      issue_date: '2026-10-09',
+      type_code: '380',
+      currency: 'EUR',
+      buyer_reference: 'PO-0000',
+      seller: {
+        name: 'Fennlor Studio GmbH',
+        vat_id: 'DE000000000',
+        legal_info: 'Amtsgericht Musterstadt, HRB 00000',
+        electronic_address: 'rechnung@fennlor.example',
+        address: {
+          street: 'Musterstraße 1',
+          postcode: '12345',
+          city: 'Musterstadt',
+          country: 'DE',
+        },
+        contact: { name: 'Erika Mustermann' },
+      },
+      buyer: {
+        name: 'Olvarest GmbH',
+        electronic_address: 'eingang@olvarest.example',
+        address: {
+          street: 'Beispielweg 2',
+          postcode: '54321',
+          city: 'Beispielstadt',
+          country: 'DE',
+        },
+      },
+      lines: [
+        {
+          id: '1',
+          name: 'Consulting',
+          quantity: 8,
+          unit_code: 'HUR',
+          net_price: 120,
+          net_amount: 960,
+          tax: { category: 'S', rate: 19 },
+        },
+      ],
+      tax: {
+        breakdown: [{ category: 'S', rate: 19, basis: 960, amount: 182.4 }],
+      },
+      totals: {
+        line_net: 960,
+        tax_basis: 960,
+        tax_total: 182.4,
+        grand: 1142.4,
+        due: 1142.4,
+      },
+      payment: {
+        means_code: '58',
+        iban: 'DE36 0000 0000 0000 0000 00',
+        due_date: '2026-10-23',
+      },
+    });
+  });
+
+  it('passes the check the API runs before it renders, so its field names are those of the engine', () => {
+    expect(checkInvoice(invoiceBlock(fields)).problems).toEqual([]);
+  });
+
+  it('leaves out what was not filled in, and the rate of a category without VAT', () => {
+    expect(
+      invoiceBlock({
+        number: 'R-1',
+        note: '',
+        seller: { name: 'Fennlor Studio GmbH', street: '' },
+        lines: [
+          { name: 'Fee', vatCategory: 'O', vatRate: 0 },
+          { name: 'Book', vatCategory: 'S', vatRate: 7 },
+        ],
+      }),
+    ).toEqual({
+      number: 'R-1',
+      seller: { name: 'Fennlor Studio GmbH' },
+      lines: [
+        { id: '1', name: 'Fee', tax: { category: 'O' } },
+        { id: '2', name: 'Book', tax: { category: 'S', rate: 7 } },
+      ],
+    });
+  });
+});
+
+describe('isoDay', () => {
+  it('takes the date of a timestamp and leaves a date or anything else as it is', () => {
+    expect(isoDay('2026-10-09T00:00:00.000+02:00')).toBe('2026-10-09');
+    expect(isoDay('2026-10-09')).toBe('2026-10-09');
+    expect(isoDay('09.10.2026')).toBe('09.10.2026');
+    expect(isoDay('  ')).toBeUndefined();
+    expect(isoDay(undefined)).toBeUndefined();
+  });
+});
+
+describe('einvoiceOptions', () => {
+  it('leaves the defaults unsaid and names what was chosen', () => {
+    expect(
+      einvoiceOptions({ profile: 'en16931', flavour: 'factur-x' }),
+    ).toEqual({});
+    expect(
+      einvoiceOptions({
+        profile: 'basic',
+        flavour: 'zugferd',
+        storeXml: true,
+        strictDisplayCheck: true,
+      }),
+    ).toEqual({
+      profile: 'basic',
+      flavour: 'zugferd',
+      xml: 'both',
+      display_check: 'strict',
+    });
+  });
+
+  it('goes into the render as post.einvoice, an empty object asking for the defaults', () => {
+    expect(
+      renderBody({
+        source: 'template',
+        template: 'rechnung',
+        data: { _invoice: { number: 'R-1' } },
+        output: 'pdf',
+        post: { einvoice: einvoiceOptions({}) },
+      }),
+    ).toEqual({
+      template: 'rechnung',
+      data: { _invoice: { number: 'R-1' } },
+      output: 'pdf',
+      post: { einvoice: {} },
+      meta: { source: 'n8n' },
+    });
   });
 });

@@ -3,6 +3,7 @@ import type {
   IExecuteFunctions,
   ILoadOptionsFunctions,
   INodeExecutionData,
+  INodeProperties,
   INodePropertyOptions,
   INodeType,
   INodeTypeDescription,
@@ -18,7 +19,9 @@ import {
   channelOptions,
   convertFields,
   downloadName,
+  einvoiceOptions,
   formValue,
+  invoiceBlock,
   libraryName,
   pdfNameFor,
   mergeData,
@@ -27,8 +30,129 @@ import {
   schemaFields,
   type ChannelSummary,
   type FormfeedCredentials,
+  type InvoiceBreakdownFields,
+  type InvoiceFields,
+  type InvoiceLineFields,
+  type InvoicePartyFields,
   type OutputFormat,
 } from '../../lib/api';
+
+/** Shows a field for the Create E-Invoice operation only. */
+const EINVOICE = {
+  show: { resource: ['render'], operation: ['createEinvoice'] },
+};
+
+/** The VAT categories of EN 16931 (UNCL 5305), ordered by name as n8n's verification wants. */
+const VAT_CATEGORY: INodeProperties = {
+  displayName: 'VAT Category',
+  name: 'vatCategory',
+  type: 'options',
+  default: 'S',
+  options: [
+    { name: 'Exempt (E)', value: 'E' },
+    { name: 'Export Outside the EU (G)', value: 'G' },
+    { name: 'Intra-Community Supply (K)', value: 'K' },
+    { name: 'Not Subject to VAT (O)', value: 'O' },
+    { name: 'Reverse Charge (AE)', value: 'AE' },
+    { name: 'Standard Rate (S)', value: 'S' },
+    { name: 'Zero Rated (Z)', value: 'Z' },
+  ],
+};
+
+const VAT_RATE: INodeProperties = {
+  displayName: 'VAT Rate',
+  name: 'vatRate',
+  type: 'number',
+  typeOptions: { numberPrecision: 2 },
+  default: 19,
+  description: 'Percent, 19 for 19 %; left out for category O',
+};
+
+/**
+ * The fields of a seller or a buyer, ordered by name as n8n's verification wants; only the seller
+ * states its further legal information.
+ */
+function party(seller: boolean): INodeProperties[] {
+  return [
+    { displayName: 'City', name: 'city', type: 'string', default: '' },
+    {
+      displayName: 'Contact Email',
+      name: 'contactEmail',
+      type: 'string',
+      default: '',
+      placeholder: 'name@email.com',
+    },
+    {
+      displayName: 'Contact Name',
+      name: 'contactName',
+      type: 'string',
+      default: '',
+    },
+    {
+      displayName: 'Contact Phone',
+      name: 'contactPhone',
+      type: 'string',
+      default: '',
+    },
+    {
+      displayName: 'Country Code',
+      name: 'country',
+      type: 'string',
+      default: '',
+      placeholder: 'DE',
+      description: 'ISO 3166-1, two letters',
+    },
+    {
+      displayName: 'Electronic Address',
+      name: 'electronicAddress',
+      type: 'string',
+      default: '',
+      description: 'Where the party receives e-invoices, as an e-mail address',
+    },
+    ...(seller
+      ? [
+          {
+            displayName: 'Legal Information',
+            name: 'legalInfo',
+            type: 'string',
+            default: '',
+            description:
+              'What the invoice states besides: register court, managing directors, capital',
+          } satisfies INodeProperties,
+        ]
+      : []),
+    { displayName: 'Name', name: 'name', type: 'string', default: '' },
+    { displayName: 'Postcode', name: 'postcode', type: 'string', default: '' },
+    {
+      displayName: 'Register Entry',
+      name: 'legalRegistration',
+      type: 'string',
+      default: '',
+      description: 'A company number such as HRB 00000, or a SIREN',
+    },
+    { displayName: 'Street', name: 'street', type: 'string', default: '' },
+    {
+      displayName: 'VAT ID',
+      name: 'vatId',
+      type: 'string',
+      default: '',
+      placeholder: 'DE000000000',
+    },
+  ];
+}
+
+/** One of the totals EN 16931 asks for, as the source system states it. */
+function total(displayName: string, name: string): INodeProperties {
+  return {
+    displayName,
+    name,
+    type: 'number',
+    typeOptions: { numberPrecision: 2 },
+    displayOptions: EINVOICE,
+    default: 0,
+    required: true,
+  };
+}
 
 /**
  * Formfeed node: renders documents and reads templates, renders and jobs (spec 10 §2).
@@ -93,12 +217,27 @@ export class Formfeed implements INodeType {
         noDataExpression: true,
         displayOptions: { show: { resource: ['render'] } },
         default: 'create',
+        // five options and more are checked for alphabetical order by n8n's scan
         options: [
           {
             name: 'Create',
             value: 'create',
             description: 'Render a document',
             action: 'Render a document',
+          },
+          {
+            name: 'Create E-Invoice',
+            value: 'createEinvoice',
+            description:
+              'Render a ZUGFeRD / Factur-X invoice: a PDF/A-3 that carries the invoice as XML, validated before it is delivered (Starter plan and above)',
+            // n8n's sentence case turns the hyphen of "e-invoice" into a space
+            action: 'Create an electronic invoice',
+          },
+          {
+            name: 'Delete Outputs',
+            value: 'deleteOutputs',
+            description: 'Remove the stored files',
+            action: 'Delete render outputs',
           },
           {
             name: 'Get',
@@ -111,12 +250,6 @@ export class Formfeed implements INodeType {
             value: 'getAll',
             description: 'List renders',
             action: 'Get many renders',
-          },
-          {
-            name: 'Delete Outputs',
-            value: 'deleteOutputs',
-            description: 'Remove the stored files',
-            action: 'Delete render outputs',
           },
         ],
       },
@@ -561,6 +694,364 @@ export class Formfeed implements INodeType {
         ],
       },
 
+      // --- render: create e-invoice (spec 17) ------------------------------------------------
+      // The template prints the same `_invoice` block the XML is built from, so every value is
+      // mapped once. Nothing is computed: totals and the VAT breakdown are the source system's.
+      {
+        displayName: 'Template Name or ID',
+        name: 'template',
+        type: 'options',
+        typeOptions: { loadOptionsMethod: 'getTemplates' },
+        displayOptions: EINVOICE,
+        default: '',
+        required: true,
+        description:
+          'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+        hint: 'A PDF template that prints the _invoice block, such as the E-invoice example of the gallery in the Formfeed app',
+      },
+      {
+        displayName: 'Invoice Number',
+        name: 'invoiceNumber',
+        type: 'string',
+        displayOptions: EINVOICE,
+        default: '',
+        required: true,
+      },
+      {
+        displayName: 'Issue Date',
+        name: 'issueDate',
+        type: 'dateTime',
+        displayOptions: EINVOICE,
+        default: '',
+        required: true,
+      },
+      {
+        displayName: 'Currency',
+        name: 'currency',
+        type: 'string',
+        displayOptions: EINVOICE,
+        default: 'EUR',
+        description: 'ISO 4217, for example EUR',
+      },
+      {
+        displayName: 'Seller',
+        name: 'seller',
+        type: 'fixedCollection',
+        placeholder: 'Add Seller',
+        displayOptions: EINVOICE,
+        default: {},
+        options: [
+          { name: 'details', displayName: 'Seller', values: party(true) },
+        ],
+      },
+      {
+        displayName: 'Buyer',
+        name: 'buyer',
+        type: 'fixedCollection',
+        placeholder: 'Add Buyer',
+        displayOptions: EINVOICE,
+        default: {},
+        options: [
+          { name: 'details', displayName: 'Buyer', values: party(false) },
+        ],
+      },
+      {
+        displayName: 'Lines',
+        name: 'lines',
+        type: 'fixedCollection',
+        typeOptions: { multipleValues: true },
+        placeholder: 'Add Line',
+        displayOptions: EINVOICE,
+        default: {},
+        options: [
+          {
+            name: 'line',
+            displayName: 'Line',
+            // ordered by name, as n8n's verification wants
+            values: [
+              {
+                displayName: 'Description',
+                name: 'description',
+                type: 'string',
+                default: '',
+              },
+              {
+                displayName: 'Name',
+                name: 'name',
+                type: 'string',
+                default: '',
+              },
+              {
+                displayName: 'Net Amount',
+                name: 'netAmount',
+                type: 'number',
+                typeOptions: { numberPrecision: 2 },
+                default: 0,
+                description:
+                  'Quantity times net price, as the source system states it',
+              },
+              {
+                displayName: 'Net Price',
+                name: 'netPrice',
+                type: 'number',
+                typeOptions: { numberPrecision: 2 },
+                default: 0,
+              },
+              {
+                displayName: 'Quantity',
+                name: 'quantity',
+                type: 'number',
+                default: 1,
+              },
+              {
+                displayName: 'Unit Code',
+                name: 'unitCode',
+                type: 'string',
+                default: 'C62',
+                description:
+                  'UN/ECE Recommendation 20: C62 a piece, HUR an hour, DAY a day, KGM a kilogram',
+              },
+              VAT_CATEGORY,
+              VAT_RATE,
+            ],
+          },
+        ],
+      },
+      {
+        displayName: 'VAT Breakdown',
+        name: 'vatBreakdown',
+        type: 'fixedCollection',
+        typeOptions: { multipleValues: true },
+        placeholder: 'Add VAT Rate',
+        displayOptions: EINVOICE,
+        default: {},
+        description:
+          'One entry per VAT category and rate, with the amounts the source system states',
+        options: [
+          {
+            name: 'entry',
+            displayName: 'Entry',
+            values: [
+              {
+                displayName: 'Exemption Reason',
+                name: 'exemptionReason',
+                type: 'string',
+                default: '',
+                description:
+                  'Why no VAT is charged; required for the categories that charge none except zero rated',
+              },
+              {
+                displayName: 'Taxable Amount',
+                name: 'basis',
+                type: 'number',
+                typeOptions: { numberPrecision: 2 },
+                default: 0,
+              },
+              {
+                displayName: 'VAT Amount',
+                name: 'amount',
+                type: 'number',
+                typeOptions: { numberPrecision: 2 },
+                default: 0,
+              },
+              VAT_CATEGORY,
+              VAT_RATE,
+            ],
+          },
+        ],
+      },
+      total('Sum of Line Net Amounts', 'lineNet'),
+      total('Total Without VAT', 'taxBasis'),
+      total('VAT Total', 'taxTotal'),
+      total('Total With VAT', 'grandTotal'),
+      total('Amount Due', 'amountDue'),
+      {
+        displayName: 'Payment',
+        name: 'payment',
+        type: 'collection',
+        placeholder: 'Add Payment Field',
+        displayOptions: EINVOICE,
+        default: {},
+        options: [
+          { displayName: 'BIC', name: 'bic', type: 'string', default: '' },
+          {
+            displayName: 'Due Date',
+            name: 'dueDate',
+            type: 'dateTime',
+            default: '',
+          },
+          {
+            displayName: 'IBAN',
+            name: 'iban',
+            type: 'string',
+            default: '',
+            placeholder: 'DE36 0000 0000 0000 0000 00',
+          },
+          {
+            displayName: 'Payment Means',
+            name: 'meansCode',
+            type: 'options',
+            default: '58',
+            options: [
+              { name: 'Credit Transfer (30)', value: '30' },
+              { name: 'Payment Card (48)', value: '48' },
+              { name: 'SEPA Credit Transfer (58)', value: '58' },
+              { name: 'SEPA Direct Debit (59)', value: '59' },
+            ],
+          },
+          {
+            displayName: 'Payment Reference',
+            name: 'reference',
+            type: 'string',
+            default: '',
+            description:
+              'What the payer quotes with the payment, often the invoice number',
+          },
+          {
+            displayName: 'Payment Terms',
+            name: 'terms',
+            type: 'string',
+            default: '',
+          },
+        ],
+      },
+      {
+        displayName: 'Invoice (JSON)',
+        name: 'invoiceJson',
+        type: 'json',
+        displayOptions: EINVOICE,
+        default: '{}',
+        description:
+          'Merged over the fields above, for what they do not offer: credit notes, allowances and charges, the delivery, a direct debit mandate, French invoices. The fields are those of the _invoice block in the Formfeed documentation.',
+      },
+      {
+        displayName: 'Download File',
+        name: 'download',
+        type: 'boolean',
+        displayOptions: EINVOICE,
+        default: true,
+        description:
+          'Whether to attach the e-invoice as binary data instead of returning only the URL',
+      },
+      {
+        displayName: 'Options',
+        name: 'einvoiceOptions',
+        type: 'collection',
+        placeholder: 'Add option',
+        displayOptions: EINVOICE,
+        default: {},
+        options: [
+          {
+            displayName: 'Buyer Reference',
+            name: 'buyerReference',
+            type: 'string',
+            default: '',
+            description:
+              "The buyer's reference, such as the Leitweg-ID a German authority asks for",
+          },
+          {
+            displayName: 'Document Type',
+            name: 'typeCode',
+            type: 'options',
+            default: '380',
+            options: [
+              { name: 'Credit Note', value: '381' },
+              { name: 'Invoice', value: '380' },
+            ],
+          },
+          {
+            displayName: 'Filename',
+            name: 'filename',
+            type: 'string',
+            default: '',
+          },
+          {
+            displayName: 'Locale',
+            name: 'locale',
+            type: 'string',
+            default: '',
+            placeholder: 'de-DE',
+          },
+          { displayName: 'Note', name: 'note', type: 'string', default: '' },
+          {
+            displayName: 'Order Reference',
+            name: 'orderReference',
+            type: 'string',
+            default: '',
+          },
+          {
+            displayName: 'Paid Amount',
+            name: 'prepaid',
+            type: 'number',
+            typeOptions: { numberPrecision: 2 },
+            default: 0,
+            description:
+              'What was paid in advance; the amount due is the total less it',
+          },
+          {
+            displayName: 'Profile',
+            name: 'profile',
+            type: 'options',
+            default: 'en16931',
+            options: [
+              {
+                name: 'Basic',
+                value: 'basic',
+                description:
+                  'The smallest profile that is an invoice on its own; not for France',
+              },
+              {
+                name: 'EN 16931',
+                value: 'en16931',
+                description:
+                  'Every field of the European standard, the default',
+              },
+            ],
+          },
+          {
+            displayName: 'Specification Name',
+            name: 'flavour',
+            type: 'options',
+            default: 'factur-x',
+            description:
+              'One specification under two names; the file is the same',
+            options: [
+              { name: 'Factur-X', value: 'factur-x' },
+              { name: 'ZUGFeRD', value: 'zugferd' },
+            ],
+          },
+          {
+            displayName: 'Store XML Separately',
+            name: 'storeXml',
+            type: 'boolean',
+            default: false,
+            description:
+              'Whether to also store the XML as a file of its own, linked as einvoice.xml_url',
+          },
+          {
+            displayName: 'Strict Display Check',
+            name: 'strictDisplayCheck',
+            type: 'boolean',
+            default: false,
+            description:
+              'Whether to fail the render when the PDF does not show a value of the XML, such as the total, instead of reporting it',
+          },
+          {
+            displayName: 'Version Name or ID',
+            name: 'version',
+            type: 'options',
+            typeOptions: {
+              loadOptionsMethod: 'getTemplateVersions',
+              loadOptionsDependsOn: ['template'],
+            },
+            default: 'published',
+            description:
+              'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+            hint: 'The release channel to render, or a version number',
+          },
+        ],
+      },
+
       // --- ids -------------------------------------------------------------------------------
       {
         displayName: 'Render ID',
@@ -758,37 +1249,85 @@ export class Formfeed implements INodeType {
             settings,
           });
 
-          const render = (await request(
-            this,
-            'POST',
-            '/renders',
-            body,
-          )) as IDataObject & {
-            download_url?: string;
-            output?: string;
-          };
-          const item: INodeExecutionData = {
-            json: render,
-            pairedItem: { item: i },
-          };
+          out.push(
+            await renderItem(this, i, body, options['filename'] as string),
+          );
+          continue;
+        }
 
-          if (
-            this.getNodeParameter('download', i, true) &&
-            render.download_url
-          ) {
-            item.binary = {
-              data: await downloadBinary(
-                this,
-                render.download_url,
-                downloadName(
-                  options['filename'] as string,
-                  render['id'] as string,
-                  render.output,
-                ),
-              ),
-            };
-          }
-          out.push(item);
+        if (resource === 'render' && operation === 'createEinvoice') {
+          const options = this.getNodeParameter(
+            'einvoiceOptions',
+            i,
+            {},
+          ) as IDataObject;
+          const fields: InvoiceFields = {
+            number: this.getNodeParameter('invoiceNumber', i) as string,
+            issueDate: this.getNodeParameter('issueDate', i) as string,
+            currency: this.getNodeParameter('currency', i, 'EUR') as string,
+            typeCode: options['typeCode'] as string,
+            buyerReference: options['buyerReference'] as string,
+            orderReference: options['orderReference'] as string,
+            note: options['note'] as string,
+            seller: this.getNodeParameter(
+              'seller.details',
+              i,
+              {},
+            ) as InvoicePartyFields,
+            buyer: this.getNodeParameter(
+              'buyer.details',
+              i,
+              {},
+            ) as InvoicePartyFields,
+            lines: this.getNodeParameter(
+              'lines.line',
+              i,
+              [],
+            ) as InvoiceLineFields[],
+            breakdown: this.getNodeParameter(
+              'vatBreakdown.entry',
+              i,
+              [],
+            ) as InvoiceBreakdownFields[],
+            totals: {
+              lineNet: this.getNodeParameter('lineNet', i) as number,
+              taxBasis: this.getNodeParameter('taxBasis', i) as number,
+              taxTotal: this.getNodeParameter('taxTotal', i) as number,
+              grand: this.getNodeParameter('grandTotal', i) as number,
+              due: this.getNodeParameter('amountDue', i) as number,
+              prepaid: options['prepaid'] as number | undefined,
+            },
+            payment: this.getNodeParameter(
+              'payment',
+              i,
+              {},
+            ) as InvoiceFields['payment'],
+          };
+          // the JSON field wins per leaf, for what the fields do not offer
+          const invoice = mergeData(
+            invoiceBlock(fields),
+            parseJson(this, i, this.getNodeParameter('invoiceJson', i, '{}')),
+          );
+          const body = renderBody({
+            source: 'template',
+            template: this.getNodeParameter('template', i) as string,
+            version: options['version'] as string,
+            data: { _invoice: invoice },
+            output: 'pdf',
+            filename: options['filename'] as string,
+            locale: options['locale'] as string,
+            post: {
+              einvoice: einvoiceOptions({
+                profile: options['profile'] as string,
+                flavour: options['flavour'] as string,
+                storeXml: options['storeXml'] as boolean,
+                strictDisplayCheck: options['strictDisplayCheck'] as boolean,
+              }),
+            },
+          });
+          out.push(
+            await renderItem(this, i, body, options['filename'] as string),
+          );
           continue;
         }
 
@@ -1046,6 +1585,31 @@ async function request(
       ...(body === undefined ? {} : { body: body as IDataObject }),
     },
   );
+}
+
+/** Renders, and attaches the document as binary data where the item asks for it. */
+async function renderItem(
+  context: IExecuteFunctions,
+  i: number,
+  body: Record<string, unknown>,
+  filename: string | undefined,
+): Promise<INodeExecutionData> {
+  const render = (await request(
+    context,
+    'POST',
+    '/renders',
+    body,
+  )) as IDataObject & { download_url?: string; output?: string };
+  const item: INodeExecutionData = { json: render, pairedItem: { item: i } };
+  if (context.getNodeParameter('download', i, true) && render.download_url)
+    item.binary = {
+      data: await downloadBinary(
+        context,
+        render.download_url,
+        downloadName(filename, render['id'] as string, render.output),
+      ),
+    };
+  return item;
 }
 
 /** Downloads a stored output (a signed URL, no key needed) as n8n binary data. */

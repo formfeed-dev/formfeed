@@ -15,7 +15,10 @@
     "model-context-protocol",
     "ai",
     "pdf",
-    "templates"
+    "templates",
+    "e-invoice",
+    "zugferd",
+    "factur-x"
   ],
   "homepage": "https://docs.formfeed.dev/integrations/mcp",
   "repository": {

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { invoiceSkeleton } from '@formfeed/engine';
 import { createFormfeedServer } from './server';
 import { startHttp } from './transports';
 
@@ -209,6 +210,62 @@ function fakeApi(seenKeys: string[] = []) {
         },
         201,
       );
+    // `rechnung` is an e-invoice template (spec 17): its render carries the report; `falsch` is refused
+    if (
+      call.path === '/v1/renders' &&
+      call.method === 'POST' &&
+      (call.body as { template?: string }).template === 'falsch'
+    )
+      return json(
+        {
+          type: 'https://docs.formfeed.dev/errors/einvoice-data-invalid',
+          title: 'E-invoice data invalid',
+          status: 422,
+          code: 'einvoice_data_invalid',
+          detail:
+            '_invoice.totals.due is 1.00, but grand less prepaid plus rounding is 1142.40 (BR-CO-16)',
+          errors: [
+            {
+              path: 'data._invoice.totals.due',
+              message:
+                '_invoice.totals.due is 1.00, but grand less prepaid plus rounding is 1142.40 (BR-CO-16)',
+              rule: 'BR-CO-16',
+            },
+          ],
+        },
+        422,
+      );
+    if (
+      call.path === '/v1/renders' &&
+      call.method === 'POST' &&
+      (call.body as { template?: string }).template === 'rechnung'
+    )
+      return json(
+        {
+          id: 'rnd_3',
+          status: 'succeeded',
+          download_url: 'https://cdn.test/o/rechnung.pdf',
+          page_count: 1,
+          units: 2,
+          environment: 'test',
+          template: { id: 'tpl_4', slug: 'rechnung', version: 1 },
+          error: null,
+          einvoice: {
+            profile: 'en16931',
+            flavour: 'factur-x',
+            spec_version: '1.09',
+            xml_url: null,
+            validation: {
+              valid: true,
+              schematron: 'Factur-X 1.09.2 (Mustang 2.26.0)',
+              pdfa: 'PDF/A-3b',
+              messages: [],
+            },
+            display: { checked: ['BT-1', 'BT-112'], missing: [] },
+          },
+        },
+        201,
+      );
     if (call.path === '/v1/renders' && call.method === 'POST')
       return json(
         {
@@ -261,10 +318,11 @@ const structured = (r: { structuredContent?: unknown }) =>
   r.structuredContent as Record<string, unknown>;
 
 describe('@formfeed/mcp', () => {
-  it('lists the seven tools with schemas', async () => {
+  it('lists the eight tools with schemas', async () => {
     const { client, close } = await connectedClient(fakeApi().fetchImpl);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      'check_invoice',
       'convert_to_pdf',
       'get_render',
       'get_template_schema',
@@ -628,6 +686,86 @@ describe('@formfeed/mcp', () => {
         ],
       },
     });
+    await close();
+  });
+
+  it('checks an e-invoice offline, renders one, and names the fields of a refused one', async () => {
+    const { calls, fetchImpl } = fakeApi();
+    const { client, close } = await connectedClient(fetchImpl);
+    const invoice = invoiceSkeleton('2026-10-09');
+
+    // offline: the engine's own check, nothing sent
+    const before = calls.length;
+    expect(
+      structured(
+        await client.callTool({
+          name: 'check_invoice',
+          arguments: { invoice },
+        }),
+      ),
+    ).toEqual({ ok: true, problems: [] });
+    const wrong = structured(
+      await client.callTool({
+        name: 'check_invoice',
+        arguments: {
+          invoice: { ...invoice, totals: { ...invoice.totals, due: '1.00' } },
+        },
+      }),
+    );
+    expect(wrong['ok']).toBe(false);
+    expect(wrong['problems']).toEqual([
+      expect.objectContaining({
+        path: '_invoice.totals.due',
+        rule: 'BR-CO-16',
+      }),
+    ]);
+    expect(calls.length).toBe(before);
+
+    // true asks for the defaults, and the render hands on the validator's report
+    const made = structured(
+      await client.callTool({
+        name: 'render',
+        arguments: {
+          template: 'rechnung',
+          data: { _invoice: invoice },
+          einvoice: true,
+        },
+      }),
+    );
+    expect(calls.at(-1)?.body).toMatchObject({
+      template: 'rechnung',
+      data: { _invoice: { number: invoice.number } },
+      post: { einvoice: {} },
+    });
+    expect(made['einvoice']).toMatchObject({
+      validation: { valid: true, pdfa: 'PDF/A-3b' },
+    });
+    await client.callTool({
+      name: 'render',
+      arguments: {
+        template: 'rechnung',
+        data: { _invoice: invoice },
+        einvoice: { profile: 'basic', xml: 'both' },
+      },
+    });
+    expect(calls.at(-1)?.body).toMatchObject({
+      post: { einvoice: { profile: 'basic', xml: 'both' } },
+    });
+
+    // a refusal names the field and the rule, which is what an agent corrects the block with
+    const refused = await client.callTool({
+      name: 'render',
+      arguments: {
+        template: 'falsch',
+        data: { _invoice: invoice },
+        einvoice: true,
+      },
+    });
+    expect(refused.isError).toBe(true);
+    const said = (refused.content as Array<{ text: string }>)[0]!.text;
+    expect(said).toContain('einvoice_data_invalid');
+    expect(said).toContain('data._invoice.totals.due');
+    expect(said).toContain('BR-CO-16');
     await close();
   });
 

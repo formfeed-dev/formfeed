@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-formfeed",
   "version": "0.3.16",
-  "description": "n8n community node for Formfeed: render PDFs and images from templates, wait for async renders and react to render webhooks.",
+  "description": "n8n community node for Formfeed: render PDFs, images and ZUGFeRD / Factur-X e-invoices from templates, wait for async renders and react to render webhooks.",
   "license": "MIT",
   "author": {
     "name": "Formfeed",
@@ -14,7 +14,10 @@
     "formfeed",
     "pdf",
     "pdf-generation",
-    "template"
+    "template",
+    "e-invoice",
+    "zugferd",
+    "factur-x"
   ],
   "homepage": "https://docs.formfeed.dev/integrations/n8n",
   "repository": {
