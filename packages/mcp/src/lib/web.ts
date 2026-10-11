@@ -1,5 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { createFormfeedServer } from './server';
+import { serverCard, serverCardResponse } from './server-card';
 
 /**
  * The hosted endpoint as a web-standard `fetch` handler (spec 10 §3.1), shared by the Cloudflare
@@ -18,7 +19,8 @@ import { createFormfeedServer } from './server';
  * scopes. Without a credential the answer is `401` with a `WWW-Authenticate` header that points at
  * the protected-resource metadata, which is what makes an MCP client start the OAuth flow instead
  * of asking for a key. The metadata names the authorization server; without one configured only
- * API keys are taken.
+ * API keys are taken. `/mcp/server-card` answers without a credential: the server card of
+ * `server-card.ts`, for clients that look a server up before they connect.
  */
 export interface WebHandlerOptions {
   baseUrl?: string;
@@ -44,6 +46,7 @@ export type WebHandler = (request: Request) => Promise<Response>;
 /** The paths the handler answers, so a host can mount it precisely. */
 export const MCP_PATH = '/mcp';
 export const RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
+export const SERVER_CARD_PATH = `${MCP_PATH}/server-card`;
 
 /** RFC 9728 protected-resource metadata of one workspace endpoint. */
 export function resourceMetadata(
@@ -157,6 +160,13 @@ export function mcpFetchHandler(options: WebHandlerOptions = {}): WebHandler {
         200,
       );
     }
+
+    // SEP-2127: the card lives beside the endpoint, before the workspace path could take its name
+    if (path === SERVER_CARD_PATH)
+      return serverCardResponse(
+        request,
+        serverCard(origin, Boolean(authorizationServer)),
+      );
 
     if (path !== MCP_PATH && !path.startsWith(`${MCP_PATH}/`))
       return new Response(null, { status: 404 });
