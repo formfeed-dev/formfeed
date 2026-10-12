@@ -1151,6 +1151,9 @@ export class Formfeed implements INodeType {
           )) as { data?: ChannelSummary[] };
           return channelOptions(channels.data ?? []);
         } catch {
+          // fall back to Published when the channels cannot be listed (a key without template:read,
+          // a template that does not exist yet, the API out of reach): it is the render's default,
+          // and the render itself reports what is wrong
           return published;
         }
       },

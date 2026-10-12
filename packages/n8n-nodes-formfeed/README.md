@@ -48,6 +48,116 @@ Registers a webhook endpoint in your workspace and starts the workflow on `rende
 `render.failed`, `job.completed`, `job.failed`, `quota.warning` or `quota.exceeded`. The endpoint is
 removed again when the workflow is deactivated.
 
+## Example: render an invoice and send it by email
+
+1. In the Formfeed app, open **Templates → Examples**, choose _German invoice with GiroCode_ and
+   click **Use this template**. The copy is published under the slug `invoice-de`.
+2. In n8n, start a new workflow with a **Manual Trigger**.
+3. Add a **Formfeed** node with your _Formfeed API_ credential and set:
+   - **Resource** _Render_, **Operation** _Create_, **Source** _Template_
+   - **Template**: the copied invoice (the list shows its name; as an expression, `invoice-de`)
+   - **Fields**: `invoice.number` = `2026-0042`, `invoice.date` = `2026-09-10`,
+     `customer.name` = `Olvarest GmbH`
+   - **Data (JSON)**, for the nested values and the list of lines:
+
+     ```json
+     {
+       "company": {
+         "name": "Fennlor Studio GmbH",
+         "street": "Musterstraße 1",
+         "city": "12345 Musterstadt",
+         "iban": "DE36000000000000000000",
+         "bic": "XXXXDEXXXXX",
+         "vat_id": "DE000000000"
+       },
+       "customer": { "street": "Beispielweg 2", "city": "54321 Beispielstadt" },
+       "invoice": {
+         "vat_rate": 19,
+         "lines": [
+           {
+             "description": "Consulting",
+             "qty": 8,
+             "price": 120,
+             "total": 960
+           },
+           {
+             "description": "Implementation",
+             "qty": 20,
+             "price": 110,
+             "total": 2200
+           }
+         ]
+       }
+     }
+     ```
+
+   - **Download File** on, and under **Options** a **Filename** of `rechnung-2026-0042.pdf`
+
+4. Execute the node. Its output item carries the render as JSON (shortened here) and the PDF as the
+   binary field `data`:
+
+   ```json
+   {
+     "id": "rnd_01J8ZK4M3Q7X",
+     "status": "succeeded",
+     "output": "pdf",
+     "download_url": "https://cdn.formfeed.dev/o/eu/…",
+     "page_count": 1,
+     "units": 1,
+     "environment": "test",
+     "template": {
+       "id": "tpl_01J8ZK4M3Q",
+       "slug": "invoice-de",
+       "version": 1,
+       "channel": "published",
+       "canary": false
+     }
+   }
+   ```
+
+5. Add a **Gmail** or **Send Email** node and attach the binary field `data`.
+
+With real data, the fixed values become expressions over an earlier node's item, such as
+`{{ $json.number }}` from a database row, and the JSON field takes that row's list the same way:
+`"lines": {{ JSON.stringify($json.lines) }}`.
+
+## Example: react to a finished render
+
+Activate a workflow that starts with **Formfeed Trigger** (events `render.completed` and
+`render.failed`). Every render of the workspace starts it, the ones the Formfeed node queues with
+**Mode** _Queue and Return Immediately_ included. Formfeed calls the workflow's production webhook
+URL, which has to be public HTTPS (n8n Cloud's is; a self-hosted n8n sets `WEBHOOK_URL`). Each event
+arrives as one item (shortened here; `data` is the render as the Formfeed node returns it):
+
+```json
+{
+  "id": "evt_5b0c8e6f2d4a4c3e9b1a7f6e5d4c3b2a",
+  "type": "render.completed",
+  "created_at": "2026-09-11T10:00:00Z",
+  "workspace_id": "3a6f…",
+  "data": {
+    "id": "rnd_01J8ZK4M3Q7X",
+    "status": "succeeded",
+    "output": "pdf",
+    "download_url": "https://cdn.formfeed.dev/o/eu/…",
+    "page_count": 1,
+    "template": {
+      "id": "tpl_01J8ZK4M3Q",
+      "slug": "invoice-de",
+      "version": 1,
+      "channel": "published",
+      "canary": false
+    },
+    "error": null
+  }
+}
+```
+
+An **If** node on `{{ $json.type }}` separates the failures, whose `data.error` holds the
+[problem](https://docs.formfeed.dev/api/errors) with its `code` and `detail`. For a success, an
+**HTTP Request** node fetches `{{ $json.data.download_url }}` as a file; the link is signed, so it
+needs no credential.
+
 ## Development
 
 ```bash
