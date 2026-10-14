@@ -28,6 +28,7 @@ function fakeApi() {
           id: 'rnd_1',
           status: 'succeeded',
           download_url: 'https://cdn.test/o/x.pdf',
+          expires_at: '2026-10-21T00:00:00Z',
           page_count: 1,
           units: 1,
           environment: 'live',

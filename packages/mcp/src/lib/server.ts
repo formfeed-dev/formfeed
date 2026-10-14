@@ -58,6 +58,67 @@ const engineSchema = z.enum(['jinja2', 'liquid', 'handlebars']);
 const outputSchema = z.enum(outputFormats);
 const kindSchema = z.enum(['pdf', 'image', 'docx', 'pptx']);
 
+/*
+ * What each tool returns, declared as its `outputSchema` so that a client can check the
+ * `structuredContent` every result carries (Smithery scores it, and agents read the fields from it).
+ * The SDK holds each result to its schema and turns a mismatch into an error, so a schema says only
+ * what the API guarantees: a value the API leaves open stays a string or an open object, and nothing
+ * here is strict about fields it does not name.
+ */
+const renderOutput = {
+  id: z.string().describe('rnd_ id of the render'),
+  status: z.enum(['queued', 'rendering', 'succeeded', 'failed']),
+  download_url: z
+    .string()
+    .nullable()
+    .describe('Signed link to the file; null until the render succeeded'),
+  expires_at: z
+    .string()
+    .nullable()
+    .describe('When download_url stops working; get_render issues a fresh one'),
+  page_count: z.number().nullable(),
+  units: z.number().describe('Units the render counted'),
+  environment: z.enum(['live', 'test']),
+  template: z
+    .object({
+      id: z.string(),
+      slug: z.string(),
+      version: z.number(),
+      channel: z.string().nullable().optional(),
+      canary: z.boolean().optional(),
+    })
+    .nullable()
+    .describe(
+      'The template and version rendered; null for html and conversions',
+    ),
+  error: z
+    .object({ code: z.string().optional(), message: z.string().optional() })
+    .nullable()
+    .describe('Why a failed render failed'),
+  accessibility: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('The PDF/UA-1 verdict, when the template declares it'),
+  einvoice: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('The e-invoice report, when the render made one'),
+};
+
+const diagnosticOutput = z.object({
+  severity: z.enum(['error', 'warning', 'info']),
+  code: z.string(),
+  message: z.string(),
+  path: z.string().optional().describe('Where in the data, for data errors'),
+  line: z.number().optional(),
+  column: z.number().optional(),
+  part: z
+    .string()
+    .optional()
+    .describe('Word and PowerPoint templates: the file part of the tag'),
+  paragraph: z.number().optional(),
+});
+
 const templateSummary = (t: {
   id: string;
   slug: string;
@@ -175,7 +236,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     {
       title: 'List templates',
       description:
-        'Lists the templates of the workspace the API key belongs to, most recently changed first: id, slug, name, kind (pdf, image, docx for Word, pptx for PowerPoint), engine, tags and published_version. Call it first to find the slug that get_template_schema, validate_template and render take; skip it when the user already named the template. Returns every match in one answer, without archived templates, and an empty list when nothing matches. A template whose published_version is null has never been published, so render cannot use it yet. Read-only and free.',
+        "Lists the templates of the workspace this server works in (the one chosen at sign-in, or the API key's), most recently changed first: id, slug, name, kind (pdf, image, docx for Word, pptx for PowerPoint), engine, tags and published_version. Call it first to find the slug that get_template_schema, validate_template and render take; skip it when the user already named the template. Returns every match in one answer, without archived templates, and an empty list when nothing matches. A template whose published_version is null has never been published, so render cannot use it yet. Read-only and free.",
       inputSchema: {
         kind: kindSchema
           .optional()
@@ -195,6 +256,26 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           .describe(
             'Text to find in the name or slug, case-insensitive (e.g. invoice)',
           ),
+      },
+      outputSchema: {
+        templates: z.array(
+          z.object({
+            id: z.string().describe('tpl_ id'),
+            slug: z.string(),
+            name: z.string(),
+            kind: z
+              .string()
+              .describe('pdf, image, docx (Word) or pptx (PowerPoint)'),
+            engine: z.string().describe('jinja2, liquid or handlebars'),
+            description: z.string().nullable(),
+            tags: z.array(z.string()),
+            published_version: z
+              .number()
+              .nullable()
+              .describe('null: never published, so render cannot use it yet'),
+            updated_at: z.string(),
+          }),
+        ),
       },
       annotations: READS,
     },
@@ -220,6 +301,19 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           .describe(
             'Slug (e.g. invoice) or tpl_ id, as list_templates returns them',
           ),
+      },
+      outputSchema: {
+        template: z.string(),
+        version: z.number().describe('The version the schema comes from'),
+        status: z
+          .string()
+          .describe('published, or draft when nothing is published yet'),
+        schema: z
+          .record(z.string(), z.unknown())
+          .describe(
+            'JSON Schema of data; inferred from sample_data when none is stored',
+          ),
+        sample_data: z.record(z.string(), z.unknown()),
       },
       annotations: READS,
     },
@@ -273,6 +367,14 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           .describe(
             'The data the document will be rendered with, shaped as get_template_schema describes. Left out, a stored template is checked with its sample data',
           ),
+      },
+      outputSchema: {
+        ok: z.boolean().describe('false when a diagnostic is an error'),
+        template: z
+          .object({ id: z.string(), slug: z.string(), version: z.number() })
+          .optional()
+          .describe('The stored version checked; absent for html'),
+        diagnostics: z.array(diagnosticOutput),
       },
       annotations: READS,
     },
@@ -361,6 +463,19 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
             'The profile the render will ask for; en16931 when left out. basic cannot carry a rounding amount and is refused between two French businesses',
           ),
       },
+      outputSchema: {
+        ok: z.boolean(),
+        problems: z.array(
+          z.object({
+            path: z.string().describe('The field, e.g. _invoice.seller.vat_id'),
+            rule: z
+              .string()
+              .optional()
+              .describe('The EN 16931 rule, e.g. BR-03'),
+            message: z.string(),
+          }),
+        ),
+      },
       annotations: READS,
     },
     async ({ invoice, profile }) => {
@@ -381,7 +496,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     {
       title: 'Render a document',
       description:
-        "Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url. Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. With einvoice the PDF becomes a ZUGFeRD / Factur-X e-invoice built from data._invoice (check the block with check_invoice first): the render then carries einvoice, the validator's report, and a refused invoice names the fields and rules to fix. The link expires at expires_at; get_render issues a fresh one.",
+        "Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url. Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key or a signed-in agent consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. With einvoice the PDF becomes a ZUGFeRD / Factur-X e-invoice built from data._invoice (check the block with check_invoice first): the render then carries einvoice, the validator's report, and a refused invoice names the fields and rules to fix. The link expires at expires_at; get_render issues a fresh one.",
       inputSchema: {
         template: z
           .string()
@@ -460,6 +575,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
             'Makes the PDF a ZUGFeRD / Factur-X e-invoice whose XML is built from data._invoice: true for the defaults, an object to choose, false to switch off what the template declares. PDF only; live renders from the Starter plan, test keys on Free make 20 marked ones a day',
           ),
       },
+      outputSchema: renderOutput,
       annotations: CREATES,
     },
     async ({
@@ -556,6 +672,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           .optional()
           .describe('Name of the PDF behind download_url, e.g. report.pdf'),
       },
+      outputSchema: renderOutput,
       annotations: CREATES,
     },
     async (args) => {
@@ -652,6 +769,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
             'rnd_ id of the render, as render or convert_to_pdf returned it',
           ),
       },
+      outputSchema: renderOutput,
       annotations: READS,
     },
     async ({ id }) => {
@@ -670,6 +788,43 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       description:
         'Returns the workspace and organisation this server acts in, the plan, the environment (live or test) and the units of the current period: included, used and the balance of prepaid units. Call it when the user asks where a document will land or how many renders are left, or when list_templates returns nothing you expected. A signed-in agent works in the workspace chosen when it was connected, which the person changes in Formfeed under Account → Connected agents; an API key works in the workspace it was made for. Read-only and free.',
       inputSchema: {},
+      outputSchema: {
+        workspace: z.object({
+          id: z.string(),
+          slug: z.string(),
+          name: z.string(),
+          region: z.string().describe('eu, us or apac'),
+        }),
+        organization: z.object({
+          id: z.string(),
+          slug: z.string(),
+          name: z.string(),
+        }),
+        plan: z.object({
+          id: z.string(),
+          name: z.string(),
+          monthly_units: z
+            .number()
+            .nullable()
+            .optional()
+            .describe('Units included a month; null where the plan sets none'),
+        }),
+        environment: z
+          .enum(['live', 'test'])
+          .optional()
+          .describe('live renders count units; test renders are free'),
+        period: z
+          .object({ start: z.string(), end: z.string() })
+          .describe('The current billing period'),
+        units: z.object({
+          included: z.number().nullable().optional(),
+          used: z.number(),
+          overage_balance: z
+            .number()
+            .optional()
+            .describe('Prepaid units left beyond the included ones'),
+        }),
+      },
       annotations: READS,
     },
     async () => {

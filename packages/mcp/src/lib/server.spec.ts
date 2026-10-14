@@ -84,6 +84,7 @@ function fakeApi(seenKeys: string[] = []) {
         id: 'rnd_pdf',
         status: 'succeeded',
         download_url: 'https://cdn.test/o/report.pdf',
+        expires_at: '2026-10-21T00:00:00Z',
         page_count: 2,
         units: 1,
         environment: 'live',
@@ -201,6 +202,7 @@ function fakeApi(seenKeys: string[] = []) {
           id: 'rnd_2',
           status: 'succeeded',
           download_url: 'https://cdn.test/o/b.pdf',
+          expires_at: '2026-10-21T00:00:00Z',
           page_count: 1,
           units: 1,
           environment: 'test',
@@ -245,6 +247,7 @@ function fakeApi(seenKeys: string[] = []) {
           id: 'rnd_3',
           status: 'succeeded',
           download_url: 'https://cdn.test/o/rechnung.pdf',
+          expires_at: '2026-10-21T00:00:00Z',
           page_count: 1,
           units: 2,
           environment: 'test',
@@ -272,6 +275,7 @@ function fakeApi(seenKeys: string[] = []) {
           id: 'rnd_1',
           status: 'succeeded',
           download_url: 'https://cdn.test/o/x.pdf',
+          expires_at: '2026-10-21T00:00:00Z',
           page_count: 1,
           units: 1,
           environment: 'test',
@@ -285,8 +289,11 @@ function fakeApi(seenKeys: string[] = []) {
         id: 'rnd_1',
         status: 'succeeded',
         download_url: 'https://cdn.test/o/x.pdf',
+        expires_at: '2026-10-21T00:00:00Z',
         page_count: 1,
         units: 1,
+        environment: 'test',
+        template: { id: 'tpl_1', slug: 'invoice', version: 2 },
         error: null,
       });
     return json({ code: 'not_found', status: 404 }, 404);
@@ -346,6 +353,12 @@ describe('@formfeed/mcp', () => {
     ).not.toContain('path');
     // directories read the hints literally: ChatGPT's wants all three on every tool, Claude's a title too
     for (const tool of tools) {
+      // every tool says what it returns, so a client can check structuredContent against it (Smithery
+      // scores it); the SDK holds each result to it, so the calls below prove the schemas fit
+      expect(tool.outputSchema, tool.name).toMatchObject({
+        type: 'object',
+        properties: expect.any(Object),
+      });
       expect(tool.title, tool.name).toBeTruthy();
       expect(tool.annotations, tool.name).toMatchObject({
         readOnlyHint: expect.any(Boolean),
