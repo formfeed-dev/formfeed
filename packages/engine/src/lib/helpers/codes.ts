@@ -125,14 +125,14 @@ export const codeHelpers: HelperDefinition[] = [
       signature:
         'epcQr({ name, iban, bic?, amount?, reference?, text? }, { size })',
       description:
-        'SEPA credit transfer QR code (EPC069-12 / GiroCode) that banking apps scan to prefill a payment. Give the image an `alt`, and print the bank details as text as well: the code is a picture.',
+        'SEPA credit transfer QR code (EPC069-12 / GiroCode) that banking apps scan to prefill a payment. Put an invoice number into `text` (the remittance line); `reference` is only for a structured creditor reference (RF…). Give the image an `alt`, and print the bank details as text as well: the code is a picture.',
       examples: {
         jinja2:
-          '<img src="{{ epcQr({ name: company.name, iban: company.iban, amount: invoice.total, reference: invoice.number }) }}" alt="QR code to pay invoice {{ invoice.number }}">',
+          '<img src="{{ epcQr({ name: company.name, iban: company.iban, amount: invoice.total, text: invoice.number }) }}" alt="QR code to pay invoice {{ invoice.number }}">',
         liquid:
-          '<img src="{{ company.iban | epcQr: name: company.name, amount: invoice.total, reference: invoice.number }}" alt="QR code to pay invoice {{ invoice.number }}">',
+          '<img src="{{ company.iban | epcQr: name: company.name, amount: invoice.total, text: invoice.number }}" alt="QR code to pay invoice {{ invoice.number }}">',
         handlebars:
-          '<img src="{{epcQr name=company.name iban=company.iban amount=invoice.total reference=invoice.number}}" alt="QR code to pay invoice {{invoice.number}}">',
+          '<img src="{{epcQr name=company.name iban=company.iban amount=invoice.total text=invoice.number}}" alt="QR code to pay invoice {{invoice.number}}">',
       },
       category: 'code',
     },
