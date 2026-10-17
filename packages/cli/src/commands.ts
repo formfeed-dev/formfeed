@@ -183,12 +183,18 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     )
     .version(VERSION)
     .option('--api-key <key>', 'API key (overrides the stored login)')
-    .option('--base-url <url>', 'API base URL (staging, self-hosted)')
-    .option('--workspace <org/workspace>', 'workspace slug pair')
-    .option('--region <region>', 'eu or us')
+    .option(
+      '--base-url <url>',
+      'API base URL, used instead of the region’s address',
+    )
+    .option(
+      '--workspace <org/workspace>',
+      'workspace label shown by config list; the API key decides the workspace',
+    )
+    .option('--region <region>', 'API region (default eu)')
     .option('--json', 'machine-readable output')
-    .option('--ci', 'never prompt; implied by CI=1')
-    .option('--verbose', 'more output')
+    .option('--ci', 'do not open a browser for login; implied by CI=1')
+    .option('--verbose', 'no effect; accepted so existing scripts keep working')
     .exitOverride()
     .configureOutput({
       writeOut: (s) =>
@@ -339,7 +345,9 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .description('Read or write the user config');
   config
     .command('list')
-    .description('Show the effective settings and where they come from')
+    .description(
+      'Show the effective settings and the config files they are read from',
+    )
     .action(() => {
       const s = settings();
       emit(
@@ -404,10 +412,13 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       'default engine for new templates (jinja2, liquid, handlebars)',
       parseEngine,
     )
-    .option('--workspace <org/workspace>', 'workspace to bind')
+    .option(
+      '--workspace <org/workspace>',
+      'workspace label written to formfeed.json; the API key decides the workspace',
+    )
     .option(
       '--from-workspace',
-      'pull the published templates of the workspace after creating the layout',
+      'pull every template of the workspace (published version, else the latest) and its shared partials after creating the layout',
     )
     .action(
       async (
