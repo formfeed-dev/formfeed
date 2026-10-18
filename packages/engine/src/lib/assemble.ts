@@ -37,7 +37,13 @@ export interface TemplateSettings {
   preferCssPageSize?: boolean;
   pageRanges?: string;
   waitFor?: {
-    networkIdle?: boolean;
+    /**
+     * `true` waits until the network has been idle for half a second, `false` only for the `load`
+     * event. `'auto'`, the default, waits for `load` and then for the requests still in flight, and as
+     * `true` does for a URL source or a document with code of its own (the render-worker's
+     * `render/load-wait.ts`).
+     */
+    networkIdle?: boolean | 'auto';
     selector?: string | null;
     timeoutMs?: number;
     delayMs?: number;
@@ -121,7 +127,12 @@ export function defaultSettings(): Required<
     scale: 1,
     preferCssPageSize: false,
     pageRanges: '',
-    waitFor: { networkIdle: true, selector: null, timeoutMs: 5000, delayMs: 0 },
+    waitFor: {
+      networkIdle: 'auto',
+      selector: null,
+      timeoutMs: 5000,
+      delayMs: 0,
+    },
     pdf: { tagged: false, outline: false, metadata: { title: '', author: '' } },
     image: {
       width: 1200,
@@ -264,7 +275,7 @@ export function chartInitScript(): string {
   // `formfeedDrawCharts` is idempotent (Chart.getChart) so hosts that re-layout the DOM can call it
   // again: Paged.js clones the content into pages and a cloned canvas loses its bitmap, so the paged
   // preview skips the early draw (PagedConfig present) and draws in its `after` hook instead.
-  return `<script>window.formfeedDrawCharts=function(){if(typeof Chart==='undefined')return;var all=Chart.instances||{};for(var k in all){if(all[k]&&all[k].canvas&&!all[k].canvas.isConnected){try{all[k].destroy();}catch(e){}}}var cs=document.querySelectorAll('canvas[data-ff-chart]');for(var i=0;i<cs.length;i++){var c=cs[i];try{if(Chart.getChart(c))continue;var s=JSON.parse(c.getAttribute('data-ff-chart')||'{}');new Chart(c.getContext('2d'),s);c.setAttribute('data-ff-chart-ready','1');}catch(e){console.error('formfeed chart',e);}}};if(!window.PagedConfig){window.formfeedDrawCharts();}</script>`;
+  return `<script data-formfeed="charts">window.formfeedDrawCharts=function(){if(typeof Chart==='undefined')return;var all=Chart.instances||{};for(var k in all){if(all[k]&&all[k].canvas&&!all[k].canvas.isConnected){try{all[k].destroy();}catch(e){}}}var cs=document.querySelectorAll('canvas[data-ff-chart]');for(var i=0;i<cs.length;i++){var c=cs[i];try{if(Chart.getChart(c))continue;var s=JSON.parse(c.getAttribute('data-ff-chart')||'{}');new Chart(c.getContext('2d'),s);c.setAttribute('data-ff-chart-ready','1');}catch(e){console.error('formfeed chart',e);}}};if(!window.PagedConfig){window.formfeedDrawCharts();}</script>`;
 }
 
 function chartScripts(
@@ -273,10 +284,12 @@ function chartScripts(
 ): { head: string; body: string } {
   if (!vendor?.chartJs || !html.includes('data-ff-chart'))
     return { head: '', body: '' };
+  // `data-formfeed` on every script the engine writes: the render-worker waits less for a document
+  // whose only scripts are these (`render/load-wait.ts`)
   const lib =
     'inline' in vendor.chartJs
-      ? `<script>${vendor.chartJs.inline}</script>`
-      : `<script src="${escapeHtml(vendor.chartJs.src)}"></script>`;
+      ? `<script data-formfeed="chartjs">${vendor.chartJs.inline}</script>`
+      : `<script data-formfeed="chartjs" src="${escapeHtml(vendor.chartJs.src)}"></script>`;
   return {
     head: `${lib}
 `,
@@ -327,7 +340,7 @@ export function assembleDocument(input: AssembleInput): string {
     ? input.extraCss
       ? `<style data-formfeed="tailwind">${input.extraCss}</style>\n`
       : input.vendor?.tailwind
-        ? `<script src="${escapeHtml(input.vendor.tailwind.src)}"></script>\n`
+        ? `<script data-formfeed="tailwind" src="${escapeHtml(input.vendor.tailwind.src)}"></script>\n`
         : ''
     : input.extraCss
       ? `<style data-formfeed="extra">${input.extraCss}</style>\n`
@@ -335,7 +348,7 @@ export function assembleDocument(input: AssembleInput): string {
   const charts = chartScripts(input.html, input.vendor);
   // text that shrinks to fit its box (plan 16 §4.3); the render-worker calls it again before capturing
   const fit = input.html.includes('data-ff-fit')
-    ? `<script>${fitRuntime.replace(/<\/script/gi, '<\\/script')}</script>\n`
+    ? `<script data-formfeed="fit">${fitRuntime.replace(/<\/script/gi, '<\\/script')}</script>\n`
     : '';
   return `<!doctype html>
 <html lang="${escapeHtml(locale.split('_')[0] ?? locale)}">

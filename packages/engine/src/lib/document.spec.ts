@@ -385,14 +385,30 @@ describe('assembly extras (fonts, charts, tailwind)', () => {
       vendor,
     });
     expect(withChart).toContain(
-      '<script src="https://app.example/vendor/chart.js"></script>',
+      '<script data-formfeed="chartjs" src="https://app.example/vendor/chart.js"></script>',
     );
     expect(withChart).toContain('canvas[data-ff-chart]');
     const inline = assembleDocument({
       html: '<canvas data-ff-chart="{}"></canvas>',
       vendor: { chartJs: { inline: 'window.Chart=1' } },
     });
-    expect(inline).toContain('<script>window.Chart=1</script>');
+    expect(inline).toContain(
+      '<script data-formfeed="chartjs">window.Chart=1</script>',
+    );
+  });
+
+  it('marks every script it writes, so the render-worker can tell them from the template', () => {
+    const html = assembleDocument({
+      html: '<canvas data-ff-chart="{}"></canvas><p data-ff-fit>x</p><script>own()</script>',
+      vendor: { chartJs: { inline: 'window.Chart=1' } },
+    });
+    const scripts = html.match(/<script[^>]*>/g) ?? [];
+    expect(scripts).toEqual([
+      '<script data-formfeed="chartjs">',
+      '<script>',
+      '<script data-formfeed="charts">',
+      '<script data-formfeed="fit">',
+    ]);
   });
 
   it('uses compiled Tailwind CSS in the worker and the browser build in the preview', () => {
@@ -411,7 +427,9 @@ describe('assembly extras (fonts, charts, tailwind)', () => {
       settings,
       vendor: { tailwind: { src: '/vendor/tailwind.js' } },
     });
-    expect(preview).toContain('<script src="/vendor/tailwind.js"></script>');
+    expect(preview).toContain(
+      '<script data-formfeed="tailwind" src="/vendor/tailwind.js"></script>',
+    );
     const off = assembleDocument({
       html: '<p>x</p>',
       vendor: { tailwind: { src: '/vendor/tailwind.js' } },
