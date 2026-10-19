@@ -204,6 +204,30 @@ describe('paged preview document', () => {
     expect(boxSizing).toBeLessThan(doc.indexOf('paged.polyfill.min.js'));
   });
 
+  it('repeats table heads and footer groups as Chromium prints them, from a script after Paged.js', () => {
+    const draft = {
+      document: assembleDocument({
+        html: '<table><thead><tr><th>h</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>',
+      }),
+      settings: {},
+      kind: 'pdf' as const,
+    };
+    const doc = pagedDocument(draft, {
+      pagedScriptUrl:
+        'https://app.example/vendor/pagedjs/paged.polyfill.min.js',
+    });
+    // the runtime extends `Paged.Handler`, which exists once Paged.js's script has run
+    const tables = doc.indexOf('<script data-formfeed="paged-print">');
+    expect(tables).toBeGreaterThan(doc.indexOf('paged.polyfill.min.js'));
+    // and Paged.js moves footer groups before it takes the document, through its config
+    expect(doc.indexOf('window.formfeedMoveTableFeet()')).toBeGreaterThan(-1);
+    expect(doc.indexOf('window.PagedConfig')).toBeLessThan(
+      doc.indexOf('paged.polyfill.min.js'),
+    );
+    // the flow preview is one long page: nothing to repeat
+    expect(flowDocument(draft)).not.toContain('paged-print');
+  });
+
   it('puts its styles and scripts before the template head, which may end the head early with text', () => {
     const document = assembleDocument({ html: '<p>x</p>', head: 'stray text' });
     const draft = {

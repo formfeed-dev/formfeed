@@ -17,6 +17,7 @@ const entries = {
   fitRuntime: 'src/frame/fit.entry.ts',
   stageRuntime: 'src/frame/stage.entry.ts',
   auditRuntime: 'src/frame/audit.entry.ts',
+  pagedPrintRuntime: 'src/frame/paged-print.entry.ts',
 };
 
 async function bundle(entry) {
