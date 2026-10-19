@@ -54,6 +54,37 @@ if (
 )
   throw new Error(`check_invoice failed: ${JSON.stringify(invoice)}`);
 await client.close();
+
+// without a key the server starts anyway: the offline tools work, the others say how to get a key
+const keyless = new Client({ name: 'smoke', version: '0' });
+await keyless.connect(
+  new StdioClientTransport({
+    command: process.execPath,
+    args: ['dist/packages/mcp/bin/formfeed-mcp.mjs'],
+    env: {
+      ...process.env,
+      FORMFEED_API_KEY: '',
+      FORMFEED_BASE_URL: 'http://127.0.0.1:9/v1',
+    },
+    stderr: 'ignore',
+  }),
+);
+const offline = await keyless.callTool({
+  name: 'check_invoice',
+  arguments: { invoice: {} },
+});
+if (offline.structuredContent?.ok !== false)
+  throw new Error(`check_invoice without a key: ${JSON.stringify(offline)}`);
+const online = await keyless.callTool({
+  name: 'list_templates',
+  arguments: {},
+});
+if (
+  !online.isError ||
+  !JSON.stringify(online.content).includes('FORMFEED_API_KEY')
+)
+  throw new Error(`list_templates without a key: ${JSON.stringify(online)}`);
+await keyless.close();
 console.log(
-  `formfeed-mcp smoke ok: ${names.length} tools, offline validation and invoice check work`,
+  `formfeed-mcp smoke ok: ${names.length} tools, offline validation and invoice check work, also without a key`,
 );

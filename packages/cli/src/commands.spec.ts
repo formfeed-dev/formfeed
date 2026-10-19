@@ -13,7 +13,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { run, type ProgramContext } from './commands';
+import { previewKeyLine, run, type ProgramContext } from './commands';
 import { forwardDelivery, type WebSocketLike } from './lib/listen';
 
 interface Call {
@@ -407,6 +407,7 @@ function fakeApi() {
           status: 'succeeded',
           page_count: 1,
           units: 0,
+          environment: 'test',
           download_url: 'https://cdn.test/o/x.pdf',
         },
         201,
@@ -1580,6 +1581,19 @@ describe('formfeed CLI', () => {
     });
   });
 
+  it('ci preview names the key that rendered, live or test', () => {
+    expect(previewKeyLine([{ environment: 'test' }])).toBe(
+      'Rendered with a Formfeed test key; links expire.',
+    );
+    // one live render among test ones counted units, which the summary must not hide
+    expect(
+      previewKeyLine([{ environment: 'test' }, { environment: 'live' }]),
+    ).toBe(
+      'Rendered with a Formfeed live key, so these renders counted units; links expire.',
+    );
+    expect(previewKeyLine([{}])).toBeNull();
+  });
+
   it('ci preview renders the templates changed since the base and writes a summary', async () => {
     await run(['init'], ctx);
     const git = (args: string[]) =>
@@ -1599,6 +1613,10 @@ describe('formfeed CLI', () => {
     expect(existsSync(join(dir, 'formfeed-preview', 'hello.pdf'))).toBe(true);
     const summary = readFileSync(join(dir, 'formfeed-preview.md'), 'utf8');
     expect(summary).toContain('| `hello` | default | 1 |');
+    // the key the API says rendered it, not one the summary assumes
+    expect(summary).toContain(
+      'Rendered with a Formfeed test key; links expire.',
+    );
     expect(
       api.calls.some((c) => c.path === '/v1/renders' && c.method === 'POST'),
     ).toBe(true);

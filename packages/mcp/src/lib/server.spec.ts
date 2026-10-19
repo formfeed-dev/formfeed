@@ -57,6 +57,11 @@ const verdict = {
   warnings: [],
 };
 
+/** A 1x1 transparent PNG, as an image render's link serves it. */
+const PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+const PNG = Uint8Array.from(atob(PNG_BASE64), (c) => c.charCodeAt(0));
+
 function fakeApi(seenKeys: string[] = []) {
   const calls: Array<{ method: string; path: string; body: unknown }> = [];
   const json = (body: unknown, status = 200) =>
@@ -269,6 +274,35 @@ function fakeApi(seenKeys: string[] = []) {
         },
         201,
       );
+    // image templates: `card` renders a small picture, `poster` one larger than a result may carry
+    const image = (call.body as { template?: string } | undefined)?.template;
+    if (
+      call.path === '/v1/renders' &&
+      call.method === 'POST' &&
+      (image === 'card' || image === 'poster')
+    )
+      return json(
+        {
+          id: `rnd_${image}`,
+          status: 'succeeded',
+          output: 'png',
+          download_url: `https://cdn.test/o/${image}.png`,
+          expires_at: '2026-10-21T00:00:00Z',
+          page_count: null,
+          units: 0,
+          environment: 'test',
+          template: { id: 'tpl_5', slug: image, version: 1 },
+          error: null,
+        },
+        201,
+      );
+    // the files behind those links, as the CDN serves them
+    if (url.host === 'cdn.test' && url.pathname === '/o/card.png')
+      return new Response(PNG, { headers: { 'content-type': 'image/png' } });
+    if (url.host === 'cdn.test' && url.pathname === '/o/poster.png')
+      return new Response(new Uint8Array(3 * 1024 * 1024), {
+        headers: { 'content-type': 'image/png' },
+      });
     if (call.path === '/v1/renders' && call.method === 'POST')
       return json(
         {
@@ -301,9 +335,14 @@ function fakeApi(seenKeys: string[] = []) {
   return { calls, fetchImpl };
 }
 
-async function connectedClient(fetchImpl: typeof fetch, localFiles = false) {
+async function connectedClient(
+  fetchImpl: typeof fetch,
+  localFiles = false,
+  /** null: a server started without a key */
+  apiKey: string | null = 'ff_test_k',
+) {
   const server = createFormfeedServer({
-    apiKey: 'ff_test_k',
+    ...(apiKey ? { apiKey } : {}),
     fetch: fetchImpl,
     localFiles,
   });
@@ -653,6 +692,70 @@ describe('@formfeed/mcp', () => {
     });
     expect(missing.isError).toBe(true);
     expect(JSON.stringify(missing.content)).toMatch(/template_not_found/);
+    await close();
+  });
+
+  it('hands an image back as a picture the agent can look at, and a large one or a PDF as its link', async () => {
+    const { client, close } = await connectedClient(fakeApi().fetchImpl);
+    const kinds = (r: { content?: unknown }) =>
+      (r.content as Array<{ type: string }>).map((c) => c.type);
+
+    const card = await client.callTool({
+      name: 'render',
+      arguments: { template: 'card', data: { title: 'Launch' } },
+    });
+    expect(structured(card)).toMatchObject({
+      id: 'rnd_card',
+      download_url: 'https://cdn.test/o/card.png',
+    });
+    expect(card.content).toEqual([
+      expect.objectContaining({ type: 'text' }),
+      { type: 'image', data: PNG_BASE64, mimeType: 'image/png' },
+    ]);
+
+    // past the limit the link is enough; a PDF has no picture to show
+    const poster = await client.callTool({
+      name: 'render',
+      arguments: { template: 'poster', data: {} },
+    });
+    expect(kinds(poster)).toEqual(['text']);
+    expect(structured(poster)).toMatchObject({ id: 'rnd_poster' });
+    const invoice = await client.callTool({
+      name: 'render',
+      arguments: { template: 'invoice', data: { invoice: { number: 7 } } },
+    });
+    expect(kinds(invoice)).toEqual(['text']);
+    await close();
+  });
+
+  it('starts without a key: the offline tools work, the others say how to get one', async () => {
+    const api = fakeApi();
+    const { client, close } = await connectedClient(api.fetchImpl, false, null);
+    expect(client.getInstructions()).toMatch(/^No API key is set/);
+
+    const invoice = await client.callTool({
+      name: 'check_invoice',
+      arguments: { invoice: {} },
+    });
+    expect(structured(invoice).ok).toBe(false);
+    const html = await client.callTool({
+      name: 'validate_template',
+      arguments: { html: '<p>{{ a }}</p>', engine: 'jinja2', data: { a: 1 } },
+    });
+    expect(structured(html).ok).toBe(true);
+
+    for (const [name, args] of [
+      ['list_templates', {}],
+      ['render', { html: '<p>x</p>' }],
+      ['validate_template', { template: 'invoice' }],
+      ['get_workspace', {}],
+    ] as const) {
+      const result = await client.callTool({ name, arguments: args });
+      expect([name, result.isError]).toEqual([name, true]);
+      expect(JSON.stringify(result.content)).toContain('FORMFEED_API_KEY');
+    }
+    // nothing was sent anywhere
+    expect(api.calls).toHaveLength(0);
     await close();
   });
 

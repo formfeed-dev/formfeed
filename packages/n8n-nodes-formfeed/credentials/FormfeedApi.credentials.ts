@@ -6,7 +6,7 @@ import type {
   INodeProperties,
 } from 'n8n-workflow';
 
-/** API key of one Formfeed workspace. Test keys render for free and watermark the output. */
+/** API key of one Formfeed workspace. Test keys render for free, with a test mark on the Free plan. */
 export class FormfeedApi implements ICredentialType {
   name = 'formfeedApi';
   displayName = 'Formfeed API';
@@ -27,7 +27,7 @@ export class FormfeedApi implements ICredentialType {
       required: true,
       placeholder: 'ff_live_… or ff_test_…',
       description:
-        'Created in the app under API keys. A test key renders for free with a watermark.',
+        'Created in the app under API keys. A test key renders for free; on the Free plan its documents carry a test mark.',
     },
     {
       displayName: 'Region',
@@ -47,8 +47,7 @@ export class FormfeedApi implements ICredentialType {
       type: 'string',
       default: '',
       placeholder: 'https://api-eu.formfeed.dev/v1',
-      description:
-        'Overrides the region host, for staging or a self-hosted gateway',
+      description: 'Overrides the region host, for example for a staging API',
     },
   ];
 

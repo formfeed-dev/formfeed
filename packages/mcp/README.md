@@ -5,7 +5,8 @@
 Model Context Protocol server for [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=mcp).
 Gives Claude, Cursor and other agents eight tools: `list_templates`, `get_template_schema`,
 `validate_template` (free: the data against the template's schema, ad-hoc HTML offline), `check_invoice` (free and offline: the
-`_invoice` block of a ZUGFeRD / Factur-X e-invoice against EN 16931), `render` (with `einvoice`, the PDF becomes that e-invoice),
+`_invoice` block of a ZUGFeRD / Factur-X e-invoice against EN 16931), `render` (with `einvoice`, the PDF becomes that e-invoice; an
+image comes back as a picture the agent can look at),
 `convert_to_pdf` (Word, Excel, PowerPoint and OpenDocument to PDF), `get_render` and `get_workspace` (which workspace the
 server works in, and the units left).
 
@@ -23,8 +24,10 @@ server works in, and the units left).
 }
 ```
 
-A test key renders free with a watermark; a live key consumes units. `FORMFEED_REGION=us` or
-`FORMFEED_BASE_URL` select another API host.
+A test key renders for free (on the Free plan with a test mark); a live key consumes units.
+Without `FORMFEED_API_KEY` the server starts too, with the offline checks only: `validate_template`
+with `html` and `engine`, and `check_invoice`. `FORMFEED_REGION=us` or `FORMFEED_BASE_URL` select
+another API host.
 
 ## Hosted (Streamable HTTP)
 

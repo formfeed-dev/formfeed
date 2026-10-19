@@ -27,8 +27,8 @@
       "environmentVariables": [
         {
           "name": "FORMFEED_API_KEY",
-          "description": "Formfeed API key: ff_test_… renders free with a watermark, ff_live_… consumes units",
-          "isRequired": true,
+          "description": "Formfeed API key: ff_test_… renders for free (with a test mark on the Free plan), ff_live_… consumes units. Without one, only validate_template with html and check_invoice work",
+          "isRequired": false,
           "isSecret": true
         },
         {

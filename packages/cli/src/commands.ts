@@ -1587,6 +1587,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
                 data: set.name,
                 status: 'failed',
                 error: JSON.stringify(render.error ?? null),
+                environment: render.environment,
               });
               continue;
             }
@@ -1600,6 +1601,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
               file,
               pages: render.page_count ?? null,
               url: render.download_url ?? null,
+              environment: render.environment,
             });
           }
         } finally {
@@ -3553,6 +3555,8 @@ interface PreviewRow {
   pages?: number | null;
   url?: string | null;
   error?: string;
+  /** Whose key rendered it, as the API says: the summary names it. */
+  environment?: 'live' | 'test';
 }
 
 /** Approved snapshots live beside the template, the layout the docs describe (`.xml` for Word and PowerPoint). */
@@ -3642,7 +3646,23 @@ function defaultGit(args: string[], cwd: string): string | null {
   return result.status === 0 ? result.stdout : null;
 }
 
+/**
+ * What the summary says about the key, from the renders themselves: until 2026-10-19 it said "test
+ * key" whatever key rendered, also under renders that had counted units.
+ */
+export function previewKeyLine(
+  rows: Pick<PreviewRow, 'environment'>[],
+): string | null {
+  const environments = new Set(rows.map((r) => r.environment).filter(Boolean));
+  if (environments.has('live'))
+    return 'Rendered with a Formfeed live key, so these renders counted units; links expire.';
+  if (environments.has('test'))
+    return 'Rendered with a Formfeed test key; links expire.';
+  return null;
+}
+
 function previewMarkdown(base: string, rows: PreviewRow[]): string {
+  const keyLine = previewKeyLine(rows);
   const lines = [
     '## Formfeed preview',
     '',
@@ -3656,8 +3676,7 @@ function previewMarkdown(base: string, rows: PreviewRow[]): string {
         : `| \`${r.slug}\` | ${r.data} | — | failed: ${r.error ?? 'unknown error'} |`,
     ),
     '',
-    'Rendered with a Formfeed test key; links expire.',
-    '',
+    ...(keyLine ? [keyLine, ''] : []),
   ];
   return lines.join('\n');
 }

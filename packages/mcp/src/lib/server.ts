@@ -16,8 +16,12 @@ import { z } from 'zod';
  * the template's schema; ad-hoc HTML is validated locally with the shared engine. Both are free.
  */
 export interface ServerOptions {
-  /** An API key, or an OAuth access token together with `workspaceId` (spec 10 §3.1). */
-  apiKey: string;
+  /**
+   * An API key, or an OAuth access token together with `workspaceId` (spec 10 §3.1). Without one, as
+   * the stdio server starts when FORMFEED_API_KEY is not set, only the offline tools work
+   * (`validate_template` with html, `check_invoice`), and the others say how to get a key.
+   */
+  apiKey?: string;
   /** The workspace an access token acts in; sent as `X-Formfeed-Workspace`. Not for API keys, which carry theirs. */
   workspaceId?: string;
   baseUrl?: string;
@@ -32,6 +36,57 @@ export interface ServerOptions {
 
 /** The converter's upload limit; larger files are refused before they are read or sent. */
 const CONVERT_LIMIT_BYTES = 20 * 1024 * 1024;
+
+/** What a tool that needs the API answers when the server has no key. */
+const NO_KEY =
+  'This tool needs a Formfeed API key. Set FORMFEED_API_KEY to a key from https://app.formfeed.dev/keys (a test key, ff_test_…, renders for free), or connect to https://mcp.formfeed.dev/mcp and sign in. Without a key, validate_template (with html and engine) and check_invoice work.';
+const NO_KEY_INSTRUCTION =
+  'No API key is set, so only validate_template with html and engine, and check_invoice, work here; every other tool answers with how to get a key.';
+
+/** Outputs whose file is a picture an agent can look at, with the type it is sent as. */
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  webp: 'image/webp',
+};
+/** A larger picture stays a link: clients cap what one tool result may carry. */
+const IMAGE_LIMIT_BYTES = 2 * 1024 * 1024;
+
+/** The body, or null once it grows past `limit`, without reading the rest. */
+async function readCapped(
+  res: Response,
+  limit: number,
+): Promise<Uint8Array | null> {
+  if (!res.body) return null;
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}
+
+/** Base64 with Web APIs only: the hosted server runs in a Worker, which has no Buffer. */
+function base64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
 
 export const SERVER_INFO = { name: 'formfeed', version: '0.3.17' };
 
@@ -214,22 +269,61 @@ function failure(e: unknown) {
 }
 
 export function createFormfeedServer(options: ServerOptions): McpServer {
-  const client = new Formfeed({
-    apiKey: options.apiKey,
-    headers: {
-      'user-agent': `formfeed-mcp/${SERVER_INFO.version}`,
-      ...(options.workspaceId
-        ? { 'x-formfeed-workspace': options.workspaceId }
-        : {}),
-    },
-    ...(options.region ? { region: options.region } : {}),
-    ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
-    ...(options.fetch ? { fetch: options.fetch } : {}),
-  });
+  const client = options.apiKey
+    ? new Formfeed({
+        apiKey: options.apiKey,
+        headers: {
+          'user-agent': `formfeed-mcp/${SERVER_INFO.version}`,
+          ...(options.workspaceId
+            ? { 'x-formfeed-workspace': options.workspaceId }
+            : {}),
+        },
+        ...(options.region ? { region: options.region } : {}),
+        ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+        ...(options.fetch ? { fetch: options.fetch } : {}),
+      })
+    : null;
+  /** The API client of every tool that asks the API; without a key it answers with how to get one. */
+  const api = (): Formfeed => {
+    if (!client) throw new Error(NO_KEY);
+    return client;
+  };
+  // called as a plain function: a stored Web API function called as a method loses its binding
+  const fetchImpl: typeof fetch =
+    options.fetch ?? ((input, init) => fetch(input, init));
   const server = new McpServer(SERVER_INFO, {
     instructions:
-      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. convert_to_pdf turns office documents into PDFs. get_workspace says which workspace this server works in and what the period has left.',
+      (client ? '' : `${NO_KEY_INSTRUCTION} `) +
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. convert_to_pdf turns office documents into PDFs. get_workspace says which workspace this server works in and what the period has left.',
   });
+
+  /**
+   * The rendered picture as image content, so an agent sees what it made: only for image outputs
+   * (a PDF would need its page drawn first) and only up to IMAGE_LIMIT_BYTES. Anything that goes
+   * wrong leaves the result as it was, with its link.
+   */
+  const picture = async (render: Render) => {
+    const mimeType = IMAGE_TYPES[render.output];
+    if (render.status !== 'succeeded' || !mimeType || !render.download_url)
+      return [];
+    try {
+      const res = await fetchImpl(render.download_url);
+      const bytes = res.ok ? await readCapped(res, IMAGE_LIMIT_BYTES) : null;
+      return bytes
+        ? [{ type: 'image' as const, data: base64(bytes), mimeType }]
+        : [];
+    } catch {
+      return [];
+    }
+  };
+  /** A render's result: its summary as text and structured content, then its picture if it has one. */
+  const renderResult = async (render: Render) => {
+    const result = text(renderSummary(render));
+    return {
+      ...result,
+      content: [...result.content, ...(await picture(render))],
+    };
+  };
 
   server.registerTool(
     'list_templates',
@@ -281,7 +375,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     },
     async (args) => {
       try {
-        const templates = await client.templates.all(args);
+        const templates = await api().templates.all(args);
         return text({ templates: templates.map(templateSummary) });
       } catch (e) {
         return failure(e);
@@ -319,11 +413,11 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     },
     async ({ template }) => {
       try {
-        const version = await client.templates.versions
-          .get(template, 'published')
+        const version = await api()
+          .templates.versions.get(template, 'published')
           .catch(async (e: FormfeedError) => {
             if (e.status === 404)
-              return client.templates.versions.get(template, 'latest');
+              return api().templates.versions.get(template, 'latest');
             throw e;
           });
         const schema =
@@ -385,7 +479,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           // written as "19 %" fails here instead of printing NaN. Free, and it counts no unit. The
           // version is the one render and get_template_schema use: published, else the latest.
           const check = (version: string) =>
-            client.templates.validate(template, {
+            api().templates.validate(template, {
               version,
               ...(data ? { data } : {}),
             });
@@ -496,7 +590,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     {
       title: 'Render a document',
       description:
-        "Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url. Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key or a signed-in agent consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. With einvoice the PDF becomes a ZUGFeRD / Factur-X e-invoice built from data._invoice (check the block with check_invoice first): the render then carries einvoice, the validator's report, and a refused invoice names the fields and rules to fix. The link expires at expires_at; get_render issues a fresh one.",
+        "Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url; for an image (png, jpg or webp) up to 2 MB the result also carries the picture itself, so look at what you made before handing it on (a PDF comes as its link). Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key or a signed-in agent consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. With einvoice the PDF becomes a ZUGFeRD / Factur-X e-invoice built from data._invoice (check the block with check_invoice first): the render then carries einvoice, the validator's report, and a refused invoice names the fields and rules to fix. The link expires at expires_at; get_render issues a fresh one.",
       inputSchema: {
         template: z
           .string()
@@ -592,7 +686,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       try {
         if (!template && !html)
           return failure(new Error('Pass template or html'));
-        let render = await client.renders.create({
+        let render = await api().renders.create({
           ...(template ? { template } : {}),
           ...(html ? { html } : {}),
           ...(engine ? { engine } : {}),
@@ -606,8 +700,8 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           meta: { source: 'mcp' },
         });
         if (wait && render.status !== 'succeeded' && render.status !== 'failed')
-          render = await client.renders.waitFor(render.id);
-        return text(renderSummary(render));
+          render = await api().renders.waitFor(render.id);
+        return await renderResult(render);
       } catch (e) {
         return failure(e);
       }
@@ -706,7 +800,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
         };
         let render: Render;
         if (render_id) {
-          render = await client.pdf.convert(render_id, convert);
+          render = await api().pdf.convert(render_id, convert);
         } else {
           let data: Uint8Array;
           let name: string;
@@ -737,7 +831,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
               );
             name = file_name;
           }
-          render = await client.pdf.convert(
+          render = await api().pdf.convert(
             { file: { data, name } },
             {
               ...convert,
@@ -748,8 +842,8 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           );
         }
         if (render.status !== 'succeeded' && render.status !== 'failed')
-          render = await client.renders.waitFor(render.id);
-        return text(renderSummary(render));
+          render = await api().renders.waitFor(render.id);
+        return await renderResult(render);
       } catch (e) {
         return failure(e);
       }
@@ -761,7 +855,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     {
       title: 'Get a render',
       description:
-        'Returns the current state of a render: status (queued, rendering, succeeded or failed), download_url with expires_at, page_count, units and error. Use it to follow a render started with wait false, or to get a fresh link once the old one has expired; render and convert_to_pdf already return this for the render they just made. Read-only and free; an unknown id returns an error.',
+        'Returns the current state of a render: status (queued, rendering, succeeded or failed), download_url with expires_at, page_count, units and error, and the picture of a finished image render up to 2 MB. Use it to follow a render started with wait false, or to get a fresh link once the old one has expired; render and convert_to_pdf already return this for the render they just made. Read-only and free; an unknown id returns an error.',
       inputSchema: {
         id: z
           .string()
@@ -774,7 +868,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     },
     async ({ id }) => {
       try {
-        return text(renderSummary(await client.renders.get(id)));
+        return await renderResult(await api().renders.get(id));
       } catch (e) {
         return failure(e);
       }
@@ -830,7 +924,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     async () => {
       try {
         const { workspace, organization, plan, environment, period, units } =
-          await client.account.get();
+          await api().account.get();
         return text({
           workspace,
           organization,
