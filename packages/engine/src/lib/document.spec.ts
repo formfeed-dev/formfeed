@@ -160,6 +160,40 @@ describe('settings and assembly', () => {
     expect(out.title).toBe('Rechnung 42');
     expect(out.settings.locale).toBe('de-DE');
   });
+
+  it('renders author, subject and keywords with the data, as it does the title', async () => {
+    const ctx: RenderContext = {
+      locale: 'en',
+      timezone: 'UTC',
+      currency: 'EUR',
+      partials: () => undefined,
+      helpers: defaultHelpers(),
+      limits: { ms: 5000, outputBytes: 1e7, includeDepth: 8 },
+    };
+    const out = await renderVersion(
+      {
+        engine: 'jinja2',
+        html: '<p>x</p>',
+        settings: {
+          pdf: {
+            metadata: {
+              author: '{{ report.company }}',
+              subject: 'Annual report {{ report.year }}',
+              keywords: '{{ missing }}',
+            },
+          },
+        },
+      },
+      { report: { company: 'Fennlor Studio GmbH', year: 2026 } },
+      ctx,
+    );
+    // until 2026-10-19 they went into the PDF as written, template syntax and all; one that renders
+    // empty is left out rather than written as its template text
+    expect(out.metadata).toEqual({
+      author: 'Fennlor Studio GmbH',
+      subject: 'Annual report 2026',
+    });
+  });
 });
 
 describe('paged preview document', () => {

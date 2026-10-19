@@ -383,6 +383,11 @@ export interface RenderedDocument {
   footerHtml?: string;
   /** PDF metadata title after template rendering. */
   title?: string;
+  /**
+   * The rest of the PDF metadata, rendered with the same data as the title. Until 2026-10-19 only
+   * the title was, and a template's `{{ report.company }}` stood in a published PDF as its author.
+   */
+  metadata?: { author?: string; subject?: string; keywords?: string };
   settings: TemplateSettings;
   /** Font faces and extra CSS the header/footer templates need inlined (Chromium loads no external CSS there). */
   inlineCss: string;
@@ -412,16 +417,26 @@ export async function renderVersion(
     source
       ? engine.render(engine.compile(source, { name }), data, renderCtx)
       : undefined;
-  const [html, headerHtml, footerHtml, title] = await Promise.all([
-    engine.render(
-      engine.compile(version.html, { name: 'template' }),
-      data,
-      renderCtx,
-    ),
-    renderPart(settings.header?.html, 'header'),
-    renderPart(settings.footer?.html, 'footer'),
-    renderPart(settings.pdf?.metadata?.title, 'title'),
-  ]);
+  const meta = settings.pdf?.metadata;
+  const [html, headerHtml, footerHtml, title, author, subject, keywords] =
+    await Promise.all([
+      engine.render(
+        engine.compile(version.html, { name: 'template' }),
+        data,
+        renderCtx,
+      ),
+      renderPart(settings.header?.html, 'header'),
+      renderPart(settings.footer?.html, 'footer'),
+      renderPart(meta?.title, 'title'),
+      renderPart(meta?.author, 'author'),
+      renderPart(meta?.subject, 'subject'),
+      renderPart(meta?.keywords, 'keywords'),
+    ]);
+  const metadata = Object.fromEntries(
+    Object.entries({ author, subject, keywords })
+      .map(([key, value]) => [key, value?.trim()])
+      .filter(([, value]) => value),
+  ) as RenderedDocument['metadata'];
   const inlineCss = [
     fontFaceCss(
       extras.fonts,
@@ -448,6 +463,7 @@ export async function renderVersion(
     headerHtml,
     footerHtml,
     title: title?.trim() || undefined,
+    metadata,
     settings,
     inlineCss,
   };
