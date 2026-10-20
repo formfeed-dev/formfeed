@@ -521,10 +521,13 @@ describe('usage', () => {
     const { calls, fetchImpl } = stub(() =>
       json({
         period: '2026-09',
+        period_start: '2026-09-14',
+        period_end: '2026-10-14',
         included: 15000,
         used: 120,
         overage_used: 0,
         overage_balance: 0,
+        hard_cap_units: 45000,
         daily: [],
         by_template: [],
       }),
@@ -532,6 +535,8 @@ describe('usage', () => {
     const client = new Formfeed({ apiKey: 'ff_test_k', fetch: fetchImpl });
     const usage = await client.account.usage('2026-08');
     expect(usage.period).toBe('2026-09');
+    expect(usage.period_end).toBe('2026-10-14');
+    expect(usage.hard_cap_units).toBe(45000);
     expect(calls[0]?.url).toContain('/usage?period=2026-08');
   });
 });

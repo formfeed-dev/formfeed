@@ -398,11 +398,18 @@ class UsageTemplate(_Model):
 
 
 class Usage(_Model):
+    #: The month the period started in, ``YYYY-MM``.
     period: str
+    #: The first day of the period and the first day after it, ``YYYY-MM-DD``.
+    period_start: str | None = None
+    period_end: str | None = None
     included: float = 0
     used: float = 0
     overage_used: float = 0
+    #: Prepaid units left now, also for an earlier period.
     overage_balance: float = 0
+    #: The units at which overage stops live renders; None without overage and for an earlier period.
+    hard_cap_units: float | None = None
     daily: list[UsageDay] = []
     by_template: list[UsageTemplate] = []
 

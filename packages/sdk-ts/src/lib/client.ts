@@ -169,7 +169,7 @@ export interface WatermarkOptions {
   image?: string;
   /** 0 to 1, default 0.2. */
   opacity?: number;
-  /** Degrees clockwise as in CSS, default -45 (bottom left to top right). */
+  /** Degrees clockwise as in CSS, -360 to 360; left out, -45 for a text (bottom left to top right) and 0 for an image. */
   rotation?: number;
   /** Hex colour such as `#cc0000`; grey by default. Text only. */
   color?: string;
@@ -635,11 +635,11 @@ export interface TemplateFiles {
   settings?: Record<string, unknown>;
   sample_data?: Record<string, unknown>;
   /** Named sample data sets besides the default one, as the editor and the dev kit show them. */
-  data_sets?: Record<string, unknown> | null;
+  data_sets?: Record<string, unknown>;
   data_schema?: Record<string, unknown> | null;
   i18n?: Record<string, unknown> | null;
   /** Partials the template includes (`name` → source); `formfeed templates push` sends them. */
-  partials?: Record<string, string> | null;
+  partials?: Record<string, string>;
 }
 
 export interface TemplateVersion extends Partial<TemplateFiles> {
@@ -794,11 +794,19 @@ function multipart(
 }
 
 export interface Usage {
+  /** The month the period started in, `YYYY-MM`. */
   period: string;
+  /** The first day of the period, `YYYY-MM-DD`. */
+  period_start: string;
+  /** The first day after the period. */
+  period_end: string;
   included: number;
   used: number;
   overage_used: number;
+  /** Prepaid units left now, also for an earlier period. */
   overage_balance: number;
+  /** The units at which overage stops live renders; null without overage and for an earlier period. */
+  hard_cap_units: number | null;
   daily: Array<{ date: string; units: number; renders: number }>;
   by_template: Array<{ template: string; units: number }>;
 }

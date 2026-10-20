@@ -652,7 +652,8 @@ class _Pdf:
         self, source: Render | str, text: str | None = None, *, image: str | None = None, idempotency_key: str | None = None, **options: Any
     ) -> Render:
         """A ``text`` or an ``image`` (a PNG or JPEG of the file library, by id or name); ``opacity`` (0.2),
-        ``rotation`` (degrees clockwise, -45) and ``color`` (hex, text only)."""
+        ``rotation`` (degrees clockwise, -360 to 360; -45 for a text and 0 for an image when omitted) and
+        ``color`` (hex, text only)."""
         body = {**_options(options), "source": _source_id(source), **_watermark_body(text, image)}
         return Render.model_validate(self._c.request("POST", "/pdf/watermark", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
