@@ -88,7 +88,7 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export const SERVER_INFO = { name: 'formfeed', version: '0.3.18' };
+export const SERVER_INFO = { name: 'formfeed', version: '0.3.19' };
 
 /**
  * Tool annotations, spelled out in full because directories read them literally: ChatGPT's wants
