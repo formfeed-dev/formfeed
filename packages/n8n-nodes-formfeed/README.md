@@ -5,8 +5,10 @@ read template schemas, and start workflows when a render or batch finishes.
 
 ## Install
 
-In n8n: **Settings → Community nodes → Install**, package name `n8n-nodes-formfeed`.
-Self-hosted installs can also run `npm install n8n-nodes-formfeed` in the n8n user folder.
+n8n has verified the node, so n8n Cloud and self-hosted n8n offer it in the nodes panel: search for
+**Formfeed** and click **Install node** (owners and admins). A self-hosted n8n can also install it by
+name under **Settings → Community nodes → Install**, package name `n8n-nodes-formfeed`, or run
+`npm install n8n-nodes-formfeed` in the n8n user folder.
 
 ## Credentials
 
@@ -39,8 +41,9 @@ Formfeed app is such a template. What the fields do not offer goes into _Invoice
 names of the [field reference](https://docs.formfeed.dev/templates/e-invoices#invoice-block).
 
 The node also works as a tool: connect it to the **Tools** input of n8n's AI Agent node and the agent
-picks the operation and fills in its fields. A self-hosted n8n offers community nodes as tools only
-when the instance sets `N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true`.
+picks the operation and fills in its fields. A current n8n offers it as a tool without any setting;
+older self-hosted versions did so only when the instance set
+`N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true`.
 
 **Formfeed Trigger**
 
