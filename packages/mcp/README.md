@@ -37,4 +37,8 @@ agent works in). `https://mcp.formfeed.dev/mcp/<workspace id>` pins another work
 client. Self-host the same endpoint with `formfeed-mcp --http --port 8790`, plus `--auth-server <issuer>`
 for OAuth sign-in against your own Supabase Auth.
 
+Claude Code installs the hosted server together with two skills for writing and checking templates
+as Formfeed's plugin, from [formfeed-dev/skills](https://github.com/formfeed-dev/skills):
+<https://docs.formfeed.dev/devkit/coding-agents>
+
 Documentation: <https://docs.formfeed.dev/integrations/mcp>

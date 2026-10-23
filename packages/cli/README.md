@@ -45,4 +45,8 @@ Configuration precedence: flags, then `FORMFEED_API_KEY` / `FORMFEED_BASE_URL` /
 (`~/.config/formfeed/config.json`, `%APPDATA%\formfeed\config.json`). Exit codes: 0 ok,
 1 validation, 2 usage, 3 auth, 4 network or API, 5 quota.
 
+Coding agents learn these commands from the skills in
+[formfeed-dev/skills](https://github.com/formfeed-dev/skills), a plugin for Claude Code and a
+package for any agent that reads Agent Skills: <https://docs.formfeed.dev/devkit/coding-agents>
+
 Documentation: <https://docs.formfeed.dev/cli>
