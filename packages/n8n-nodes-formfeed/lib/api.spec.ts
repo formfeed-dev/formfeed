@@ -12,10 +12,60 @@ import {
   mergeData,
   nestData,
   pdfNameFor,
+  problemOf,
   renderBody,
   schemaFields,
   type InvoiceFields,
 } from './api';
+
+describe('problemOf', () => {
+  // the shape n8n's request helper throws for a 422, as a workflow stored it (2026-10-24)
+  const refused = Object.assign(
+    new Error(
+      'Your request is invalid or could not be processed by the service',
+    ),
+    {
+      httpCode: '422',
+      description: 'Request failed with status code 422',
+      context: {
+        data: {
+          type: 'https://docs.formfeed.dev/errors/einvoice-data-invalid',
+          title: 'E-invoice data invalid',
+          status: 422,
+          detail:
+            '_invoice.lines[0].tax.rate is 0: category S is standard rated and needs a rate above 0; a rate of 0 is category Z or E (BR-S-05)',
+          code: 'einvoice_data_invalid',
+          errors: [
+            {
+              path: 'data._invoice.lines[0].tax.rate',
+              message: '_invoice.lines[0].tax.rate is 0 (BR-S-05)',
+              rule: 'BR-S-05',
+            },
+          ],
+        },
+      },
+    },
+  );
+
+  it('reads the problem the API answered with', () => {
+    const problem = problemOf(refused);
+    expect(problem?.code).toBe('einvoice_data_invalid');
+    expect(problem?.detail).toContain('BR-S-05');
+    expect(problem?.errors?.[0]?.rule).toBe('BR-S-05');
+  });
+
+  it('finds nothing in an error that is no API answer', () => {
+    expect(problemOf(new Error('socket hang up'))).toBeUndefined();
+    expect(
+      problemOf(Object.assign(new Error('x'), { context: { data: 'text' } })),
+    ).toBeUndefined();
+    expect(
+      problemOf(Object.assign(new Error('x'), { context: { data: {} } })),
+    ).toBeUndefined();
+    expect(problemOf(undefined)).toBeUndefined();
+    expect(problemOf('failed')).toBeUndefined();
+  });
+});
 
 describe('baseUrl', () => {
   it('maps the region to a host', () => {

@@ -40,6 +40,11 @@ sends it as the `_invoice` block, which the template prints as well; the E-invoi
 Formfeed app is such a template. What the fields do not offer goes into _Invoice (JSON)_, with the
 names of the [field reference](https://docs.formfeed.dev/templates/e-invoices#invoice-block).
 
+When the API refuses a request, the node stops with the API's own sentence, which names the field and
+the rule (`… (BR-S-05)`). With **On Error → Continue (using error output)**, the item leaves by the
+error output instead and carries `error` (that sentence) and `details` (the whole answer: `code`, and
+for a refused e-invoice `errors` with the `path` and `rule` of every finding).
+
 The node also works as a tool: connect it to the **Tools** input of n8n's AI Agent node and the agent
 picks the operation and fills in its fields. A current n8n offers it as a tool without any setting;
 older self-hosted versions did so only when the instance set

@@ -26,6 +26,7 @@ import {
   pdfNameFor,
   mergeData,
   nestData,
+  problemOf,
   renderBody,
   schemaFields,
   type ChannelSummary,
@@ -1543,13 +1544,24 @@ export class Formfeed implements INodeType {
           { itemIndex: i },
         );
       } catch (error) {
+        // What the API said, which n8n's own message for the status leaves out: the detail names the
+        // field and the rule (BR-S-05), and `details.errors` lists each of them. n8n sends an item to
+        // the error output only while its fields are `error`, `message` and `details`.
+        const problem = problemOf(error);
         if (this.continueOnFail()) {
           out.push({
-            json: { error: (error as Error).message },
+            json: problem
+              ? {
+                  error: problem.detail ?? (error as Error).message,
+                  details: problem as IDataObject,
+                }
+              : { error: (error as Error).message },
             pairedItem: { item: i },
           });
           continue;
         }
+        if (problem?.detail && error instanceof NodeApiError)
+          error.description = problem.detail;
         // Both constructors hand back an error that already is of their class, so an API error keeps
         // its HTTP details and our own NodeOperationError stays as it was; anything else is wrapped.
         throw error instanceof NodeApiError

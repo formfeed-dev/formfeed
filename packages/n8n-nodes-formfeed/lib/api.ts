@@ -457,6 +457,31 @@ export function mergeData(
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** An RFC 9457 problem as the API answers a refused request (`errors` names each field and rule). */
+export interface Problem {
+  type?: string;
+  title?: string;
+  status?: number;
+  detail?: string;
+  code?: string;
+  errors?: { path?: string; message?: string; rule?: string }[];
+  [key: string]: unknown;
+}
+
+/**
+ * The problem the API answered with, from the error n8n's request helper throws: it keeps the parsed
+ * body as `context.data`, while its message is n8n's sentence for the status ("Your request is
+ * invalid or could not be processed by the service"), which names neither the field nor the rule.
+ */
+export function problemOf(error: unknown): Problem | undefined {
+  const context = isPlainObject(error) ? error['context'] : undefined;
+  const data = isPlainObject(context) ? context['data'] : undefined;
+  return isPlainObject(data) &&
+    (typeof data['code'] === 'string' || typeof data['detail'] === 'string')
+    ? (data as Problem)
+    : undefined;
+}
+
 /** Events the trigger node can subscribe to; the API validates the same list. */
 export const TRIGGER_EVENTS = [
   'render.completed',
