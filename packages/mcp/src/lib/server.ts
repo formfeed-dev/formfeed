@@ -6,7 +6,13 @@ import {
   outputFormats,
   type Diagnostic,
 } from '@formfeed/engine';
-import { Formfeed, FormfeedError, type Render } from '@formfeed/sdk-ts';
+import {
+  Formfeed,
+  FormfeedError,
+  type Diagnostic as SdkDiagnostic,
+  type Render,
+  type TemplateVersion,
+} from '@formfeed/sdk-ts';
 import { z } from 'zod';
 
 /**
@@ -93,9 +99,9 @@ export const SERVER_INFO = { name: 'formfeed', version: '0.3.20' };
 /**
  * Tool annotations, spelled out in full because directories read them literally: ChatGPT's wants
  * `readOnlyHint`, `destructiveHint` and `openWorldHint` on every tool, Claude's a title plus one of
- * the first two (docs/marketing/listings.md). No tool deletes or overwrites anything, and none acts
- * outside the key's workspace and the user's own files: a render's output is reachable only through
- * its signed link.
+ * the first two (docs/marketing/listings.md). No tool deletes or overwrites anything (save_template
+ * adds a draft version beside the others), and none acts outside the key's workspace and the user's
+ * own files: a render's output is reachable only through its signed link.
  */
 const READS = {
   readOnlyHint: true,
@@ -213,6 +219,102 @@ const renderSummary = (r: Render) => ({
   ...(r.einvoice ? { einvoice: r.einvoice } : {}),
 });
 
+/** A finding of the API's check as the tools hand it on: the location flattened to line and column. */
+const diagnosticOf = (d: SdkDiagnostic) => ({
+  severity: d.severity,
+  code: d.code,
+  message: d.message,
+  ...(d.path ? { path: d.path } : {}),
+  ...(d.location ? { line: d.location.line, column: d.location.column } : {}),
+  ...(d.part ? { part: d.part, paragraph: d.paragraph } : {}),
+});
+
+const slugSchema = z
+  .string()
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/)
+  .describe(
+    'New in the workspace: lowercase letters, digits and dashes, e.g. invoice-de',
+  );
+
+/** The parts of a version save_template takes; get_template_source returns the same names. */
+const sourceParts = {
+  html: z
+    .string()
+    .max(2 * 1024 * 1024)
+    .optional()
+    .describe(
+      'The body markup in the template language, without <html>, <head> or <body>; up to 2 MB',
+    ),
+  css: z
+    .string()
+    .max(1024 * 1024)
+    .optional()
+    .describe('The stylesheet; up to 1 MB'),
+  head: z
+    .string()
+    .max(256 * 1024)
+    .optional()
+    .describe('Extra markup for <head>, such as font links'),
+  settings: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      'Paper, margins, header, footer, fonts and the other settings, as get_template_source returns them; replaces the stored settings as a whole',
+    ),
+  sample_data: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      'The data the editor previews with and the draft is checked with; never used by a render',
+    ),
+  data_sets: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('Named sample data sets besides sample_data (name → data)'),
+  data_schema: z
+    .record(z.string(), z.unknown())
+    .nullable()
+    .optional()
+    .describe('JSON Schema of data; null removes the stored one'),
+  i18n: z
+    .record(z.string(), z.unknown())
+    .nullable()
+    .optional()
+    .describe('Translations: locale → key → text, read by the t helper'),
+  partials: z
+    .record(z.string(), z.string())
+    .optional()
+    .describe('Partials the template includes (name → source)'),
+};
+
+/**
+ * The app a person reviews a draft in: Formfeed's own for its API hosts, none for another API (a
+ * local stack), whose app the server cannot know.
+ */
+function appOrigin(baseUrl: string | undefined): string | null {
+  if (!baseUrl) return 'https://app.formfeed.dev';
+  try {
+    return /^api(-[a-z]+)?\.formfeed\.dev$/.test(new URL(baseUrl).hostname)
+      ? 'https://app.formfeed.dev'
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `organization.slug` or `workspace.slug` of the account, which the SDK leaves an open record. */
+function slugIn(
+  account: Record<string, unknown> | null,
+  part: 'organization' | 'workspace',
+): string | null {
+  const value = account?.[part];
+  const slug =
+    typeof value === 'object' && value !== null
+      ? (value as Record<string, unknown>)['slug']
+      : null;
+  return typeof slug === 'string' ? slug : null;
+}
+
 /** Problems of an e-invoice that carry what to fix: the findings of the check, or the validator's report. */
 const EINVOICE_PROBLEMS = new Set([
   'einvoice_data_invalid',
@@ -294,7 +396,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   const server = new McpServer(SERVER_INFO, {
     instructions:
       (client ? '' : `${NO_KEY_INSTRUCTION} `) +
-      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. convert_to_pdf turns office documents into PDFs. get_workspace says which workspace this server works in and what the period has left.',
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. convert_to_pdf turns office documents into PDFs. To change a template or write a new one, read it with get_template_source and save it with save_template: it stays a draft until a person publishes it in Formfeed. get_workspace says which workspace this server works in and what the period has left.',
   });
 
   /**
@@ -436,16 +538,109 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   );
 
   server.registerTool(
+    'get_template_source',
+    {
+      title: 'Read the source of a template',
+      description:
+        "Returns what a template version is made of: the body markup (html), css, head, settings (paper, margins, header, footer, fonts), sample data, data sets, data schema, translations and partials, with the version's checksum. Call it before save_template to change a template the user named, and save what you edited with that checksum as base_checksum. Reads the latest version by default, the newest draft a change builds on; published reads what renders use. Word and PowerPoint templates are documents: for them it returns the settings and data, not the document. Read-only and free.",
+      inputSchema: {
+        template: z
+          .string()
+          .describe(
+            'Slug (e.g. invoice) or tpl_ id, as list_templates returns them',
+          ),
+        version: z
+          .union([z.string().min(1).max(32), z.number().int().positive()])
+          .optional()
+          .describe(
+            'latest (default), published, a version number or a channel name',
+          ),
+      },
+      outputSchema: {
+        template: z.object({
+          id: z.string().describe('tpl_ id'),
+          slug: z.string(),
+          name: z.string(),
+          kind: z
+            .string()
+            .describe('pdf, image, docx (Word) or pptx (PowerPoint)'),
+          engine: z.string().describe('jinja2, liquid or handlebars'),
+          published_version: z.number().nullable(),
+        }),
+        version: z.object({
+          number: z.number(),
+          status: z.string().describe('draft, published or archived'),
+          checksum: z
+            .string()
+            .describe('Pass it to save_template as base_checksum'),
+          change_note: z.string().nullable(),
+        }),
+        html: z.string(),
+        css: z.string(),
+        head: z.string(),
+        settings: z.record(z.string(), z.unknown()),
+        sample_data: z.record(z.string(), z.unknown()),
+        data_sets: z.record(z.string(), z.unknown()),
+        data_schema: z.record(z.string(), z.unknown()).nullable(),
+        i18n: z.record(z.string(), z.unknown()).nullable(),
+        partials: z.record(z.string(), z.string()),
+      },
+      annotations: READS,
+    },
+    async ({ template, version }) => {
+      try {
+        const [tpl, row] = await Promise.all([
+          api().templates.get(template),
+          api().templates.versions.get(template, version ?? 'latest'),
+        ]);
+        return text({
+          template: {
+            id: tpl.id,
+            slug: tpl.slug,
+            name: tpl.name,
+            kind: tpl.kind,
+            engine: tpl.engine,
+            published_version: tpl.published_version,
+          },
+          version: {
+            number: row.number,
+            status: row.status,
+            checksum: row.checksum,
+            change_note: row.change_note,
+          },
+          html: row.html ?? '',
+          css: row.css ?? '',
+          head: row.head ?? '',
+          settings: row.settings ?? {},
+          sample_data: row.sample_data ?? {},
+          data_sets: row.data_sets ?? {},
+          data_schema: row.data_schema ?? null,
+          i18n: row.i18n ?? null,
+          partials: row.partials ?? {},
+        });
+      } catch (e) {
+        return failure(e);
+      }
+    },
+  );
+
+  server.registerTool(
     'validate_template',
     {
       title: 'Validate a template with data',
       description:
-        'Checks a template and its data without rendering: free, no units, nothing stored, no document produced. Call it before render when you assembled the data yourself, or after writing ad-hoc html. With template, the API checks the published version (else the latest) as a render would: syntax, header and footer, errors only this data triggers, and the data against the stored JSON Schema (a wrong type or a missing required field is an error). With html and engine it compiles offline and reports syntax errors, unknown filters and variables missing from data. Returns ok and diagnostics (severity, code, message, plus path, line and column, or part and paragraph for Word and PowerPoint). Warnings leave ok true: settle each before rendering.',
+        'Checks a template and its data without rendering: free, no units, nothing stored, no document produced. Call it before render when you assembled the data yourself, or after writing ad-hoc html. With template, the API checks the published version (else the latest, or the version you name) as a render would: syntax, header and footer, errors only this data triggers, and the data against the stored JSON Schema (a wrong type or a missing required field is an error). With html and engine it compiles offline and reports syntax errors, unknown filters and variables missing from data. Returns ok and diagnostics (severity, code, message, plus path, line and column, or part and paragraph for Word and PowerPoint). Warnings leave ok true: settle each before rendering.',
       inputSchema: {
         template: z
           .string()
           .optional()
           .describe('Slug or tpl_ id of a stored template; pass this or html'),
+        version: z
+          .union([z.string().min(1).max(32), z.number().int().positive()])
+          .optional()
+          .describe(
+            'With template: the version to check, such as latest for the newest draft or a number; left out, the published one, else the latest',
+          ),
         html: z
           .string()
           .optional()
@@ -472,34 +667,29 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
       },
       annotations: READS,
     },
-    async ({ template, html, engine, data }) => {
+    async ({ template, version, html, engine, data }) => {
       try {
         if (template) {
           // The server's check is the one a render would pass: it knows the stored schema, so a rate
           // written as "19 %" fails here instead of printing NaN. Free, and it counts no unit. The
-          // version is the one render and get_template_schema use: published, else the latest.
-          const check = (version: string) =>
+          // version is the one render and get_template_schema use, published, else the latest,
+          // unless one is named (a draft save_template just saved).
+          const check = (which: string) =>
             api().templates.validate(template, {
-              version,
+              version: which,
               ...(data ? { data } : {}),
             });
-          const result = await check('published').catch((e: FormfeedError) => {
-            if (e.status === 404) return check('latest');
-            throw e;
-          });
+          const result =
+            version !== undefined
+              ? await check(String(version))
+              : await check('published').catch((e: FormfeedError) => {
+                  if (e.status === 404) return check('latest');
+                  throw e;
+                });
           return text({
             ok: result.ok,
             template: result.template,
-            diagnostics: result.diagnostics.map((d) => ({
-              severity: d.severity,
-              code: d.code,
-              message: d.message,
-              ...(d.path ? { path: d.path } : {}),
-              ...(d.location
-                ? { line: d.location.line, column: d.location.column }
-                : {}),
-              ...(d.part ? { part: d.part, paragraph: d.paragraph } : {}),
-            })),
+            diagnostics: result.diagnostics.map(diagnosticOf),
           });
         }
         if (!html || !engine)
@@ -531,6 +721,221 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
             line: d.range.start.line,
             column: d.range.start.column,
           })),
+        });
+      } catch (e) {
+        return failure(e);
+      }
+    },
+  );
+
+  /**
+   * Template drafts (spec 10 §3.2): a new version of a template, or a new template, never published,
+   * so renders keep the published version until a person publishes the draft in Formfeed. An API key
+   * needs `template:write`; a signed-in agent needs its person's permission, which the gateway
+   * checks and explains when it refuses.
+   */
+  server.registerTool(
+    'save_template',
+    {
+      title: 'Save a template as a draft',
+      description:
+        "Saves a template as a draft, never published: renders keep using the published version until a person publishes the draft in Formfeed. With template and base_checksum it saves a new version of that template: read it with get_template_source first, change what the user asked for, and pass only the parts you changed (the others are kept from the version you read). With new_template and html it creates a template whose version 1 is the draft. change_note says what changed; the person reads it before publishing. Returns the saved version, the check of the draft with its sample data (fix every error and save again) and review_url, the page where the person reviews and publishes it: hand that to the user. Needs an API key with template:write, or, for a signed-in agent, the person's permission under Account → Connected agents in Formfeed. Word and PowerPoint templates cannot be saved here. Free; a new template counts towards the plan's template limit.",
+      inputSchema: {
+        template: z
+          .string()
+          .optional()
+          .describe(
+            'Slug or tpl_ id of the template to save a new draft of; pass this or new_template',
+          ),
+        base_checksum: z
+          .string()
+          .max(80)
+          .optional()
+          .describe(
+            'With template: the checksum get_template_source returned. When someone saved a newer version since, nothing is saved: read the source again and redo the change on it',
+          ),
+        new_template: z
+          .object({
+            slug: slugSchema,
+            name: z.string().min(1).max(200),
+            kind: z
+              .enum(['pdf', 'image'])
+              .describe('pdf for documents, image for pictures'),
+            engine: engineSchema.describe('The template language of html'),
+            description: z.string().max(2000).optional(),
+            tags: z
+              .array(z.string().max(40))
+              .max(20)
+              .optional()
+              .describe('Lowercase with dashes, e.g. billing'),
+          })
+          .optional()
+          .describe(
+            'Creates a template whose version 1 is this draft; pass this and html, or template',
+          ),
+        ...sourceParts,
+        change_note: z
+          .string()
+          .min(1)
+          .max(500)
+          .describe(
+            'What the draft changes, in one sentence, shown in the version history',
+          ),
+      },
+      outputSchema: {
+        template: z.object({
+          id: z.string().describe('tpl_ id'),
+          slug: z.string(),
+          name: z.string(),
+          published_version: z
+            .number()
+            .nullable()
+            .describe(
+              'The version renders still use; null when nothing is published yet',
+            ),
+        }),
+        version: z.object({
+          number: z.number(),
+          status: z.string().describe('draft'),
+          checksum: z
+            .string()
+            .describe('base_checksum for a further change to this draft'),
+        }),
+        ok: z
+          .boolean()
+          .nullable()
+          .describe(
+            'false when the check of the draft found an error; null when the check could not run',
+          ),
+        diagnostics: z.array(diagnosticOutput),
+        review_url: z
+          .string()
+          .optional()
+          .describe(
+            'The page in Formfeed where the person reviews and publishes the draft',
+          ),
+        next: z.string(),
+      },
+      annotations: CREATES,
+    },
+    async (args) => {
+      const { template, base_checksum, new_template, change_note } = args;
+      try {
+        if (!template === !new_template)
+          return failure(
+            new Error(
+              'Pass template with base_checksum to save a new draft of a template, or new_template with html to create one',
+            ),
+          );
+        let saved: TemplateVersion;
+        let slug: string;
+        if (template) {
+          if (!base_checksum)
+            return failure(
+              new Error(
+                'Pass base_checksum: read the template with get_template_source, change it, and save it with the checksum you read',
+              ),
+            );
+          const [tpl, base] = await Promise.all([
+            api().templates.get(template),
+            api().templates.versions.get(template, 'latest'),
+          ]);
+          if (tpl.kind === 'docx' || tpl.kind === 'pptx')
+            return failure(
+              new Error(
+                `${tpl.slug} is a ${tpl.kind === 'docx' ? 'Word' : 'PowerPoint'} template: its document is changed in ${tpl.kind === 'docx' ? 'Word' : 'PowerPoint'} and uploaded in Formfeed, not saved here`,
+              ),
+            );
+          // the API checks it too; checked here first so the kept parts come from the version the agent read
+          if (base.checksum !== base_checksum)
+            return failure(
+              new Error(
+                'conflict: someone saved a newer version of this template since you read it. Read it again with get_template_source and make the change on that version',
+              ),
+            );
+          saved = await api().templates.versions.create(template, {
+            html: args.html ?? base.html ?? '',
+            css: args.css ?? base.css,
+            head: args.head ?? base.head,
+            settings: args.settings ?? base.settings,
+            sample_data: args.sample_data ?? base.sample_data,
+            data_sets: args.data_sets ?? base.data_sets,
+            data_schema:
+              args.data_schema !== undefined
+                ? args.data_schema
+                : base.data_schema,
+            i18n: args.i18n !== undefined ? args.i18n : base.i18n,
+            partials: args.partials ?? base.partials,
+            change_note,
+            base_checksum,
+            publish: false,
+          });
+          slug = tpl.slug;
+        } else {
+          if (!new_template || args.html === undefined)
+            return failure(new Error('html is required for a new template'));
+          const created = await api().templates.create({
+            ...new_template,
+            html: args.html,
+            css: args.css,
+            head: args.head,
+            settings: args.settings,
+            sample_data: args.sample_data,
+            data_sets: args.data_sets,
+            data_schema: args.data_schema,
+            i18n: args.i18n,
+            partials: args.partials,
+            change_note,
+            publish: false,
+          });
+          slug = created.slug;
+          saved = await api().templates.versions.get(slug, 'latest');
+        }
+        const origin = appOrigin(options.baseUrl);
+        const [tpl, check, account] = await Promise.all([
+          api().templates.get(slug),
+          // the check of the draft itself, with its sample data; a check that cannot run leaves the draft saved
+          api()
+            .templates.validate(slug, { version: String(saved.number) })
+            .then(
+              (result) => ({ result, error: null }),
+              (e: unknown) => ({
+                result: null,
+                error: e instanceof Error ? e.message : String(e),
+              }),
+            ),
+          origin
+            ? api()
+                .account.get()
+                .catch(() => null)
+            : Promise.resolve(null),
+        ]);
+        const org = slugIn(account, 'organization');
+        const workspace = slugIn(account, 'workspace');
+        return text({
+          template: {
+            id: tpl.id,
+            slug: tpl.slug,
+            name: tpl.name,
+            published_version: tpl.published_version,
+          },
+          version: {
+            number: saved.number,
+            status: saved.status,
+            checksum: saved.checksum,
+          },
+          ok: check.result ? check.result.ok : null,
+          diagnostics: check.result
+            ? check.result.diagnostics.map(diagnosticOf)
+            : [],
+          ...(origin && org && workspace
+            ? {
+                review_url: `${origin}/o/${org}/w/${workspace}/templates/${tpl.slug}`,
+              }
+            : {}),
+          next: check.result
+            ? `Saved as draft version ${saved.number}; nothing is published. Ask the person to review it in Formfeed and publish it there.`
+            : `Saved as draft version ${saved.number}; nothing is published. The check could not run (${check.error}): call validate_template with version ${saved.number} before asking the person to publish it.`,
         });
       } catch (e) {
         return failure(e);

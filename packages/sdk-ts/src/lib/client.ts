@@ -715,6 +715,8 @@ export interface TemplateCreate extends TemplateFiles {
   kind: TemplateKind;
   engine: Engine;
   tags?: string[];
+  /** What version 1 is; shown in the version history. */
+  change_note?: string;
   publish?: boolean;
 }
 

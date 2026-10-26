@@ -96,6 +96,67 @@ function fakeApi(seenKeys: string[] = []) {
         template: null,
         error: null,
       });
+    // save_template (spec 10 §3.2): a new template, a new version of `invoice`, the Word template
+    // `offer`, and `locked`, which the gateway refuses as it refuses an agent without permission
+    if (call.path === '/v1/templates' && call.method === 'POST') {
+      const created = call.body as { slug: string; name: string };
+      return json(
+        {
+          ...template,
+          id: 'tpl_9',
+          slug: created.slug,
+          name: created.name,
+          published_version: null,
+          latest_version: 1,
+        },
+        201,
+      );
+    }
+    if (call.path === '/v1/templates/agent-invoice')
+      return json({
+        ...template,
+        id: 'tpl_9',
+        slug: 'agent-invoice',
+        name: 'Agent invoice',
+        published_version: null,
+      });
+    if (call.path === '/v1/templates/agent-invoice/versions/latest')
+      return json({
+        ...version,
+        id: 'v9',
+        number: 1,
+        status: 'draft',
+        checksum: 'n1',
+      });
+    if (
+      call.path === '/v1/templates/invoice/versions' &&
+      call.method === 'POST'
+    )
+      return json(
+        { ...version, id: 'v3', number: 3, status: 'draft', checksum: 'c3' },
+        201,
+      );
+    if (call.path === '/v1/templates/offer')
+      return json({ ...template, id: 'tpl_2', slug: 'offer', kind: 'docx' });
+    if (call.path === '/v1/templates/locked')
+      return json({ ...template, id: 'tpl_6', slug: 'locked' });
+    if (
+      call.path === '/v1/templates/offer/versions/latest' ||
+      call.path === '/v1/templates/locked/versions/latest'
+    )
+      return json(version);
+    if (call.path === '/v1/templates/locked/versions' && call.method === 'POST')
+      return json(
+        {
+          type: 'https://docs.formfeed.dev/errors/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'forbidden',
+          detail:
+            'This agent may not save templates. Drafts are allowed per agent in Formfeed under Account → Connected agents, for members whose role may edit templates',
+        },
+        403,
+      );
     if (call.path === '/v1/templates')
       return json({ data: [template], next_cursor: null });
     if (call.path === '/v1/account')
@@ -364,7 +425,7 @@ const structured = (r: { structuredContent?: unknown }) =>
   r.structuredContent as Record<string, unknown>;
 
 describe('@formfeed/mcp', () => {
-  it('lists the eight tools with schemas', async () => {
+  it('lists the ten tools with schemas', async () => {
     const { client, close } = await connectedClient(fakeApi().fetchImpl);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -372,9 +433,11 @@ describe('@formfeed/mcp', () => {
       'convert_to_pdf',
       'get_render',
       'get_template_schema',
+      'get_template_source',
       'get_workspace',
       'list_templates',
       'render',
+      'save_template',
       'validate_template',
     ]);
     expect(tools.find((t) => t.name === 'render')?.inputSchema).toMatchObject({
@@ -410,7 +473,7 @@ describe('@formfeed/mcp', () => {
         .filter((t) => !t.annotations?.readOnlyHint)
         .map((t) => t.name)
         .sort(),
-    ).toEqual(['convert_to_pdf', 'render']);
+    ).toEqual(['convert_to_pdf', 'render', 'save_template']);
     await close();
   });
 
@@ -662,6 +725,154 @@ describe('@formfeed/mcp', () => {
     await close();
   });
 
+  it('reads the source of a template and saves a change as a draft, never published (spec 10 §3.2)', async () => {
+    const api = fakeApi();
+    const { client, close } = await connectedClient(api.fetchImpl);
+    const posts = (path: string) =>
+      api.calls.filter((c) => c.method === 'POST' && c.path === path);
+
+    // the newest version by default, which a change builds on, with its checksum
+    const source = structured(
+      await client.callTool({
+        name: 'get_template_source',
+        arguments: { template: 'invoice' },
+      }),
+    );
+    expect(source).toMatchObject({
+      template: {
+        id: 'tpl_1',
+        slug: 'invoice',
+        kind: 'pdf',
+        engine: 'jinja2',
+        published_version: 2,
+      },
+      version: { number: 2, checksum: 'c' },
+      html: version.html,
+      css: '',
+      settings: {},
+      sample_data: version.sample_data,
+      data_sets: {},
+      partials: {},
+    });
+    expect(
+      api.calls.some((c) => c.path === '/v1/templates/invoice/versions/latest'),
+    ).toBe(true);
+
+    // a change keeps the parts it does not name, says what it is, and is not published
+    const saved = await client.callTool({
+      name: 'save_template',
+      arguments: {
+        template: 'invoice',
+        base_checksum: 'c',
+        css: 'tr:nth-child(even) { background: #f4f4f5 }',
+        change_note: 'Zebra rows in the line items',
+      },
+    });
+    expect(saved.isError).toBeFalsy();
+    expect(posts('/v1/templates/invoice/versions')[0]?.body).toEqual({
+      html: version.html,
+      css: 'tr:nth-child(even) { background: #f4f4f5 }',
+      head: '',
+      settings: {},
+      sample_data: version.sample_data,
+      data_schema: null,
+      i18n: null,
+      change_note: 'Zebra rows in the line items',
+      base_checksum: 'c',
+      publish: false,
+    });
+    expect(structured(saved)).toMatchObject({
+      template: { slug: 'invoice', published_version: 2 },
+      version: { number: 3, status: 'draft', checksum: 'c3' },
+      ok: true,
+      diagnostics: [],
+      review_url:
+        'https://app.formfeed.dev/o/fennlor/w/production/templates/invoice',
+    });
+    // the check is of the draft just saved, not of what renders use
+    expect(posts('/v1/templates/invoice/validate')[0]?.body).toEqual({
+      version: '3',
+    });
+
+    // a version the agent did not read, or none, saves nothing
+    for (const args of [
+      { base_checksum: 'stale', change_note: 'x', html: '<p>x</p>' },
+      { change_note: 'x', html: '<p>x</p>' },
+    ]) {
+      const refused = await client.callTool({
+        name: 'save_template',
+        arguments: { template: 'invoice', ...args },
+      });
+      expect(refused.isError).toBe(true);
+      expect(JSON.stringify(refused.content)).toContain('get_template_source');
+    }
+    expect(posts('/v1/templates/invoice/versions')).toHaveLength(1);
+
+    // a new template's version 1 is a draft too
+    const created = await client.callTool({
+      name: 'save_template',
+      arguments: {
+        new_template: {
+          slug: 'agent-invoice',
+          name: 'Agent invoice',
+          kind: 'pdf',
+          engine: 'jinja2',
+        },
+        html: '<p>{{ number }}</p>',
+        sample_data: { number: 1 },
+        change_note: 'First draft',
+      },
+    });
+    expect(posts('/v1/templates')[0]?.body).toEqual({
+      slug: 'agent-invoice',
+      name: 'Agent invoice',
+      kind: 'pdf',
+      engine: 'jinja2',
+      html: '<p>{{ number }}</p>',
+      sample_data: { number: 1 },
+      change_note: 'First draft',
+      publish: false,
+    });
+    expect(structured(created)).toMatchObject({
+      template: { slug: 'agent-invoice', published_version: null },
+      version: { number: 1, status: 'draft', checksum: 'n1' },
+    });
+
+    // a Word template is a document, and the gateway's refusal reaches the agent with its reason
+    const word = await client.callTool({
+      name: 'save_template',
+      arguments: { template: 'offer', base_checksum: 'c', change_note: 'x' },
+    });
+    expect(word.isError).toBe(true);
+    expect(JSON.stringify(word.content)).toContain('Word template');
+    const locked = await client.callTool({
+      name: 'save_template',
+      arguments: { template: 'locked', base_checksum: 'c', change_note: 'x' },
+    });
+    expect(locked.isError).toBe(true);
+    expect(JSON.stringify(locked.content)).toContain('Connected agents');
+
+    // nothing anywhere published or moved a channel
+    expect(
+      api.calls.some(
+        (c) => c.path.endsWith('/publish') || c.path.includes('/channels'),
+      ),
+    ).toBe(false);
+
+    // and validate_template checks a named version, such as the draft
+    const draft = structured(
+      await client.callTool({
+        name: 'validate_template',
+        arguments: { template: 'invoice', version: 'latest' },
+      }),
+    );
+    expect(draft).toMatchObject({ ok: true, template: { version: 1 } });
+    expect(posts('/v1/templates/invoice/validate').at(-1)?.body).toEqual({
+      version: 'latest',
+    });
+    await close();
+  });
+
   it('renders and reports API problems as tool errors', async () => {
     const api = fakeApi();
     const { client, close } = await connectedClient(api.fetchImpl);
@@ -748,6 +959,11 @@ describe('@formfeed/mcp', () => {
       ['list_templates', {}],
       ['render', { html: '<p>x</p>' }],
       ['validate_template', { template: 'invoice' }],
+      ['get_template_source', { template: 'invoice' }],
+      [
+        'save_template',
+        { template: 'invoice', base_checksum: 'c', change_note: 'x' },
+      ],
       ['get_workspace', {}],
     ] as const) {
       const result = await client.callTool({ name, arguments: args });

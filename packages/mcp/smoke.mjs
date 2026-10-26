@@ -22,9 +22,11 @@ const expected = [
   'convert_to_pdf',
   'get_render',
   'get_template_schema',
+  'get_template_source',
   'get_workspace',
   'list_templates',
   'render',
+  'save_template',
   'validate_template',
 ];
 if (JSON.stringify(names) !== JSON.stringify(expected))
