@@ -1,9 +1,12 @@
 import {
+  EINVOICE_HEADER_LENGTH,
   EINVOICE_MAX_MESSAGES,
   capMessages,
+  einvoiceHeaderValue,
   einvoiceResult,
   invoiceLineOf,
   type EinvoiceMessage,
+  type EinvoiceResult,
 } from './report';
 
 const message = (
@@ -127,6 +130,76 @@ describe('einvoiceResult', () => {
         null,
       ),
     ).toMatchObject({ validation: null, display: null });
+  });
+});
+
+describe('einvoiceHeaderValue', () => {
+  /** An XRechnung-sized report: fifty long German warnings of BR-DE rules, each with its place. */
+  const report = (errors: number): EinvoiceResult => ({
+    profile: 'en16931',
+    flavour: 'zugferd',
+    spec_version: '2.5',
+    validation: {
+      valid: errors === 0,
+      schematron: 'Factur-X 1.09.2 (Mustang 2.26.0)',
+      pdfa: 'PDF/A-3b',
+      messages: Array.from({ length: 50 }, (_, i) => ({
+        part: 'xml' as const,
+        severity: i < errors ? ('error' as const) : ('warning' as const),
+        rule: `BR-DE-${10 + (i % 20)}`,
+        message:
+          'Das Element „Buyer reference“ (BT-10) soll übermittelt werden; für Rechnungen an öffentliche Auftraggeber ist die Leitweg-ID anzugeben, die der Auftraggeber übermittelt hat.',
+        location: `/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem[${i + 1}]/ram:SpecifiedLineTradeSettlement/ram:ApplicableTradeTax`,
+      })),
+      id: '6d3e1f20-4b5a-4c6d-8e7f-0a1b2c3d4e5f',
+      versions: { mustang: '2.26.0', verapdf: '1.30.2', pdfbox: '3.0.8' },
+      xml_sha256: '1a2b'.padEnd(64, '0'),
+      pdf_sha256: '3c4d'.padEnd(64, '0'),
+    },
+    display: { checked: ['BT-1', 'BT-109', 'BT-110', 'BT-112'], missing: [] },
+  });
+  const read = (value: string) =>
+    JSON.parse(decodeURIComponent(value)) as EinvoiceResult;
+
+  it('keeps a report that fits as it is', () => {
+    const small: EinvoiceResult = {
+      ...report(0),
+      validation: { ...report(0).validation!, messages: [] },
+    };
+    expect(read(einvoiceHeaderValue(small))).toEqual(small);
+  });
+
+  it('fits fifty long German warnings, keeping everything that makes it a verdict (plan 25 §5.5)', () => {
+    const value = einvoiceHeaderValue(report(0));
+    expect(
+      encodeURIComponent(JSON.stringify(report(0))).length,
+    ).toBeGreaterThan(EINVOICE_HEADER_LENGTH);
+    expect(value.length).toBeLessThanOrEqual(EINVOICE_HEADER_LENGTH);
+    const header = read(value);
+    const { messages, truncated, ...kept } = header.validation!;
+    const { messages: _all, ...whole } = report(0).validation!;
+    void _all;
+    expect(kept).toEqual(whole);
+    expect(truncated).toBe(true);
+    expect(header.display).toEqual(report(0).display);
+    // places went first, then warnings from the last
+    expect(messages.every((message) => message.location === null)).toBe(true);
+    expect(messages.length).toBeLessThan(50);
+    expect(messages.map((message) => message.rule)).toEqual(
+      report(0)
+        .validation!.messages.slice(0, messages.length)
+        .map((message) => message.rule),
+    );
+  });
+
+  it('gives up warnings before errors, and fits a smaller room too', () => {
+    const header = read(einvoiceHeaderValue(report(3), 2000));
+    expect(
+      encodeURIComponent(JSON.stringify(header)).length,
+    ).toBeLessThanOrEqual(2000);
+    const severities = header.validation!.messages.map((m) => m.severity);
+    expect(severities.slice(0, 3)).toEqual(['error', 'error', 'error']);
+    expect(header.validation!.valid).toBe(false);
   });
 });
 

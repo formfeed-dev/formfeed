@@ -117,6 +117,52 @@ export function einvoiceResult(
   };
 }
 
+/**
+ * How long the report may be as a header value. A proxy answers a response whose headers grow past a
+ * few kilobytes with 502, and the e-invoice's report shares this room with a PDF/UA verdict
+ * (`ACCESSIBILITY_HEADER_LENGTH`) where a render made both.
+ */
+export const EINVOICE_HEADER_LENGTH = 8000;
+
+/**
+ * The report as a response header carries it: the editor's true render reads the file from the body
+ * and the report from `X-Formfeed-Einvoice`, percent-encoded because a validator's message is not
+ * always ASCII. A report too long for `limit` loses, in this order, every finding's place, then the
+ * findings from the last, warnings before errors, and says so in `truncated` (plan 25 §5.5). What
+ * makes it a verdict always arrives: whether the file is valid, the rule set, the validator's id and
+ * versions, the hashes of the bytes it judged, and the display check.
+ */
+export function einvoiceHeaderValue(
+  result: EinvoiceResult,
+  limit = EINVOICE_HEADER_LENGTH,
+): string {
+  const encode = (report: EinvoiceResult) =>
+    encodeURIComponent(JSON.stringify(report));
+  const full = encode(result);
+  const validation = result.validation;
+  if (full.length <= limit || !validation) return full;
+  let messages = validation.messages.map((message) => ({
+    ...message,
+    location: null,
+  }));
+  const cut = (): EinvoiceResult => ({
+    ...result,
+    validation: { ...validation, messages, truncated: true },
+  });
+  let value = encode(cut());
+  while (value.length > limit && messages.length > 0) {
+    let last = messages.length - 1;
+    for (let i = messages.length - 1; i >= 0; i--)
+      if (messages[i]!.severity !== 'error') {
+        last = i;
+        break;
+      }
+    messages = messages.filter((_, i) => i !== last);
+    value = encode(cut());
+  }
+  return value;
+}
+
 /** The names a person reads: `Factur-X` and `EN 16931` for `factur-x` and `en16931`. */
 export const EINVOICE_FLAVOUR_NAMES: Record<EinvoiceFlavour, string> = {
   'factur-x': 'Factur-X',

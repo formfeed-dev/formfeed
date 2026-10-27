@@ -7,7 +7,7 @@ import time
 import httpx
 import pytest
 
-from formfeed import AsyncFormfeed, Formfeed, FormfeedError, Render, parse_webhook_event, verify_webhook_signature
+from formfeed import AsyncFormfeed, Formfeed, FormfeedError, Render, RenderInput, parse_webhook_event, verify_webhook_signature
 
 RENDER = {"id": "rnd_1", "status": "succeeded", "download_url": "https://cdn.test/o/x.pdf?exp=1&sig=2", "page_count": 1, "units": 1}
 
@@ -643,6 +643,33 @@ def test_einvoice_option_travels_and_the_report_comes_back():
     plain = client.renders.create(template="rechnung", post={"einvoice": False})
     assert json.loads(rec.calls[1].content)["post"] == {"einvoice": False}
     assert plain.einvoice is None
+
+
+def test_a_render_with_values_added_later_still_reads():
+    """A value the API adds in a later release is text here, and a field it adds is kept (plan 25 §5.3)."""
+    render = Render.model_validate(
+        {
+            **RENDER,
+            "einvoice": {
+                "profile": "xrechnung",
+                "spec_version": "3.0.2",
+                "validation": {
+                    "valid": False,
+                    "messages": [{"part": "attachment", "severity": "information", "rule": None, "message": "later"}],
+                },
+            },
+            "einvoice_xml": {"syntax": "cii"},
+        }
+    )
+    assert render.einvoice is not None and render.einvoice.profile == "xrechnung" and render.einvoice.flavour is None
+    assert render.einvoice.validation is not None
+    message = render.einvoice.validation.messages[0]
+    assert message.part == "attachment" and message.severity == "information"
+    # a field this release does not know is kept as it came
+    assert render.model_extra is not None and render.model_extra["einvoice_xml"] == {"syntax": "cii"}
+
+    stored = RenderInput.model_validate({"render_id": "rnd_1", "output": "xml", "added_later": True})
+    assert stored.output == "xml"
 
 
 def test_pdf_ua_setting_travels_and_the_verdict_comes_back():

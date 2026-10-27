@@ -70,10 +70,15 @@ class StorageDeliveryEvent(StorageDelivery):
 
 
 class EinvoiceMessage(_Model):
-    """One finding of the validator: a rule of the invoice XML, or a clause of PDF/A."""
+    """One finding of the validator: a rule of the invoice XML, or a clause of PDF/A.
 
-    part: Literal["xml", "pdf"]
-    severity: Literal["error", "warning"]
+    ``part`` and ``severity`` are read as text, so that a value the API adds later does not stop an
+    installed SDK from reading the render."""
+
+    #: ``xml`` or ``pdf`` today.
+    part: str
+    #: ``error`` or ``warning`` today.
+    severity: str
     #: ``BR-CO-15``, ``CII-SR-465``, or a clause of PDF/A.
     rule: str | None = None
     message: str = ""
@@ -110,10 +115,15 @@ class EinvoiceDisplay(_Model):
 
 class Einvoice(_Model):
     """``einvoice`` of a render: the ZUGFeRD / Factur-X invoice it made, what the validator said and
-    whether the PDF shows what the XML states. A failed render keeps it too."""
+    whether the PDF shows what the XML states. A failed render keeps it too.
 
-    profile: Literal["basic", "en16931"]
-    flavour: Literal["factur-x", "zugferd"]
+    ``profile`` and ``flavour`` are read as text, so that a value the API adds later does not stop an
+    installed SDK from reading the render."""
+
+    #: ``basic`` or ``en16931`` today.
+    profile: str
+    #: ``factur-x`` or ``zugferd`` today.
+    flavour: str | None = None
     #: The release under the flavour's name: Factur-X ``1.09`` is ZUGFeRD ``2.5``.
     spec_version: str = ""
     #: A signed link to the XML when the render asked for ``xml: "both"``; ``None`` otherwise.
@@ -277,7 +287,9 @@ class RenderInput(_Model):
     url: str | None = None
     data: dict[str, Any] | None = None
     locale: str | None = None
-    output: OutputFormat | None = None
+    #: One of the output formats a render takes (``pdf``, ``png``, ``jpg``, ``webp``, ``docx``, ``pptx``
+    #: today), read as text so that a format the API adds later does not stop this model.
+    output: str | None = None
     settings: dict[str, Any] | None = None
     filename: str | None = None
     post: dict[str, Any] | None = None

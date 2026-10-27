@@ -1101,7 +1101,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           `${slug}: ${EINVOICE_FLAVOUR_NAMES[options.flavour]} ${summary.spec_version}, ${EINVOICE_PROFILE_NAMES[options.profile]}, ${invoice.number}, ${invoice.lines.length} line(s), ${summary.total} ${invoice.currency} -> ${shown(file)}`,
           // written without the validator: the full rule set runs when the API renders it
           p().style.dim(
-            'checked offline against the rules the API applies before a render; the official validator runs with the render',
+            'checked offline against the rules the API applies before a render; the full validation runs with the render',
           ),
         ]);
       },
@@ -3121,8 +3121,11 @@ export function einvoiceLines(einvoice: Render['einvoice']): string[] {
   if (!einvoice) return [];
   const named = (terms: string[]) =>
     terms.map((term) => DISPLAY_TERMS[term] ?? term).join(', ');
+  // a profile or flavour a later release of the API adds has no name here yet: it shows as sent
+  const called = (names: Partial<Record<string, string>>, value: string) =>
+    names[value] ?? value;
   const lines = [
-    `e-invoice  ${EINVOICE_FLAVOUR_NAMES[einvoice.flavour]}, ${EINVOICE_PROFILE_NAMES[einvoice.profile]}, specification ${einvoice.spec_version}`,
+    `e-invoice  ${called(EINVOICE_FLAVOUR_NAMES, einvoice.flavour)}, ${called(EINVOICE_PROFILE_NAMES, einvoice.profile)}, specification ${einvoice.spec_version}`,
   ];
   const validation = einvoice.validation;
   if (validation)

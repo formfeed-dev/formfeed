@@ -200,20 +200,26 @@ export interface EinvoiceOptions {
   display_check?: 'warn' | 'strict';
 }
 
-/** One finding of the validator: a rule of the XML, or a clause of PDF/A. */
+/**
+ * One finding of the validator: a rule of the XML, or a clause of PDF/A. `part` and `severity` name
+ * today's values and take any other text, which a later release of the API may send.
+ */
 export interface EinvoiceMessage {
-  part: 'xml' | 'pdf';
-  severity: 'error' | 'warning';
+  part: 'xml' | 'pdf' | (string & {});
+  severity: 'error' | 'warning' | (string & {});
   rule: string | null;
   message: string;
   /** An XPath into the XML, or the object of the PDF. */
   location: string | null;
 }
 
-/** The e-invoice of a render: what was made, what the validator said, what the PDF shows. */
+/**
+ * The e-invoice of a render: what was made, what the validator said, what the PDF shows. `profile`
+ * and `flavour` name today's values and take any other text, which a later release may send.
+ */
 export interface Einvoice {
-  profile: 'basic' | 'en16931';
-  flavour: 'factur-x' | 'zugferd';
+  profile: 'basic' | 'en16931' | (string & {});
+  flavour: 'factur-x' | 'zugferd' | (string & {});
   /** The release under the flavour's name: Factur-X `1.09` is ZUGFeRD `2.5`. */
   spec_version: string;
   /** A signed link to the XML when the render asked for `xml: "both"`; null otherwise. */
@@ -568,7 +574,8 @@ export interface RenderInput {
   url?: string;
   data?: Record<string, unknown>;
   locale?: string | null;
-  output?: OutputFormat;
+  /** One of today's output formats, or one a later release of the API adds. */
+  output?: OutputFormat | (string & {});
   settings?: Record<string, unknown>;
   filename?: string;
   post?: Record<string, unknown>;

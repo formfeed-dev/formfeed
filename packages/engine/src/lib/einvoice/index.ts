@@ -58,9 +58,11 @@ export {
 } from './locate';
 export {
   EINVOICE_FLAVOUR_NAMES,
+  EINVOICE_HEADER_LENGTH,
   EINVOICE_MAX_MESSAGES,
   EINVOICE_PROFILE_NAMES,
   capMessages,
+  einvoiceHeaderValue,
   einvoiceResult,
   invoiceLineOf,
   type EinvoiceDisplay,
