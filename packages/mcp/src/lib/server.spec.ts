@@ -303,6 +303,40 @@ function fakeApi(seenKeys: string[] = []) {
         },
         422,
       );
+    // `gestoppt`: the validator's rules stopped (Mustang #904), so nothing in the block is to fix
+    if (
+      call.path === '/v1/renders' &&
+      call.method === 'POST' &&
+      (call.body as { template?: string }).template === 'gestoppt'
+    )
+      return json(
+        {
+          type: 'https://docs.formfeed.dev/errors/einvoice-validator-error',
+          title: 'E-invoice could not be validated',
+          status: 500,
+          code: 'einvoice_validator_error',
+          detail:
+            'The validator could not check the e-invoice: its rules stopped before they finished',
+          einvoice: {
+            profile: 'en16931',
+            flavour: 'factur-x',
+            validation: {
+              valid: false,
+              messages: [
+                {
+                  part: 'xml',
+                  severity: 'error',
+                  rule: null,
+                  message:
+                    'The invoice could not be validated: its rules stopped before they finished.',
+                  location: null,
+                },
+              ],
+            },
+          },
+        },
+        500,
+      );
     if (
       call.path === '/v1/renders' &&
       call.method === 'POST' &&
@@ -1098,6 +1132,20 @@ describe('@formfeed/mcp', () => {
     expect(said).toContain('einvoice_data_invalid');
     expect(said).toContain('data._invoice.totals.due');
     expect(said).toContain('BR-CO-16');
+
+    // rules that stopped carry the report too, which tells the agent there is nothing to correct
+    const stopped = await client.callTool({
+      name: 'render',
+      arguments: {
+        template: 'gestoppt',
+        data: { _invoice: invoice },
+        einvoice: true,
+      },
+    });
+    expect(stopped.isError).toBe(true);
+    const told = (stopped.content as Array<{ text: string }>)[0]!.text;
+    expect(told.startsWith('einvoice_validator_error: ')).toBe(true);
+    expect(told).toContain('its rules stopped before they finished.');
     await close();
   });
 

@@ -315,11 +315,15 @@ function slugIn(
   return typeof slug === 'string' ? slug : null;
 }
 
-/** Problems of an e-invoice that carry what to fix: the findings of the check, or the validator's report. */
+/**
+ * Problems of an e-invoice that carry a report: the findings of the check, or the validator's
+ * report, which also says when there was nothing to fix in the block (`einvoice_validator_error`).
+ */
 const EINVOICE_PROBLEMS = new Set([
   'einvoice_data_invalid',
   'einvoice_display_mismatch',
   'pdfa_conversion_failed',
+  'einvoice_validator_error',
 ]);
 
 function text(data: unknown) {
