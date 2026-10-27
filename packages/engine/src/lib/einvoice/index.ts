@@ -24,7 +24,12 @@ export {
   type InvoiceProblemCode,
   type InvoiceTax,
 } from './check';
-export { CII_GUIDELINES, EINVOICE_XML_NAME, invoiceToCii } from './cii';
+export {
+  CII_GUIDELINES,
+  EINVOICE_TEST_NOTE,
+  EINVOICE_XML_NAME,
+  invoiceToCii,
+} from './cii';
 export { EN16931_TERMS, carriesTerm, type EinvoiceTerm } from './coverage';
 export { CODE_LIST_RELEASE } from './codes.generated';
 export {
@@ -104,7 +109,11 @@ export type EinvoiceXml =
  */
 export function einvoiceXml(
   data: unknown,
-  options: { profile: EinvoiceProfile },
+  options: {
+    profile: EinvoiceProfile;
+    /** A test render's invoice, whose first note says it is none (`EINVOICE_TEST_NOTE`). */
+    test?: boolean;
+  },
 ): EinvoiceXml {
   const block =
     data !== null && typeof data === 'object'
@@ -123,7 +132,7 @@ export function einvoiceXml(
         },
       ],
     };
-  const check = checkInvoice(block, options);
+  const check = checkInvoice(block, { profile: options.profile });
   if (!check.ok) return { ok: false, problems: check.problems };
   return {
     ok: true,

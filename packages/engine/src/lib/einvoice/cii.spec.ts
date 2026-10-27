@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   CII_GUIDELINES,
+  EINVOICE_TEST_NOTE,
   checkInvoice,
   einvoiceXml,
   invoiceSkeleton,
@@ -168,6 +169,25 @@ describe('einvoiceXml', () => {
     expect(
       result.xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n'),
     ).toBe(true);
+  });
+
+  it("says in a test render's invoice that it is none: its first note, without a subject code", () => {
+    const data = { _invoice: fixture('france-domestic') };
+    const live = einvoiceXml(data, { profile: 'en16931' });
+    const test = einvoiceXml(data, { profile: 'en16931', test: true });
+    if (!live.ok || !test.ok) throw new Error('the fixture makes no invoice');
+    const note =
+      /\s*<ram:IncludedNote>\s*<ram:Content>([^<]*)<\/ram:Content>\s*<\/ram:IncludedNote>/;
+    expect(test.xml.match(note)?.[1]).toBe(EINVOICE_TEST_NOTE);
+    // before the invoice's own notes, France's statements among them
+    expect(test.xml.indexOf(EINVOICE_TEST_NOTE)).toBeLessThan(
+      test.xml.indexOf('<ram:SubjectCode>PMT</ram:SubjectCode>'),
+    );
+    // and nothing else differs: not the XML, and not the invoice the display check reads
+    expect(test.xml.replace(note, '')).toBe(live.xml);
+    expect(test.invoice).toEqual(live.invoice);
+    // what the command line writes offline stays as it was
+    expect(live.xml).not.toContain(EINVOICE_TEST_NOTE);
   });
 
   it('says so when the data has no _invoice block', () => {

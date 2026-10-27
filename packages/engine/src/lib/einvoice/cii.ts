@@ -28,6 +28,15 @@ export const CII_GUIDELINES: Record<EinvoiceProfile, string> = {
 /** The name the XML has inside the PDF, under either of the specification's two names. */
 export const EINVOICE_XML_NAME = 'factur-x.xml';
 
+/**
+ * The first note (BT-22) of a test render's invoice, on every plan (plan 25 §5.2): an XML carries
+ * no page mark, so the invoice says it of itself. No subject code: France's rules, which hold the
+ * subject codes of an invoice between French businesses, accept the note without one (measured
+ * with the sidecar on 2026-10-27). The wording waits for the Steuerberater (plan 25 §5.5).
+ */
+export const EINVOICE_TEST_NOTE =
+  'TEST – keine Rechnung / test render, not an invoice';
+
 interface XmlElement {
   name: string;
   attributes?: Record<string, string>;
@@ -178,7 +187,11 @@ const period = (value: { start?: string; end?: string } | undefined): Child =>
 
 export function invoiceToCii(
   invoice: Invoice,
-  options: { profile: EinvoiceProfile },
+  options: {
+    profile: EinvoiceProfile;
+    /** A test render's invoice: its first note says it is none (`EINVOICE_TEST_NOTE`). */
+    test?: boolean;
+  },
 ): string {
   const full = options.profile === 'en16931';
   const { totals, payment } = invoice;
@@ -361,6 +374,9 @@ export function invoiceToCii(
         leaf('ram:ID', invoice.number),
         leaf('ram:TypeCode', invoice.type_code),
         date('ram:IssueDateTime', invoice.issue_date),
+        options.test
+          ? group('ram:IncludedNote', [leaf('ram:Content', EINVOICE_TEST_NOTE)])
+          : undefined,
         ...invoice.notes.map((note) =>
           group('ram:IncludedNote', [
             leaf('ram:Content', note.text),
