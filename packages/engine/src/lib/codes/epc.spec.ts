@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { EPC_MAX_BYTES, epcPayload, ibanChecksum, normaliseIban, validateEpc, type EpcPayment } from './epc';
+import {
+  EPC_MAX_BYTES,
+  epcPayload,
+  ibanChecksum,
+  normaliseIban,
+  validateEpc,
+  type EpcPayment,
+} from './epc';
 
 /**
  * The GiroCode a banking app refuses is worse than no code at all: the payer has already scanned it
@@ -20,7 +27,7 @@ const payment: EpcPayment = {
 };
 
 describe('epcPayload', () => {
-  it('writes the twelve lines of version 002', () => {
+  it('writes the lines of version 002 up to the last populated one', () => {
     expect(epcPayload(payment).split('\n')).toEqual([
       'BCD',
       '002',
@@ -32,20 +39,48 @@ describe('epcPayload', () => {
       'EUR1234.50',
       '',
       'RG 2026-0042',
-      '',
-      '',
     ]);
   });
 
+  /**
+   * "The last populated element is not followed by any character or element separator" (EPC069-12
+   * v3.1 §2.2). The standard's own examples count it: nine line feeds for a code that ends with a
+   * reference, ten for one that ends with a text. Empty elements before the last one stay, because
+   * an app reads the elements by position.
+   */
+  it('ends with the last populated element, without a line break after it', () => {
+    const feeds = (value: string) => value.split('\n').length - 1;
+    expect(epcPayload(payment).endsWith('RG 2026-0042')).toBe(true);
+    expect(
+      feeds(epcPayload({ ...payment, bic: 'XXXXDEXXXXX', purpose: 'GDDS' })),
+    ).toBe(9);
+
+    const withText = epcPayload({
+      ...payment,
+      reference: '',
+      text: 'Rechnung 2026-0042',
+    });
+    expect(withText.endsWith('\nRechnung 2026-0042')).toBe(true);
+    expect(feeds(withText)).toBe(10);
+    expect(withText.split('\n')[9]).toBe('');
+
+    // with nothing optional the code ends at the IBAN
+    expect(
+      epcPayload({ name: payment.name, iban: payment.iban }).split('\n'),
+    ).toHaveLength(7);
+  });
+
   it('leaves the amount out when there is none, rather than writing EUR0.00', () => {
-    expect(epcPayload({ ...payment, amount: undefined }).split('\n')[7]).toBe('');
+    expect(epcPayload({ ...payment, amount: undefined }).split('\n')[7]).toBe(
+      '',
+    );
     expect(epcPayload({ ...payment, amount: '' }).split('\n')[7]).toBe('');
   });
 
   it('drops the unstructured text when a reference is given, as the standard allows only one', () => {
     const lines = epcPayload({ ...payment, text: 'Vielen Dank' }).split('\n');
     expect(lines[9]).toBe('RG 2026-0042');
-    expect(lines[10]).toBe('');
+    expect(lines).toHaveLength(10);
   });
 });
 
@@ -63,7 +98,9 @@ describe('ibanChecksum', () => {
   });
 
   it('works past the safe integer, where the rearranged number is 36 digits', () => {
-    expect(normaliseIban('mt31 0000 0000 0000 0000 0000 0000 000')).toHaveLength(31);
+    expect(
+      normaliseIban('mt31 0000 0000 0000 0000 0000 0000 000'),
+    ).toHaveLength(31);
     expect(ibanChecksum('MT31000000000000000000000000000')).toBe(false);
   });
 });
@@ -74,14 +111,17 @@ describe('validateEpc', () => {
   });
 
   it('wants a beneficiary and an account', () => {
-    expect(validateEpc({ name: '', iban: '' }).map((p) => [p.field, p.code])).toEqual([
+    expect(
+      validateEpc({ name: '', iban: '' }).map((p) => [p.field, p.code]),
+    ).toEqual([
       ['name', 'required'],
       ['iban', 'required'],
     ]);
   });
 
   it('names the reason an IBAN is refused', () => {
-    const reason = (iban: string) => validateEpc({ ...payment, iban }).find((p) => p.field === 'iban')?.code;
+    const reason = (iban: string) =>
+      validateEpc({ ...payment, iban }).find((p) => p.field === 'iban')?.code;
     // a letter is legal in the body, a dash is not
     expect(reason('DE36 0000 0000 0000 0000 0-')).toBe('iban_characters');
     expect(reason('DE3600000000000000000')).toBe('iban_country_length');
@@ -91,7 +131,8 @@ describe('validateEpc', () => {
   });
 
   it('takes a BIC of 8 or 11 characters and nothing between', () => {
-    const bic = (value: string) => validateEpc({ ...payment, bic: value }).some((p) => p.field === 'bic');
+    const bic = (value: string) =>
+      validateEpc({ ...payment, bic: value }).some((p) => p.field === 'bic');
     expect(bic('MUSTDEFFXXX')).toBe(false);
     expect(bic('MUSTDEFF')).toBe(false);
     expect(bic('MUSTDEFFX')).toBe(true);
@@ -100,7 +141,9 @@ describe('validateEpc', () => {
 
   it('holds the amount to what the field can carry', () => {
     const code = (amount: unknown) =>
-      validateEpc({ ...payment, amount: amount as number }).find((p) => p.field === 'amount')?.code;
+      validateEpc({ ...payment, amount: amount as number }).find(
+        (p) => p.field === 'amount',
+      )?.code;
     expect(code(0)).toBe('out_of_range');
     expect(code(0.01)).toBeUndefined();
     expect(code(999999999.99)).toBeUndefined();
@@ -111,8 +154,12 @@ describe('validateEpc', () => {
   });
 
   it('refuses a reference and a free text together, because the code carries one', () => {
-    expect(validateEpc({ ...payment, text: 'Vielen Dank' }).map((p) => p.code)).toContain('reference_or_text');
-    expect(validateEpc({ ...payment, reference: '', text: 'Vielen Dank' })).toEqual([]);
+    expect(
+      validateEpc({ ...payment, text: 'Vielen Dank' }).map((p) => p.code),
+    ).toContain('reference_or_text');
+    expect(
+      validateEpc({ ...payment, reference: '', text: 'Vielen Dank' }),
+    ).toEqual([]);
   });
 
   it('measures the whole payload in bytes, where an umlaut counts twice', () => {
@@ -120,6 +167,10 @@ describe('validateEpc', () => {
     const problem = validateEpc(long).find((p) => p.field === 'payload');
     expect(problem?.code).toBe('too_long');
     expect(problem?.max).toBe(EPC_MAX_BYTES);
-    expect(validateEpc({ ...long, text: 'a'.repeat(140) }).find((p) => p.field === 'payload')).toBeUndefined();
+    expect(
+      validateEpc({ ...long, text: 'a'.repeat(140) }).find(
+        (p) => p.field === 'payload',
+      ),
+    ).toBeUndefined();
   });
 });
