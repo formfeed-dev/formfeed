@@ -6,7 +6,7 @@ import { serverCard, serverCardResponse } from './server-card';
  * The hosted endpoint as a web-standard `fetch` handler (spec 10 §3.1), shared by the Cloudflare
  * Worker at `mcp.<domain>` and the Node server of `formfeed-mcp --http`. Stateless: every request
  * gets its own server bound to the credential of its `Authorization` header, and nothing is kept
- * between requests.
+ * between requests, so `/mcp` takes POST only and answers a GET for a server stream with `405`.
  *
  * Two ways in:
  * - `/mcp`, the fixed address, with an API key, which carries its workspace, or with an OAuth
@@ -239,6 +239,17 @@ export function mcpFetchHandler(options: WebHandlerOptions = {}): WebHandler {
           challenge(metadata, 'the access token expired'),
         );
     }
+
+    // A server here lives for one request, so it has no stream of its own for a GET to open: the SDK's
+    // 200 ended as soon as it began, and a client opens a stream that ended again a second later, for
+    // as long as it stays connected (Claude Code, 108,000 requests on 2026-10-29). 405 is how Streamable
+    // HTTP says there is none, and the SDK client then stops asking; a DELETE has no session to end.
+    if (request.method !== 'POST')
+      return json(
+        { error: 'This endpoint takes POST only; it opens no stream' },
+        405,
+        { allow: 'POST' },
+      );
 
     const mcp = createFormfeedServer({
       apiKey: credential,

@@ -90,6 +90,51 @@ describe('mcpFetchHandler', () => {
     await client.close();
   });
 
+  it('lets a connected client ask for a server stream once, not again every second', async () => {
+    const handler = mcpFetchHandler({
+      baseUrl: 'https://api.test/v1',
+      fetch: fakeApi().fetchImpl,
+    });
+    const methods: string[] = [];
+    const client = await connect(
+      (request) => {
+        methods.push(request.method);
+        return handler(request);
+      },
+      'https://mcp.test/mcp',
+      'Bearer ff_test_key',
+    );
+    // the SDK client opens the stream after `initialized` and opens an ended one again after 1 s
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(methods.filter((m) => m === 'GET')).toHaveLength(1);
+    await client.close();
+  });
+
+  it('answers 405 to anything but POST once the credential passed', async () => {
+    const handler = mcpFetchHandler({ authorizationServer: AUTH_SERVER });
+    for (const method of ['GET', 'DELETE']) {
+      const response = await handler(
+        new Request('https://mcp.test/mcp', {
+          method,
+          headers: {
+            accept: 'text/event-stream',
+            authorization: 'Bearer ff_test_key',
+          },
+        }),
+      );
+      expect(response.status).toBe(405);
+      expect(response.headers.get('allow')).toBe('POST');
+    }
+    // without one the challenge comes first, whatever the method
+    expect(
+      (
+        await handler(
+          new Request(`https://mcp.test/mcp/${WORKSPACE}`, { method: 'GET' }),
+        )
+      ).status,
+    ).toBe(401);
+  });
+
   it('challenges /mcp without a credential with the metadata of the fixed address (plan 23)', async () => {
     const handler = mcpFetchHandler({ authorizationServer: AUTH_SERVER });
     const none = await handler(
