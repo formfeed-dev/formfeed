@@ -178,6 +178,35 @@ class Accessibility(_Model):
     truncated: bool = False
 
 
+class PdfaMessage(_Model):
+    """One rule of the PDF/A level a file failed."""
+
+    severity: str = "error"
+    #: The clause of ISO 19005 and veraPDF's test number, ``6.2.11.4.1-1``.
+    rule: str | None = None
+    message: str = ""
+    #: veraPDF's path to the object of the PDF.
+    location: str | None = None
+
+
+class Pdfa(_Model):
+    """``pdfa`` of a render that set ``settings.pdf.pdfa``: which rules of the PDF/A level the file
+    passed, by which validator. A render delivers a file only when it passed; a failed render keeps it too."""
+
+    #: ``PDF/A-2b`` or ``PDF/A-3b``.
+    standard: str
+    conformant: bool
+    #: The validator and its version, ``veraPDF 1.30.2``.
+    validator: str = ""
+    id: str = ""
+    versions: dict[str, str] = {}
+    #: SHA-256 of the file that was judged: the delivered file of a render that succeeded.
+    pdf_sha256: str | None = None
+    #: At most 50; empty for a file that passed.
+    messages: list[PdfaMessage] = []
+    truncated: bool = False
+
+
 class Render(_Model):
     id: str
     status: RenderStatus
@@ -200,6 +229,8 @@ class Render(_Model):
     einvoice: Einvoice | None = None
     #: The validator's verdict on the file as PDF/UA-1 (``settings={"pdf": {"ua": True}}`` or the template's settings); ``None`` unless it was set.
     accessibility: Accessibility | None = None
+    #: The validator's verdict on the file as PDF/A (``settings={"pdf": {"pdfa": "2b"}}`` or the template's settings); ``None`` unless it was set.
+    pdfa: Pdfa | None = None
     timings: dict[str, float] | None = None
     error: dict[str, Any] | None = None
     meta: dict[str, Any] = {}

@@ -339,6 +339,31 @@ export {
   staticAudit,
   staticAuditDiagnostics,
 } from './lib/accessibility/static';
+// PDF/A (plan 26) is `@formfeed/engine/pdfa` inside the workspace, for the gateway's sake like the
+// two modules above; named here too for the published package and the app.
+export {
+  PDFA_DEFAULT_LEVEL,
+  PDFA_HEADER_LENGTH,
+  PDFA_LEVELS,
+  PDFA_MAX_MESSAGES,
+  PDFA_REFUSALS,
+  PDFA_STANDARDS,
+  isPdfaResult,
+  isPdfaSetting,
+  pdfaFromEinvoice,
+  pdfaHeaderValue,
+  pdfaResult,
+  pdfaStandard,
+  resolvePdfa,
+} from './lib/pdfa';
+export type {
+  PdfaLevel,
+  PdfaMessage,
+  PdfaResult,
+  PdfaSetting,
+  PdfaStandard,
+  PdfaValidatorReport,
+} from './lib/pdfa';
 export type {
   StaticAuditDiagnostic,
   StaticAuditInput,

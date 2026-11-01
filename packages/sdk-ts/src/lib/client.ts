@@ -43,6 +43,8 @@ export interface RenderRequest {
   /**
    * Merged over the template's settings. `{ pdf: { ua: true } }` makes the file a PDF/UA-1 document
    * and the render carry the validator's verdict as `accessibility`; see `PdfUaOptions`.
+   * `{ pdf: { pdfa: '2b' } }` (or `'3b'`, or `true` for `'3b'`) makes it a PDF/A file for
+   * archiving, checked before it is delivered; the render carries the verdict as `pdfa`.
    */
   settings?: Record<string, unknown>;
   filename?: string;
@@ -293,6 +295,38 @@ export interface Accessibility {
   truncated?: boolean;
 }
 
+/** A level of PDF/A a render can ask for in `settings.pdf.pdfa`; `true` stands for `'3b'`. */
+export type PdfaLevel = '2b' | '3b';
+
+/** One rule of the PDF/A level a file failed. */
+export interface PdfaMessage {
+  severity: 'error' | 'warning' | (string & {});
+  /** The clause of ISO 19005 and veraPDF's test number, `6.2.11.4.1-1`. */
+  rule: string | null;
+  message: string;
+  /** veraPDF's path to the object of the PDF. */
+  location: string | null;
+}
+
+/**
+ * What the validator said about a file as PDF/A: which rules of the format it passed, by which
+ * validator. A render delivers a file only when it passed; a failed render keeps the report.
+ */
+export interface Pdfa {
+  standard: 'PDF/A-2b' | 'PDF/A-3b' | (string & {});
+  conformant: boolean;
+  /** The validator and its version, `veraPDF 1.30.2`. */
+  validator: string;
+  /** The validator's own id for this report. */
+  id: string;
+  versions: Record<string, string>;
+  /** SHA-256 of the file that was judged: the delivered file of a render that succeeded. */
+  pdf_sha256: string | null;
+  /** At most 50; empty for a file that passed. */
+  messages: PdfaMessage[];
+  truncated?: boolean;
+}
+
 /** Where the result of a PDF tool is stored, as for a render. */
 export interface PdfOutputOptions {
   filename?: string;
@@ -361,6 +395,12 @@ export interface Render {
    * renders made before the feature.
    */
   accessibility?: Accessibility | null;
+  /**
+   * The validator's verdict on the file as PDF/A; null unless the render set `settings.pdf.pdfa`.
+   * A render whose file failed keeps it too, which is where it names the rules. Absent from renders
+   * made before the feature.
+   */
+  pdfa?: Pdfa | null;
   timings: Record<string, number> | null;
   error: { code?: string; message?: string; [key: string]: unknown } | null;
   meta: Record<string, unknown>;

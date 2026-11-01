@@ -241,6 +241,66 @@ function fakeApi(seenKeys: string[] = []) {
         { code: 'template_not_found', status: 404, detail: 'no such template' },
         404,
       );
+    // `archiv` declares PDF/A-2b (plan 26): its render carries the validator's verdict; `archiv-cjk` fails it
+    if (
+      call.path === '/v1/renders' &&
+      call.method === 'POST' &&
+      (call.body as { template?: string }).template === 'archiv-cjk'
+    )
+      return json(
+        {
+          type: 'https://docs.formfeed.dev/errors/pdfa-conversion-failed',
+          title: 'PDF/A conversion failed',
+          status: 500,
+          code: 'pdfa_conversion_failed',
+          detail: 'The PDF could not be made a valid PDF/A-2b: 1 finding',
+          pdfa: {
+            standard: 'PDF/A-2b',
+            conformant: false,
+            validator: 'veraPDF 1.30.2',
+            id: 'a-2',
+            versions: { verapdf: '1.30.2' },
+            pdf_sha256: null,
+            messages: [
+              {
+                severity: 'error',
+                rule: '6.2.11.5-1',
+                message: 'The widths of the font program disagree with the PDF',
+                location: 'font(NotoSerifCJKsc)',
+              },
+            ],
+          },
+        },
+        500,
+      );
+    if (
+      call.path === '/v1/renders' &&
+      call.method === 'POST' &&
+      (call.body as { template?: string }).template === 'archiv'
+    )
+      return json(
+        {
+          id: 'rnd_7',
+          status: 'succeeded',
+          download_url: 'https://cdn.test/o/a.pdf',
+          expires_at: '2026-10-21T00:00:00Z',
+          page_count: 4,
+          units: 1,
+          environment: 'test',
+          template: { id: 'tpl_7', slug: 'archiv', version: 1 },
+          error: null,
+          pdfa: {
+            standard: 'PDF/A-2b',
+            conformant: true,
+            validator: 'veraPDF 1.30.2',
+            id: 'a-1',
+            versions: { verapdf: '1.30.2' },
+            pdf_sha256: 'ee53',
+            messages: [],
+          },
+        },
+        201,
+      );
     // `bescheid` declares PDF/UA-1 (plan 21): its render carries the validator's verdict; `streng` is strict and fails
     if (
       call.path === '/v1/renders' &&
@@ -1051,6 +1111,40 @@ describe('@formfeed/mcp', () => {
           { rule: '7.4.2-1', code: 'heading-order', elements: ['<h3>'] },
         ],
       },
+    });
+    await close();
+  });
+
+  it('hands on the verdict of a template that declares PDF/A, and the rules of a file that failed (plan 26)', async () => {
+    const { client, close } = await connectedClient(fakeApi().fetchImpl);
+    expect(
+      structured(
+        await client.callTool({
+          name: 'render',
+          arguments: { template: 'invoice' },
+        }),
+      ),
+    ).not.toHaveProperty('pdfa');
+    expect(
+      structured(
+        await client.callTool({
+          name: 'render',
+          arguments: { template: 'archiv' },
+        }),
+      ),
+    ).toMatchObject({
+      id: 'rnd_7',
+      pdfa: { standard: 'PDF/A-2b', conformant: true },
+    });
+    const failed = await client.callTool({
+      name: 'render',
+      arguments: { template: 'archiv-cjk' },
+    });
+    expect(failed.isError).toBe(true);
+    const said = (failed.content as Array<{ text: string }>)[0]!.text;
+    expect(said.startsWith('pdfa_conversion_failed: ')).toBe(true);
+    expect(JSON.parse(said.slice(said.indexOf('\n') + 1))).toMatchObject({
+      pdfa: { conformant: false, messages: [{ rule: '6.2.11.5-1' }] },
     });
     await close();
   });

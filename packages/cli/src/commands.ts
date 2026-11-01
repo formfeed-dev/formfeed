@@ -74,6 +74,7 @@ import {
   strictFailure,
   strictVerdict,
 } from './lib/accessibility';
+import { pdfaLines } from './lib/pdfa';
 import { deviceLogin } from './lib/device-login';
 import { startDevServer } from './lib/dev-server';
 import { formatDiff } from './lib/diff';
@@ -112,6 +113,7 @@ import {
   defaultTypesFile,
   diagnose,
   diagnoseAccessibility,
+  diagnosePdfa,
   diagnoseEinvoice,
   generateTypes,
   isIgnored,
@@ -1030,8 +1032,12 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
             diagnostics: found.diagnostics,
           });
         }
-        // a template that declares PDF/UA-1 (plan 21): what its source already says about the file
-        for (const found of diagnoseAccessibility(tpl)) {
+        // a template that declares PDF/UA-1 (plan 21): what its source already says about the file;
+        // and one that declares PDF/A (plan 26): a declaration the API would refuse
+        for (const found of [
+          ...diagnoseAccessibility(tpl),
+          ...diagnosePdfa(tpl),
+        ]) {
           errors += found.diagnostics.filter(
             (d) => d.severity === 'error',
           ).length;
@@ -1261,6 +1267,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           ...warnings.map((w) => `warn   ${w}`),
           ...einvoiceLines(finished.einvoice),
           ...accessibilityLines(finished.accessibility),
+          ...pdfaLines(finished.pdfa),
           `${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s) -> ${shown(file)}`,
         ]);
       },

@@ -59,6 +59,7 @@ export {
 } from './lib/einvoice';
 export type { DataSetDiagnostics } from './lib/einvoice';
 export { diagnoseAccessibility } from './lib/accessibility';
+export { diagnosePdfa } from './lib/pdfa';
 export type { FileDiagnostics } from './lib/accessibility';
 export {
   contentTypeFor,

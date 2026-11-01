@@ -704,6 +704,38 @@ def test_pdf_ua_setting_travels_and_the_verdict_comes_back():
     assert err.value.problem["accessibility"]["failures"][0]["rule"] == "7.4.2-1"
 
 
+def test_pdfa_setting_travels_and_the_verdict_comes_back():
+    report = {
+        "standard": "PDF/A-2b",
+        "conformant": True,
+        "validator": "veraPDF 1.30.2",
+        "id": "4f6a1c2e-0000-4000-8000-000000000001",
+        "versions": {"verapdf": "1.30.2", "pdfbox": "3.0.8"},
+        "pdf_sha256": "ee53",
+        "messages": [],
+    }
+    failed = {**report, "standard": "PDF/A-3b", "conformant": False, "pdf_sha256": None,
+              "messages": [{"severity": "error", "rule": "6.2.11.4.1-1", "message": "The font program is not embedded",
+                            "location": "root/document[0]/pages[1]/font[0](Helvetica)"}]}
+    problem = {"type": "https://docs.formfeed.dev/errors/pdfa-conversion-failed", "title": "PDF/A conversion failed", "status": 500,
+               "code": "pdfa_conversion_failed", "detail": "The PDF could not be made a valid PDF/A-3b: 1 finding", "render_id": "rnd_1",
+               "pdfa": failed}
+    # no retries: the SDK retries a 500, and this one answers the same every time
+    client, rec = sync_client(lambda req, n: _json({**RENDER, "pdfa": report}) if n == 1 else _json(RENDER) if n == 2 else _json(problem, 500),
+                              max_retries=0)
+    render = client.renders.create(template="jahresbericht", settings={"pdf": {"pdfa": "2b"}})
+    assert json.loads(rec.calls[0].content)["settings"] == {"pdf": {"pdfa": "2b"}}
+    assert render.pdfa is not None and render.pdfa.standard == "PDF/A-2b" and render.pdfa.conformant
+    assert render.pdfa.validator == "veraPDF 1.30.2" and render.pdfa.versions["pdfbox"] == "3.0.8"
+    # a render that did not ask has none
+    assert client.renders.create(template="jahresbericht").pdfa is None
+    # a file that fails is not delivered, and the problem names the rules
+    with pytest.raises(FormfeedError) as err:
+        client.renders.create(template="jahresbericht", settings={"pdf": {"pdfa": True}})
+    assert err.value.code == "pdfa_conversion_failed"
+    assert err.value.problem["pdfa"]["messages"][0]["rule"] == "6.2.11.4.1-1"
+
+
 def test_storage_events_and_a_missing_connection():
     from formfeed import StorageDeliveryEvent
 

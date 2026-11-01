@@ -1,4 +1,5 @@
 import type { UaSetting } from './accessibility';
+import type { PdfaSetting } from './pdfa';
 import { brandCss, brandFontFamilies } from './brand';
 import type { BrandContext } from './brand';
 import type { EinvoiceOptionsInput } from './einvoice/schema';
@@ -58,6 +59,13 @@ export interface TemplateSettings {
      * implies `tagged`. Read it through `resolveUa`.
      */
     ua?: UaSetting;
+    /**
+     * PDF/A (plan 26): the finished PDF is converted to PDF/A-2b or PDF/A-3b and held to it by the
+     * validator; a file that fails fails the render, there is no mode that delivers it. `true` is
+     * `'3b'`. An e-invoice is a PDF/A-3b already, so `'2b'` beside one is refused. Read it through
+     * `resolvePdfa`.
+     */
+    pdfa?: PdfaSetting;
     metadata?: {
       title?: string;
       author?: string;

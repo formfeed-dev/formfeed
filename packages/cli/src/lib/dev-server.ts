@@ -9,9 +9,10 @@ import {
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
-import { defaultOutput } from '@formfeed/engine';
+import { defaultOutput, pdfaStandard, resolvePdfa } from '@formfeed/engine';
 import type { Formfeed, Render } from '@formfeed/sdk-ts';
 import { accessibilityLines, auditLines, strictVerdict } from './accessibility';
+import { pdfaLines } from './pdfa';
 import type { Project } from './config';
 import { CliError, exitCodes } from './errors';
 import {
@@ -19,6 +20,7 @@ import {
   defaultData,
   diagnose,
   diagnoseAccessibility,
+  diagnosePdfa,
   localFilePath,
   previewDocument,
   readTemplate,
@@ -347,6 +349,8 @@ export async function startDevServer(
             ...render,
             warnings,
             accessibility_lines: accessibilityLines(render.accessibility),
+            // and of a template that declares PDF/A (plan 26)
+            pdfa_lines: pdfaLines(render.pdfa),
           }),
         );
       } catch (e) {
@@ -446,15 +450,38 @@ export async function startDevServer(
  * sees the rendered document, of which the static one only knows the source.
  */
 function declarationProblems(template: LocalTemplate) {
-  return diagnoseAccessibility(template)
-    .filter((found) => found.file === 'settings.json')
-    .flatMap((found) =>
-      found.diagnostics
-        .filter((d) =>
-          /^accessibility-(setting|image|office|einvoice)$/.test(d.code ?? ''),
-        )
-        .map((d) => ({ ...d, part: found.file })),
-    );
+  const level = resolvePdfa(template.settings.pdf?.pdfa);
+  return [
+    ...diagnoseAccessibility(template)
+      .filter((found) => found.file === 'settings.json')
+      .flatMap((found) =>
+        found.diagnostics
+          .filter((d) =>
+            /^accessibility-(setting|image|office|einvoice)$/.test(
+              d.code ?? '',
+            ),
+          )
+          .map((d) => ({ ...d, part: found.file })),
+      ),
+    // PDF/A (plan 26): a declaration the API refuses, and that this preview is no PDF/A file
+    ...diagnosePdfa(template).flatMap((found) =>
+      found.diagnostics.map((d) => ({ ...d, part: found.file })),
+    ),
+    ...(level && template.meta.kind !== 'image'
+      ? [
+          {
+            severity: 'info' as const,
+            code: 'pdfa-local',
+            message: `settings.json declares ${pdfaStandard(level)}: this preview is HTML, and only a render makes and checks the PDF/A file (Render)`,
+            range: {
+              start: { line: 1, column: 1 },
+              end: { line: 1, column: 1 },
+            },
+            part: 'settings.json',
+          },
+        ]
+      : []),
+  ];
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -619,6 +646,7 @@ function shell(slug: string): string {
         (r.warnings || []).forEach(function (w) {
           var el = document.createElement('div'); el.className = 'diag warning'; el.textContent = w; $('result').appendChild(el);
         });
+        showVerdict(r.pdfa_lines);
         showVerdict(r.accessibility_lines);
         if (office.active && r.download_url) { office.pdf = r.download_url; office.auto = true; showPdf(r.download_url); }
       })

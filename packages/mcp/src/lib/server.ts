@@ -160,6 +160,12 @@ const renderOutput = {
     .record(z.string(), z.unknown())
     .optional()
     .describe('The PDF/UA-1 verdict, when the template declares it'),
+  pdfa: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      'The PDF/A verdict (PDF/A-2b or PDF/A-3b), when the template declares it',
+    ),
   einvoice: z
     .record(z.string(), z.unknown())
     .optional()
@@ -215,6 +221,8 @@ const renderSummary = (r: Render) => ({
   // the validator's verdict of a render whose template declares PDF/UA-1 (plan 21): whether the
   // file passed, and for each failed rule what to change and in which elements
   ...(r.accessibility ? { accessibility: r.accessibility } : {}),
+  // the verdict of a render whose template declares PDF/A (plan 26): the level and the validator
+  ...(r.pdfa ? { pdfa: r.pdfa } : {}),
   // the report of an e-invoice (spec 17): valid, the findings, the XML's link, the hashes it checked
   ...(r.einvoice ? { einvoice: r.einvoice } : {}),
 });
@@ -346,6 +354,13 @@ function failure(e: unknown) {
     e instanceof FormfeedError && e.code === 'pdfua_validation_failed'
       ? e.problem?.['accessibility']
       : undefined;
+  // A PDF/A that failed (plan 26) names the rules of its level and where veraPDF found them.
+  const pdfa =
+    e instanceof FormfeedError &&
+    (e.code === 'pdfa_conversion_failed' ||
+      e.code === 'pdfua_validation_failed')
+      ? e.problem?.['pdfa']
+      : undefined;
   // A refused e-invoice names the fields and rules to fix (`errors`) or carries the validator's
   // report (`einvoice`): an agent can correct the _invoice block only with them.
   const invoice =
@@ -358,6 +373,7 @@ function failure(e: unknown) {
       : {};
   const details = {
     ...(verdict ? { accessibility: verdict } : {}),
+    ...(pdfa ? { pdfa } : {}),
     ...invoice,
   };
   return {
