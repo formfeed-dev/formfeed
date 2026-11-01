@@ -226,6 +226,14 @@ function overflowScript(mode: 'paged' | 'flow'): string {
       if (getComputedStyle(p).overflowX !== 'visible') return true;
     return false;
   };
+  // a named page has a size of its own, which the flow preview's one sheet says nothing about
+  var named = function (el, stop) {
+    for (var p = el; p && p !== stop; p = p.parentElement) {
+      var page = getComputedStyle(p).page;
+      if (page && page !== 'auto') return true;
+    }
+    return false;
+  };
   var measure = function () {
     try {
       var boxes = ${mode === 'paged' ? "document.querySelectorAll('.pagedjs_page_content')" : '[document.body]'};
@@ -243,7 +251,7 @@ function overflowScript(mode: 'paged' | 'flow'): string {
           if (el.closest('.formfeed-chrome, .ff-running-header, .ff-running-footer, script, style, head')) continue;
           var over = el.getBoundingClientRect().right - right;
           if (over <= 1 || (worst && over <= worst.over)) continue;
-          if (getComputedStyle(el).position === 'fixed' || clipped(el, box)) continue;
+          if (getComputedStyle(el).position === 'fixed' || clipped(el, box)${mode === 'flow' ? ' || named(el, box)' : ''}) continue;
           worst = { over: over, width: right - left, el: el };
         }
       }
@@ -418,9 +426,11 @@ export function pagedDocument(
 .ff-running-header { position: running(ffHeader); }
 .ff-running-footer { position: running(ffFooter); }
 .ff-running-header, .ff-running-footer { color: #6b7280; font: 10px/1.3 system-ui, sans-serif; }
-/* Chromium prints the header at the top edge and the footer at the bottom edge; margin boxes centre */
-.pagedjs_margin-top-center { align-items: flex-start !important; }
-.pagedjs_margin-bottom-center { align-items: flex-end !important; }
+/* Chromium prints the header at the top edge and the footer at the bottom edge; margin boxes centre, and a template's own stay centred */
+${headerHtml ? '.pagedjs_margin-top-center { align-items: flex-start !important; }' : ''}
+${footerHtml ? '.pagedjs_margin-bottom-center { align-items: flex-end !important; }' : ''}
+/* Paged.js gives a named page's size to its page box only, so a landscape section stood on an upright sheet that cut it off */
+.pagedjs_named_page { --pagedjs-width: var(--pagedjs-pagebox-width); --pagedjs-height: var(--pagedjs-pagebox-height); --pagedjs-width-right: var(--pagedjs-pagebox-width); --pagedjs-height-right: var(--pagedjs-pagebox-height); --pagedjs-width-left: var(--pagedjs-pagebox-width); --pagedjs-height-left: var(--pagedjs-pagebox-height); }
 .ff-running-header { ${chromeBoxStyle(settings, 'header')} }
 .ff-running-footer { ${chromeBoxStyle(settings, 'footer')} }
 .ff-page-no::after { content: counter(page); }
