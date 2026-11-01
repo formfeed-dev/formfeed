@@ -249,10 +249,10 @@ function fakeApi(seenKeys: string[] = []) {
     )
       return json(
         {
-          type: 'https://docs.formfeed.dev/errors/pdfa-conversion-failed',
-          title: 'PDF/A conversion failed',
-          status: 500,
-          code: 'pdfa_conversion_failed',
+          type: 'https://docs.formfeed.dev/errors/pdfa-validation-failed',
+          title: 'PDF/A validation failed',
+          status: 422,
+          code: 'pdfa_validation_failed',
           detail: 'The PDF could not be made a valid PDF/A-2b: 1 finding',
           pdfa: {
             standard: 'PDF/A-2b',
@@ -271,7 +271,7 @@ function fakeApi(seenKeys: string[] = []) {
             ],
           },
         },
-        500,
+        422,
       );
     if (
       call.path === '/v1/renders' &&
@@ -1142,7 +1142,7 @@ describe('@formfeed/mcp', () => {
     });
     expect(failed.isError).toBe(true);
     const said = (failed.content as Array<{ text: string }>)[0]!.text;
-    expect(said.startsWith('pdfa_conversion_failed: ')).toBe(true);
+    expect(said.startsWith('pdfa_validation_failed: ')).toBe(true);
     expect(JSON.parse(said.slice(said.indexOf('\n') + 1))).toMatchObject({
       pdfa: { conformant: false, messages: [{ rule: '6.2.11.5-1' }] },
     });

@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { defaultOutput, pdfaStandard, resolvePdfa } from '@formfeed/engine';
 import type { Formfeed, Render } from '@formfeed/sdk-ts';
 import { accessibilityLines, auditLines, strictVerdict } from './accessibility';
-import { pdfaLines } from './pdfa';
+import { pdfaLines, pdfaVerdict } from './pdfa';
 import type { Project } from './config';
 import { CliError, exitCodes } from './errors';
 import {
@@ -366,6 +366,7 @@ export async function startDevServer(
             ...(verdict
               ? { accessibility_lines: accessibilityLines(verdict) }
               : {}),
+            pdfa_lines: pdfaLines(pdfaVerdict(e)),
           }),
         );
       }
@@ -639,7 +640,7 @@ function shell(slug: string): string {
     fetch('/api/render', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data: state.data }) })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
       .then(function (res) {
-        if (!res.ok) { $('result').textContent = res.body.error || 'failed'; showVerdict(res.body.accessibility_lines); return; }
+        if (!res.ok) { $('result').textContent = res.body.error || 'failed'; showVerdict(res.body.pdfa_lines); showVerdict(res.body.accessibility_lines); return; }
         var r = res.body;
         $('result').innerHTML = (r.page_count ? r.page_count + ' page(s) · ' : '') + (r.units != null ? r.units + ' units · ' : '') +
           (r.download_url ? '<a href="' + r.download_url + '" target="_blank" rel="noopener">open output</a>' : r.status);

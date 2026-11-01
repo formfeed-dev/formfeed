@@ -74,7 +74,7 @@ import {
   strictFailure,
   strictVerdict,
 } from './lib/accessibility';
-import { pdfaLines } from './lib/pdfa';
+import { pdfaFailure, pdfaLines, pdfaVerdict } from './lib/pdfa';
 import { deviceLogin } from './lib/device-login';
 import { startDevServer } from './lib/dev-server';
 import { formatDiff } from './lib/diff';
@@ -1244,6 +1244,11 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
               finished.accessibility
             )
               throw strictFailure(slug, finished.accessibility, finished);
+            if (
+              finished.error?.code === 'pdfa_validation_failed' &&
+              finished.pdfa
+            )
+              throw pdfaFailure(slug, finished.pdfa, finished);
             throw new CliError(
               `render ${finished.id} failed: ${JSON.stringify(finished.error)}`,
               exitCodes.network,
@@ -1253,10 +1258,15 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           live.update('downloading');
           bytes = await c.renders.download(finished);
         } catch (e) {
-          // a strict PDF/UA render that failed (plan 21) is a finding about the template
+          // a strict PDF/UA render that failed (plan 21) is a finding about the template, and a file
+          // that failed its PDF/A level (plan 26) one about the document
           const verdict = strictVerdict(e);
-          if (!verdict) throw e;
-          throw strictFailure(slug, verdict, (e as FormfeedError).problem);
+          if (verdict)
+            throw strictFailure(slug, verdict, (e as FormfeedError).problem);
+          const archive = pdfaVerdict(e);
+          if (archive)
+            throw pdfaFailure(slug, archive, (e as FormfeedError).problem);
+          throw e;
         } finally {
           live.stop();
         }

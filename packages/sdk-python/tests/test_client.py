@@ -717,12 +717,10 @@ def test_pdfa_setting_travels_and_the_verdict_comes_back():
     failed = {**report, "standard": "PDF/A-3b", "conformant": False, "pdf_sha256": None,
               "messages": [{"severity": "error", "rule": "6.2.11.4.1-1", "message": "The font program is not embedded",
                             "location": "root/document[0]/pages[1]/font[0](Helvetica)"}]}
-    problem = {"type": "https://docs.formfeed.dev/errors/pdfa-conversion-failed", "title": "PDF/A conversion failed", "status": 500,
-               "code": "pdfa_conversion_failed", "detail": "The PDF could not be made a valid PDF/A-3b: 1 finding", "render_id": "rnd_1",
+    problem = {"type": "https://docs.formfeed.dev/errors/pdfa-validation-failed", "title": "PDF/A validation failed", "status": 422,
+               "code": "pdfa_validation_failed", "detail": "The PDF could not be made a valid PDF/A-3b: 1 finding", "render_id": "rnd_1",
                "pdfa": failed}
-    # no retries: the SDK retries a 500, and this one answers the same every time
-    client, rec = sync_client(lambda req, n: _json({**RENDER, "pdfa": report}) if n == 1 else _json(RENDER) if n == 2 else _json(problem, 500),
-                              max_retries=0)
+    client, rec = sync_client(lambda req, n: _json({**RENDER, "pdfa": report}) if n == 1 else _json(RENDER) if n == 2 else _json(problem, 422))
     render = client.renders.create(template="jahresbericht", settings={"pdf": {"pdfa": "2b"}})
     assert json.loads(rec.calls[0].content)["settings"] == {"pdf": {"pdfa": "2b"}}
     assert render.pdfa is not None and render.pdfa.standard == "PDF/A-2b" and render.pdfa.conformant
@@ -732,7 +730,7 @@ def test_pdfa_setting_travels_and_the_verdict_comes_back():
     # a file that fails is not delivered, and the problem names the rules
     with pytest.raises(FormfeedError) as err:
         client.renders.create(template="jahresbericht", settings={"pdf": {"pdfa": True}})
-    assert err.value.code == "pdfa_conversion_failed"
+    assert err.value.code == "pdfa_validation_failed" and err.value.status == 422
     assert err.value.problem["pdfa"]["messages"][0]["rule"] == "6.2.11.4.1-1"
 
 

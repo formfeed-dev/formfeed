@@ -148,4 +148,96 @@ describe('formfeed CLI: PDF/A (plan 26)', () => {
       'rnd_1: 4 page(s), 0 unit(s) -> report.pdf',
     ]);
   });
+
+  const failed = {
+    ...passed,
+    conformant: false,
+    pdf_sha256: null,
+    messages: [
+      {
+        severity: 'error',
+        rule: '6.2.11.4.1-1',
+        message: 'The font program is not embedded',
+        location: 'font(Helvetica)',
+      },
+    ],
+  };
+
+  it('render reports a file that fails its level as a finding, with the rules and exit code 1', async () => {
+    writeReport({ pdf: { pdfa: '2b' } });
+    const { fetch } = api(
+      () =>
+        new Response(
+          JSON.stringify({
+            type: 'https://docs.formfeed.dev/errors/pdfa-validation-failed',
+            title: 'PDF/A validation failed',
+            status: 422,
+            code: 'pdfa_validation_failed',
+            detail: 'The PDF could not be made a valid PDF/A-2b: 1 finding',
+            render_id: 'rnd_1',
+            pdfa: failed,
+          }),
+          {
+            status: 422,
+            headers: { 'content-type': 'application/problem+json' },
+          },
+        ),
+    );
+    expect(await run(['render', 'report'], withKey(fetch))).toBe(1);
+    const said = err.join('\n');
+    expect(said).toContain(
+      'PDF/A-2b   not conformant, 1 finding(s) (veraPDF 1.30.2)',
+    );
+    expect(said).toContain(
+      '6.2.11.4.1-1  The font program is not embedded (font(Helvetica))',
+    );
+    expect(said).toContain(
+      'report: no file, because a file that fails PDF/A-2b is not delivered',
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('render says the same of a render that failed in the background', async () => {
+    writeReport({ pdf: { pdfa: '2b' } });
+    const { fetch } = api(
+      () =>
+        new Response(
+          JSON.stringify({
+            id: 'rnd_1',
+            status: 'failed',
+            output: 'pdf',
+            error: {
+              code: 'pdfa_validation_failed',
+              message: 'The PDF could not be made a valid PDF/A-2b: 1 finding',
+            },
+            pdfa: failed,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    expect(await run(['render', 'report'], withKey(fetch))).toBe(1);
+    expect(err.join('\n')).toContain('6.2.11.4.1-1');
+  });
+
+  it('keeps the exit code of a failed request where the converter itself failed', async () => {
+    writeReport({ pdf: { pdfa: '2b' } });
+    const { fetch } = api(
+      () =>
+        new Response(
+          JSON.stringify({
+            type: 'https://docs.formfeed.dev/errors/pdfa-conversion-failed',
+            title: 'PDF/A conversion failed',
+            status: 500,
+            code: 'pdfa_conversion_failed',
+            detail: 'The PDF could not be converted to PDF/A-2b',
+            reason: 'The part pdf cannot be read as a PDF.',
+          }),
+          {
+            status: 500,
+            headers: { 'content-type': 'application/problem+json' },
+          },
+        ),
+    );
+    expect(await run(['render', 'report'], withKey(fetch))).toBe(4);
+  });
 });

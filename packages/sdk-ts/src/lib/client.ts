@@ -310,7 +310,8 @@ export interface PdfaMessage {
 
 /**
  * What the validator said about a file as PDF/A: which rules of the format it passed, by which
- * validator. A render delivers a file only when it passed; a failed render keeps the report.
+ * validator. A render delivers a file only when it passed; a failed render keeps the report, and its
+ * problem (422 `pdfa_validation_failed`) carries it.
  */
 export interface Pdfa {
   standard: 'PDF/A-2b' | 'PDF/A-3b' | (string & {});

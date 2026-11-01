@@ -330,6 +330,7 @@ function slugIn(
 const EINVOICE_PROBLEMS = new Set([
   'einvoice_data_invalid',
   'einvoice_display_mismatch',
+  'pdfa_validation_failed',
   'pdfa_conversion_failed',
   'einvoice_validator_error',
 ]);
@@ -357,7 +358,8 @@ function failure(e: unknown) {
   // A PDF/A that failed (plan 26) names the rules of its level and where veraPDF found them.
   const pdfa =
     e instanceof FormfeedError &&
-    (e.code === 'pdfa_conversion_failed' ||
+    (e.code === 'pdfa_validation_failed' ||
+      e.code === 'pdfa_conversion_failed' ||
       e.code === 'pdfua_validation_failed')
       ? e.problem?.['pdfa']
       : undefined;
