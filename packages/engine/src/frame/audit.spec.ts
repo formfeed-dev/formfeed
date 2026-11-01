@@ -330,6 +330,12 @@ describe('startTag', () => {
     expect(tag.endsWith('…')).toBe(true);
   });
 
+  it('leaves out the mark of a break written in a style attribute', () => {
+    document.body.innerHTML =
+      '<div class="pagedjs_page"><h2 class="next" data-ff-break="0"></h2></div>';
+    expect(startTag(document.querySelector('h2')!)).toBe('<h2 class="next">');
+  });
+
   // Paged.js gives every element a reference and notes where it split and broke. A finding of the
   // paged preview once read `<h3 data-ref="0add6264-…">`, which nobody wrote.
   it('leaves out what Paged.js wrote onto an element of a page, and nothing the author wrote', () => {

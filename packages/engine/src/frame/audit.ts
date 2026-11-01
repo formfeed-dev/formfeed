@@ -76,6 +76,7 @@ export function startTag(element: Element): string {
   const clone = element.cloneNode(false) as Element;
   clone.removeAttribute('data-ff-src');
   clone.removeAttribute('data-ff-edit');
+  clone.removeAttribute('data-ff-break');
   const paged = element.closest('.pagedjs_page') !== null;
   for (const attribute of Array.from(clone.attributes))
     if (paged && PAGED_ATTRIBUTE.test(attribute.name))

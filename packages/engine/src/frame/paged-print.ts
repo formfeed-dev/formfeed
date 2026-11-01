@@ -13,8 +13,8 @@
  * `paged-preview.spec.ts` holds the preview to those PDFs.
  *
  * `pagedDocument` adds it after Paged.js's script; its `PagedConfig.before` calls
- * `formfeedMoveTableFeet` while the document is still the one the template wrote. Bundled by
- * `engine:frames`; keep it self-contained.
+ * `formfeedShowStyles` and `formfeedMoveTableFeet` while the document is still the one the template
+ * wrote. Bundled by `engine:frames`; keep it self-contained.
  */
 
 /** The part of Paged.js this runtime uses (`window.Paged`, a UMD global of the polyfill). */
@@ -32,6 +32,7 @@ interface PagedGlobal {
 type PagedWindow = Window & {
   Paged?: PagedGlobal;
   formfeedMoveTableFeet?: () => void;
+  formfeedShowStyles?: () => void;
 };
 
 const isElement = (node: Node | null | undefined): node is Element =>
@@ -264,11 +265,82 @@ export function anchorFixed(pageElement: Element): void {
   box.appendChild(layer);
 }
 
+/** What Chromium keeps apart: a header or footer template prints in a page of its own. */
+const CHROME = '.ff-running-header, .ff-running-footer';
+
+/**
+ * Paged.js learns of page sizes, page breaks and named pages from the stylesheets alone, and it moves
+ * the template out of the body before it looks for them. So it read neither a `<style>` in the
+ * template's body nor a `style` attribute, and Chromium honours both: `<div
+ * style="page-break-before: always">` broke in the PDF and not in the preview, and the site's receipt
+ * example, whose `@page` size comes from its data, kept the paper of its settings.
+ *
+ * Both become what it does read. An attribute's break or named page becomes a rule for that element,
+ * marked with `data-ff-break`. The browser has already read the attribute, so
+ * `page-break-before: always` arrives here as `break-before: page`. The declaration leaves the
+ * attribute, as Paged.js takes it out of a rule it has read: a named page left in place breaks
+ * Paged.js's columns as well, and the page before it comes out under the wrong name.
+ */
+function showStyles(doc: Document): void {
+  const { head, body } = doc;
+  for (const style of Array.from(body.querySelectorAll('style')))
+    // one in an SVG is part of the picture
+    if (
+      style.namespaceURI === 'http://www.w3.org/1999/xhtml' &&
+      !style.closest(CHROME)
+    )
+      head.appendChild(style);
+
+  const rules: string[] = [];
+  for (const el of Array.from(body.querySelectorAll<HTMLElement>('[style]'))) {
+    if (el.closest(CHROME)) continue;
+    const declarations = ['break-before', 'break-after', 'page'].flatMap(
+      (name) => {
+        const value = el.style.getPropertyValue(name);
+        if (!/^[\w-]+$/.test(value) || value === 'auto') return [];
+        el.style.removeProperty(name);
+        return [`${name}: ${value};`];
+      },
+    );
+    if (!declarations.length) continue;
+    if (!el.style.length) el.removeAttribute('style');
+    el.setAttribute('data-ff-break', String(rules.length));
+    rules.push(
+      `[data-ff-break="${rules.length}"] { ${declarations.join(' ')} }`,
+    );
+  }
+  if (!rules.length) return;
+  const sheet = doc.createElement('style');
+  sheet.textContent = rules.join('\n');
+  head.appendChild(sheet);
+}
+
+/**
+ * Chromium's print takes a break to a side for a plain page break, where Paged.js adds a blank page
+ * to reach that side: measured on 2026-11-01, `break-before: right` on the second page gave two pages
+ * in the PDF and three in the preview.
+ */
+function sidesArePlainBreaks(parsed: ParentNode): void {
+  for (const name of [
+    'data-break-before',
+    'data-break-after',
+    'data-next-break-before',
+    'data-previous-break-after',
+  ])
+    for (const el of Array.from(parsed.querySelectorAll(`[${name}]`)))
+      if (/^(left|right|recto|verso)$/.test(el.getAttribute(name) ?? ''))
+        el.setAttribute(name, 'page');
+}
+
 export function installPagedPrint(win: PagedWindow): void {
   win.formfeedMoveTableFeet = () => moveTableFeet(win.document, win);
+  win.formfeedShowStyles = () => showStyles(win.document);
   const Paged = win.Paged;
   if (!Paged?.Handler) return;
   class FormfeedTables extends Paged.Handler {
+    afterParsed(parsed: ParentNode): void {
+      sidesArePlainBreaks(parsed);
+    }
     renderNode(clone: Node, node: Node): void {
       repeatHead(clone, node, win);
     }

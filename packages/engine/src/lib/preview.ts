@@ -453,11 +453,11 @@ html { background: #e5e7eb; }
   // Paged.js's own boxes.
   const boxSizingGuard = `<script>(function(){var rule='.pagedjs_pagebox *';var o=new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeName==='STYLE'&&n.textContent&&n.textContent.indexOf(rule)>=0){n.textContent=n.textContent.split(rule).join('.pagedjs_pagebox [class*="pagedjs_"]');o.disconnect();}});});});o.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;
   // Paged.js rebuilds a table that goes on to the next page without its head and lays out a footer
-  // group where the markup has it; Chromium repeats both on every page (`frame/paged-print.ts`, after
-  // Paged.js's own script, because it extends `Paged.Handler`). `before` runs while the document is
-  // still the template's and styled.
+  // group where the markup has it; Chromium repeats both on every page, and it reads breaks and page
+  // sizes only from the stylesheets (`frame/paged-print.ts`, after Paged.js's own script, because it
+  // extends `Paged.Handler`). `before` runs while the document is still the template's and styled.
   const tables = `<script data-formfeed="paged-print">${pagedPrintRuntime.replace(/<\/script/gi, '<\\/script')}</script>`;
-  const config = `<script>window.PagedConfig = { auto: true, before: function () { try { if (window.formfeedMoveTableFeet) window.formfeedMoveTableFeet(); } catch (e) {} }, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { if (window.formfeedFit) window.formfeedFit(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); if (window.formfeedRunAudit) window.formfeedRunAudit(flow.total); try { if (window.formfeedEditReady) window.formfeedEditReady(); } catch (e) {} } };</script>`;
+  const config = `<script>window.PagedConfig = { auto: true, before: function () { try { if (window.formfeedShowStyles) window.formfeedShowStyles(); } catch (e) {} try { if (window.formfeedMoveTableFeet) window.formfeedMoveTableFeet(); } catch (e) {} }, after: function (flow) { try { if (window.formfeedDrawCharts) window.formfeedDrawCharts(); } catch (e) {} try { if (window.formfeedFit) window.formfeedFit(); } catch (e) {} try { parent.postMessage({ type: 'formfeed:pages', pages: flow.total }, '*'); } catch (e) {} if (window.formfeedCheckOverflow) window.formfeedCheckOverflow(); if (window.formfeedRunAudit) window.formfeedRunAudit(flow.total); try { if (window.formfeedEditReady) window.formfeedEditReady(); } catch (e) {} } };</script>`;
   const script = `<script src="${options.pagedScriptUrl}"></script>`;
   const header = headerHtml
     ? `<div class="ff-running-header">${pageNumberSpans(headerHtml, '<span class="ff-page-no"></span>', '<span class="ff-page-total"></span>')}</div>`
