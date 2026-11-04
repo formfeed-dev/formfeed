@@ -8,7 +8,7 @@ import {
   RenderLimitError,
 } from '../errors';
 import { defaultHelpers } from '../helpers';
-import { enforceLimits } from '../limits';
+import { enforceLimits, openDeadline, tick } from '../limits';
 import type {
   Analysis,
   AnalyzeOptions,
@@ -66,6 +66,7 @@ function createInstance(ctx: RenderContext): HB {
   const hb = Handlebars.create();
   for (const [name, { fn, html }] of ctx.helpers.bind(ctx)) {
     hb.registerHelper(name, function (this: unknown, ...args: unknown[]) {
+      tick();
       const options = args.at(-1) as
         { hash?: Record<string, unknown> } | undefined;
       const params = args.slice(0, -1);
@@ -86,7 +87,48 @@ function createInstance(ctx: RenderContext): HB {
       return html ? new hb.SafeString(String(result ?? '')) : result;
     });
   }
+  limitTime(hb);
   return hb;
+}
+
+/**
+ * The time limit is checked from inside the render (`tick` in limits.ts), because nothing outside can
+ * stop a synchronous one: at every step of `each`, which a block over a list (`{{#items}}`) goes
+ * through as well, at every partial, inline ones included, and at every helper call above. Neither a
+ * loop nor a recursion outlives the limit.
+ */
+function limitTime(hb: HB): void {
+  const each = hb.helpers['each'] as (
+    this: unknown,
+    ...args: unknown[]
+  ) => unknown;
+  hb.registerHelper('each', function (this: unknown, ...args: unknown[]) {
+    const options = args.at(-1) as
+      { fn?: (...a: unknown[]) => unknown } | undefined;
+    const step = options?.fn;
+    if (options && step)
+      args[args.length - 1] = {
+        ...options,
+        fn: (...a: unknown[]) => {
+          tick();
+          return step(...a);
+        },
+      };
+    return each.apply(this, args);
+  });
+  // this instance's own copy of the runtime, so the shared module stays as it is
+  const instance = hb as unknown as { VM: Record<string, unknown> };
+  const invokePartial = instance.VM['invokePartial'] as (
+    this: unknown,
+    ...args: unknown[]
+  ) => unknown;
+  instance.VM = {
+    ...instance.VM,
+    invokePartial(this: unknown, ...args: unknown[]) {
+      tick();
+      return invokePartial.apply(this, args);
+    },
+  };
 }
 
 const validationContext: RenderContext = {
@@ -448,6 +490,7 @@ class HandlebarsCompiled implements CompiledTemplate {
       }
     };
     collect(this.source, 0);
+    const deadline = openDeadline(ctx.limits, started);
     try {
       const out = template(withBrand(data, ctx) as object, {
         partials,
@@ -456,6 +499,7 @@ class HandlebarsCompiled implements CompiledTemplate {
       });
       return enforceLimits(out, started, ctx.limits);
     } catch (e) {
+      if (deadline.hit) throw deadline.hit;
       if (e instanceof Error && e.name === 'RenderLimitError') throw e;
       const err = e as {
         message?: string;
@@ -468,6 +512,8 @@ class HandlebarsCompiled implements CompiledTemplate {
         err.lineNumber,
         err.column === undefined ? undefined : err.column + 1,
       );
+    } finally {
+      deadline.close();
     }
   }
 }

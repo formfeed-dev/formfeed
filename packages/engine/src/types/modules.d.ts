@@ -17,6 +17,8 @@ declare module 'nunjucks/browser/nunjucks.js' {
   export interface NunjucksCompiler {
     _emit(code: string): void;
     _emitLine(code: string): void;
+    /** Throws a template error at a node's 0-based position. */
+    fail(message: string, lineno?: number, colno?: number): never;
     _compileExpression(node: unknown, frame: unknown): void;
     compile(node: unknown, frame: unknown): void;
   }
@@ -34,13 +36,43 @@ declare module 'nunjucks/browser/nunjucks.js' {
     runtime: typeof N.runtime & {
       memberLookup: (obj: unknown, val: unknown, ...rest: unknown[]) => unknown;
       suppressValue: (val: unknown, autoescape: boolean) => unknown;
+      /** Every call a template makes (helpers, macros, `caller()`) goes through it. */
+      callWrap: (
+        obj: unknown,
+        name: string,
+        context: unknown,
+        args: unknown[],
+      ) => unknown;
     };
-    /** The code generator; patched for `not` precedence and namespace attributes (engines/jinja2.ts). */
+    /**
+     * The code generator; patched for `not` precedence, namespace attributes, the time limit and
+     * regular expression literals (engines/jinja2.ts).
+     */
     compiler: {
       Compiler: {
         prototype: {
-          compileNot(this: NunjucksCompiler, node: { target: unknown }, frame: unknown): void;
-          compileSet(this: NunjucksCompiler, node: NunjucksSetNode, frame: unknown): void;
+          compileNot(
+            this: NunjucksCompiler,
+            node: { target: unknown },
+            frame: unknown,
+          ): void;
+          compileSet(
+            this: NunjucksCompiler,
+            node: NunjucksSetNode,
+            frame: unknown,
+          ): void;
+          compileLiteral(
+            this: NunjucksCompiler,
+            node: { value: unknown; lineno: number; colno: number },
+          ): void;
+          /** Writes a loop step's `loop.*` bindings: every loop form calls it once per step. */
+          _emitLoopBindings(
+            this: NunjucksCompiler,
+            node: unknown,
+            arr: string,
+            i: string,
+            len: string,
+          ): void;
         };
       };
     };

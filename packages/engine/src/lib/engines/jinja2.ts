@@ -8,7 +8,7 @@ import {
 } from '../analysis/tags';
 import { EngineSyntaxError, notText, RenderError } from '../errors';
 import { defaultHelpers } from '../helpers';
-import { enforceLimits } from '../limits';
+import { enforceLimits, openDeadline, tick } from '../limits';
 import { pythonFormat } from './python-format';
 import type {
   Analysis,
@@ -500,6 +500,42 @@ function installCompat(): void {
     // the extra arguments are the bounds of a slice (`values[0:2]`)
     return original(obj, val, ...rest);
   };
+  // The time limit is checked from inside the render (`tick` in limits.ts), because nothing outside
+  // can stop a synchronous one: at the top of every loop step (all four loop forms of the code
+  // generator write their `loop.*` bindings through `_emitLoopBindings`) and at every call a template
+  // makes (helpers, macros, `caller()`), so neither a loop nor a recursion outlives the limit.
+  (nunjucks.runtime as unknown as Record<string, unknown>)['formfeedTick'] =
+    tick;
+  const emitLoopBindings =
+    nunjucks.compiler.Compiler.prototype._emitLoopBindings;
+  nunjucks.compiler.Compiler.prototype._emitLoopBindings = function (
+    node,
+    arr,
+    i,
+    len,
+  ) {
+    this._emitLine('runtime.formfeedTick();');
+    emitLoopBindings.call(this, node, arr, i, len);
+  };
+  const callWrap = nunjucks.runtime.callWrap;
+  nunjucks.runtime.callWrap = (obj, name, context, args) => {
+    tick();
+    return callWrap(obj, name, context, args);
+  };
+  // A regular expression literal (`r/…/`, which Nunjucks has and Jinja2 does not) is the one way a
+  // template could make a regular expression, and its match is a single step no time check reaches:
+  // `r/(a+)+$/.test("aaa…!")` backtracks exponentially, for hours at forty characters. Templates get
+  // none; the string helpers cover search and replace.
+  const compileLiteral = nunjucks.compiler.Compiler.prototype.compileLiteral;
+  nunjucks.compiler.Compiler.prototype.compileLiteral = function (node) {
+    if (node.value instanceof RegExp)
+      this.fail(
+        'Regular expressions (r/…/) are not supported in templates',
+        node.lineno,
+        node.colno,
+      );
+    compileLiteral.call(this, node);
+  };
 }
 
 // --- environment -----------------------------------------------------------------------------
@@ -917,10 +953,16 @@ class Jinja2Template implements CompiledTemplate {
     const started = Date.now();
     const tpl = this.runtime(ctx);
     return new Promise<string>((resolve, reject) => {
+      const deadline = openDeadline(ctx.limits, started);
       try {
         tpl.render(
           (data ?? {}) as object,
           (err: unknown, res: string | null) => {
+            // stopped at its time limit: Nunjucks has wrapped the error into one of its own
+            if (err && deadline.hit) {
+              reject(deadline.hit);
+              return;
+            }
             if (err) {
               const e = err as {
                 message?: string;
@@ -945,7 +987,12 @@ class Jinja2Template implements CompiledTemplate {
           },
         );
       } catch (e) {
-        reject(e instanceof Error ? e : new RenderError('jinja2', String(e)));
+        reject(
+          deadline.hit ??
+            (e instanceof Error ? e : new RenderError('jinja2', String(e))),
+        );
+      } finally {
+        deadline.close();
       }
     });
   }

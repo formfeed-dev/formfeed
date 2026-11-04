@@ -19,6 +19,9 @@ const numbers = (v: unknown, path?: unknown): number[] =>
     .map((item) => toNumber(path ? get(item, path) : item))
     .filter((n) => !Number.isNaN(n));
 
+/** The most items `range` yields, the limit of Jinja2's own sandbox (`MAX_RANGE`, `jinja2.sandbox`). */
+const MAX_RANGE = 100_000;
+
 export const collectionHelpers: HelperDefinition[] = [
   {
     name: 'sum',
@@ -87,8 +90,10 @@ export const collectionHelpers: HelperDefinition[] = [
       description:
         'Groups items by a field; returns a list of `{ key, items }`.',
       examples: {
-        jinja2: "{% for group in lines | groupBy('category') %}{{ group.key }}{% endfor %}",
-        liquid: "{% assign groups = lines | groupBy: 'category' %}{% for group in groups %}{{ group.key }}{% endfor %}",
+        jinja2:
+          "{% for group in lines | groupBy('category') %}{{ group.key }}{% endfor %}",
+        liquid:
+          "{% assign groups = lines | groupBy: 'category' %}{% for group in groups %}{{ group.key }}{% endfor %}",
         handlebars: "{{#each (groupBy lines 'category')}}{{key}}{{/each}}",
       },
       category: 'collection',
@@ -110,8 +115,10 @@ export const collectionHelpers: HelperDefinition[] = [
       description:
         'Sorts items by a field (numbers numerically, strings by locale).',
       examples: {
-        jinja2: "{% for l in lines | sortBy('position') %}{{ l.sku }}{% endfor %}",
-        liquid: "{% assign sorted = lines | sortBy: 'position' %}{% for l in sorted %}{{ l.sku }}{% endfor %}",
+        jinja2:
+          "{% for l in lines | sortBy('position') %}{{ l.sku }}{% endfor %}",
+        liquid:
+          "{% assign sorted = lines | sortBy: 'position' %}{% for l in sorted %}{{ l.sku }}{% endfor %}",
         handlebars: "{{#each (sortBy lines 'position')}}{{sku}}{{/each}}",
       },
       category: 'collection',
@@ -136,8 +143,10 @@ export const collectionHelpers: HelperDefinition[] = [
       description:
         'Keeps items whose field equals `value` (or is truthy when omitted).',
       examples: {
-        jinja2: "{% for l in lines | where('taxable', true) %}{{ l.sku }}{% endfor %}",
-        liquid: "{% assign taxable = lines | where: 'taxable', true %}{% for l in taxable %}{{ l.sku }}{% endfor %}",
+        jinja2:
+          "{% for l in lines | where('taxable', true) %}{{ l.sku }}{% endfor %}",
+        liquid:
+          "{% assign taxable = lines | where: 'taxable', true %}{% for l in taxable %}{{ l.sku }}{% endfor %}",
         handlebars: "{{#each (where lines 'taxable' true)}}{{sku}}{{/each}}",
       },
       category: 'collection',
@@ -173,8 +182,10 @@ export const collectionHelpers: HelperDefinition[] = [
       description:
         'Splits a list into lists of `size` items (rows of labels, columns).',
       examples: {
-        jinja2: "{% for row in labels | chunk(3) %}{{ row | join(', ') }}{% endfor %}",
-        liquid: "{% assign rows = labels | chunk: 3 %}{% for row in rows %}{{ row | join: ', ' }}{% endfor %}",
+        jinja2:
+          "{% for row in labels | chunk(3) %}{{ row | join(', ') }}{% endfor %}",
+        liquid:
+          "{% assign rows = labels | chunk: 3 %}{% for row in rows %}{{ row | join: ', ' }}{% endfor %}",
         handlebars: "{{#each (chunk labels 3)}}{{join this ', '}}{{/each}}",
       },
       category: 'collection',
@@ -191,10 +202,12 @@ export const collectionHelpers: HelperDefinition[] = [
     name: 'range',
     doc: {
       signature: 'range(start, end?, step = 1)',
-      description: 'List of numbers from start to end (exclusive).',
+      description:
+        'List of numbers from start to end (exclusive), at most 100,000.',
       examples: {
         jinja2: '{% for i in range(1, 4) %}{{ i }}{% endfor %}',
-        liquid: '{% assign nums = 1 | range: 4 %}{% for i in nums %}{{ i }}{% endfor %}',
+        liquid:
+          '{% assign nums = 1 | range: 4 %}{% for i in nums %}{{ i }}{% endfor %}',
         handlebars: '{{#each (range 1 4)}}{{this}}{{/each}}',
       },
       category: 'collection',
@@ -204,6 +217,13 @@ export const collectionHelpers: HelperDefinition[] = [
       const to = end === undefined || end === null ? from : toNumber(end);
       if (end === undefined || end === null) from = 0;
       const by = toNumber(step) || 1;
+      // the list is built before a loop over it could check the time, so its length is counted
+      // first: `range(10**9)` would fill the memory, `range(0, Infinity)` would never end
+      const length = Math.ceil((to - from) / by);
+      if (length > MAX_RANGE)
+        throw new Error(
+          `range() would yield ${length} items; a template may ask for at most ${MAX_RANGE.toLocaleString('en-US')}`,
+        );
       const out: number[] = [];
       for (let i = from; by > 0 ? i < to : i > to; i += by) out.push(i);
       return out;

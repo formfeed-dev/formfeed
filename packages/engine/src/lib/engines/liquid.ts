@@ -6,7 +6,12 @@ import {
   rangeOf,
   scanBlocks,
 } from '../analysis/tags';
-import { EngineSyntaxError, notText, RenderError } from '../errors';
+import {
+  EngineSyntaxError,
+  notText,
+  RenderError,
+  RenderLimitError,
+} from '../errors';
 import { defaultHelpers } from '../helpers';
 import { enforceLimits } from '../limits';
 import type {
@@ -444,6 +449,21 @@ export function analyzeLiquid(
 
 // --- engine ----------------------------------------------------------------------------------
 
+/**
+ * Whether LiquidJS ended the render at its `renderLimit`: an assertion of its own, wrapped in its
+ * render error. Reported as our time limit, so a Liquid template that does not end answers like a
+ * Jinja2 or Handlebars one (plan 27, step 0).
+ */
+function pastRenderLimit(e: unknown): boolean {
+  for (
+    let err: unknown = e;
+    err instanceof Error;
+    err = (err as { originalError?: unknown }).originalError
+  )
+    if (err.message.startsWith('template render limit exceeded')) return true;
+  return false;
+}
+
 class LiquidCompiled implements CompiledTemplate {
   readonly engine = 'liquid' as const;
   private readonly runtimes = new WeakMap<
@@ -477,6 +497,11 @@ class LiquidCompiled implements CompiledTemplate {
       return enforceLimits(out, started, ctx.limits);
     } catch (e) {
       if (e instanceof Error && e.name === 'RenderLimitError') throw e;
+      if (pastRenderLimit(e))
+        throw new RenderLimitError(
+          'ms',
+          `Template render took ${Date.now() - started} ms; the limit is ${ctx.limits.ms} ms`,
+        );
       const err = e as {
         message?: string;
         token?: { getPosition?: () => [number, number] };
