@@ -445,6 +445,21 @@ function installCompat(): void {
     val: unknown,
     ...rest: unknown[]
   ) => {
+    // Sandbox: a template must not walk the prototype chain to the `Function` constructor and run
+    // arbitrary JavaScript in the render process (server-side template injection, CWE-1336). Nunjucks
+    // has no sandbox of its own — unlike LiquidJS's `ownPropertyOnly` and Handlebars with prototype
+    // access off — so `{{ range.constructor("…")() }}`, `{{ "".constructor.constructor("…")() }}`
+    // and `{{ data.constructor.constructor("…")() }}` all reached `Function`. Refuse the three keys
+    // that start such a chain, and refuse every property of a function value (a global like `range`
+    // or `cycler`, or a method pulled off an object), so neither the first nor a later step connects.
+    // Spec 11's threat table promises exactly this. Legitimate access is to fields of data and to
+    // object methods, which the branches below still serve.
+    if (val === 'constructor' || val === '__proto__' || val === 'prototype') {
+      return undefined;
+    }
+    if (typeof obj === 'function') {
+      return undefined;
+    }
     if (
       typeof obj === 'string' &&
       typeof val === 'string' &&
