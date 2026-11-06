@@ -113,6 +113,78 @@ class EinvoiceDisplay(_Model):
     missing: list[str] = []
 
 
+class EinvoiceValidationCheck(_Model):
+    """One thing a validation held the file to, with its own result. Read as text, so a value the API
+    adds later does not stop an installed SDK from reading the report."""
+
+    #: ``syntax``, ``schema``, ``rules`` (one named rule set) or ``container`` (a render's PDF/A-3b file) today.
+    kind: str
+    #: What was checked, as the validator or its configuration names it.
+    name: str = ""
+    #: ``passed``, ``failed`` or ``not_run`` today.
+    result: str
+    messages: list[EinvoiceMessage] = []
+
+
+class EinvoiceValidationRoute(_Model):
+    """What the routing table read off the file before any validator did."""
+
+    syntax: str | None = None
+    document: str | None = None
+    root: str | None = None
+    #: The specification identifier (BT-24) as the file names it.
+    customization_id: str | None = None
+    #: ``factur-x``, ``xrechnung`` or ``en16931``; ``None`` when no rule set judged the file.
+    rule_set: str | None = None
+
+
+class EinvoiceValidationSource(_Model):
+    #: ``upload`` or ``render`` today.
+    type: str
+    filename: str | None = None
+    bytes: int | None = None
+    render_id: str | None = None
+    #: True when the answer is the render's stored report, which costs nothing.
+    stored: bool | None = None
+
+
+class EinvoiceValidationAllowance(_Model):
+    """What the organisation's day of validations has used after the request."""
+
+    #: The plan's daily number; ``None`` where it sets no cap.
+    limit: int | None = None
+    used: int = 0
+    resets_at: str = ""
+
+
+class EinvoiceValidationReport(_Model):
+    """Which rules an e-invoice passed, by which validator and release, and which bytes it judged
+    (``POST /einvoices/validate``). Not whether the document is a proper invoice for VAT purposes, and
+    not the recipient's own check.
+
+    ``result`` is ``passed``, ``failed`` or ``not_checked`` today (no rule set here is for the file, or
+    it was not read; ``reason`` says which), read as text like every value the API may extend."""
+
+    id: str | None = None
+    result: str
+    reason: str | None = None
+    explanation: str | None = None
+    source: EinvoiceValidationSource
+    route: EinvoiceValidationRoute | None = None
+    validator: str | None = None
+    rules: str | None = None
+    scenario: str | None = None
+    profile: str | None = None
+    checks: list[EinvoiceValidationCheck] = []
+    truncated: bool = False
+    versions: dict[str, str] | None = None
+    xml_sha256: str | None = None
+    pdf_sha256: str | None = None
+    display: EinvoiceDisplay | None = None
+    validated_at: str = ""
+    allowance: EinvoiceValidationAllowance | None = None
+
+
 class Einvoice(_Model):
     """``einvoice`` of a render: the ZUGFeRD / Factur-X invoice it made, what the validator said and
     whether the PDF shows what the XML states. A failed render keeps it too.

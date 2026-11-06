@@ -18,6 +18,7 @@ from .models import (
     Brand,
     Channel,
     ChannelList,
+    EinvoiceValidationReport,
     Engine,
     Job,
     LibraryFile,
@@ -131,6 +132,7 @@ class Formfeed(_Base[Any]):
         self.account = _Account(self)
         self.workspaces = _Workspaces(self)
         self.pdf = _Pdf(self)
+        self.einvoices = _Einvoices(self)
         self.files = _Files(self)
         self.brand = _Brand(self)
         self.partials = _Partials(self)
@@ -211,6 +213,7 @@ class AsyncFormfeed(_Base[Any]):
         self.account = _AsyncAccount(self)
         self.workspaces = _AsyncWorkspaces(self)
         self.pdf = _AsyncPdf(self)
+        self.einvoices = _AsyncEinvoices(self)
         self.files = _AsyncFiles(self)
         self.brand = _AsyncBrand(self)
         self.partials = _AsyncPartials(self)
@@ -682,6 +685,50 @@ class _Pdf:
         return Render.model_validate(self._c.request("POST", "/pdf/convert", body, idempotency_key=key))
 
 
+def _einvoice_request(
+    source: Render | str | None, file: bytes | str | Any, file_name: str | None, rules: str | None
+) -> tuple[Any, dict[str, Any] | None, dict[str, str] | None]:
+    """``POST /einvoices/validate``: a render by id as JSON, or an XML upload as multipart (text is sent as UTF-8)."""
+    if (source is None) == (file is None):
+        raise FormfeedError("invalid_request", "pass either source (a render) or file (an XML)")
+    if file is not None:
+        data = file.encode("utf-8") if isinstance(file, str) else file
+        own = getattr(file, "name", None)
+        name = file_name or (os.path.basename(own) if isinstance(own, str) else None) or "invoice.xml"
+        return None, {"file": (name, data, "application/xml")}, ({"rules": rules} if rules else {})
+    body: dict[str, Any] = {"render_id": _source_id(source)}  # type: ignore[arg-type]
+    if rules:
+        body["rules"] = rules
+    return body, None, None
+
+
+class _Einvoices:
+    """Which rules an e-invoice passed (``POST /einvoices/validate``): a render of this workspace's own
+    e-invoice, answered from the report it keeps and free, or an XML Formfeed did not make (up to 4 MB, from
+    the Starter plan), which takes one of the organisation's validations of the day. Needs ``einvoice:validate``."""
+
+    def __init__(self, client: Formfeed) -> None:
+        self._c = client
+
+    def validate(
+        self,
+        source: Render | str | None = None,
+        *,
+        file: bytes | str | Any = None,
+        file_name: str | None = None,
+        rules: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> EinvoiceValidationReport:
+        """``source`` is a render or its id; ``file`` the XML as bytes, text or a binary file object. ``rules`` is
+        ``auto`` (the rule set the file's identifier names), ``factur-x``, ``xrechnung`` or ``en16931``. A day used
+        up raises ``forbidden`` with ``limit``, ``used`` and ``resets_at`` in its problem."""
+        body, files, form = _einvoice_request(source, file, file_name, rules)
+        key = idempotency_key or str(uuid.uuid4())
+        return EinvoiceValidationReport.model_validate(
+            self._c.request("POST", "/einvoices/validate", body, files=files, form=form, idempotency_key=key)
+        )
+
+
 class _Files:
     """The workspace file library: images and PDFs a template references by name with ``asset('logo.png')``,
     and the sources of image watermarks and merges. Files are served without a signature."""
@@ -1049,6 +1096,26 @@ class _AsyncPdf:
             return Render.model_validate(await self._c.request("POST", "/pdf/convert", files=files, form=form, idempotency_key=key))
         body = {**_options(options), "source": _source_id(source)}  # type: ignore[arg-type]
         return Render.model_validate(await self._c.request("POST", "/pdf/convert", body, idempotency_key=key))
+
+
+class _AsyncEinvoices:
+    def __init__(self, client: AsyncFormfeed) -> None:
+        self._c = client
+
+    async def validate(
+        self,
+        source: Render | str | None = None,
+        *,
+        file: bytes | str | Any = None,
+        file_name: str | None = None,
+        rules: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> EinvoiceValidationReport:
+        body, files, form = _einvoice_request(source, file, file_name, rules)
+        key = idempotency_key or str(uuid.uuid4())
+        return EinvoiceValidationReport.model_validate(
+            await self._c.request("POST", "/einvoices/validate", body, files=files, form=form, idempotency_key=key)
+        )
 
 
 class _AsyncFiles:

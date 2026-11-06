@@ -10,6 +10,7 @@ import {
   Formfeed,
   FormfeedError,
   type Diagnostic as SdkDiagnostic,
+  type EinvoiceValidationReport,
   type Render,
   type TemplateVersion,
 } from '@formfeed/sdk-ts';
@@ -42,6 +43,8 @@ export interface ServerOptions {
 
 /** The converter's upload limit; larger files are refused before they are read or sent. */
 const CONVERT_LIMIT_BYTES = 20 * 1024 * 1024;
+/** The most an e-invoice validation reads (plan 25 §9); a larger XML is refused before it is sent. */
+const VALIDATE_LIMIT_BYTES = 4 * 1024 * 1024;
 
 /** What a tool that needs the API answers when the server has no key. */
 const NO_KEY =
@@ -418,7 +421,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   const server = new McpServer(SERVER_INFO, {
     instructions:
       (client ? '' : `${NO_KEY_INSTRUCTION} `) +
-      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. convert_to_pdf turns office documents into PDFs. To change a template or write a new one, read it with get_template_source and save it with save_template: it stays a draft until a person publishes it in Formfeed. get_workspace says which workspace this server works in and what the period has left.',
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. validate_einvoice says which rules an e-invoice XML passed, by which validator, also one Formfeed did not make. convert_to_pdf turns office documents into PDFs. To change a template or write a new one, read it with get_template_source and save it with save_template: it stays a draft until a person publishes it in Formfeed. get_workspace says which workspace this server works in and what the period has left.',
   });
 
   /**
@@ -1009,6 +1012,185 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           message: problem.message,
         })),
       });
+    },
+  );
+
+  server.registerTool(
+    'validate_einvoice',
+    {
+      title: 'Validate an e-invoice',
+      description: [
+        'Says which rules an e-invoice passed, by which validator and release: the file is held to the rule set its specification identifier (BT-24) names, Factur-X and ZUGFeRD by Mustang, XRechnung (CII and UBL) by the KoSIT validator, and each check (syntax, schema, every named rule set) comes back with its own result and findings.',
+        'Pass exactly one source: render_id, an e-invoice this workspace rendered, which is answered from the report the render keeps and costs nothing;',
+        options.localFiles
+          ? 'path, an XML file on this machine; or xml_base64, the XML itself.'
+          : 'or xml_base64, the XML itself.',
+        "An XML takes one of the organisation's validations of the day (from the Starter plan; Free validates no uploads). Up to 4 MB of CII or UBL; a PDF is not taken. result is passed, failed or not_checked: not_checked means no rule set here is for the file (reason and explanation say why, such as an identifier it does not know), not that the file is wrong.",
+        'The report says which rules a file passed; it does not say whether the document is a proper invoice for VAT purposes. To check an _invoice block before rendering it, use check_invoice.',
+      ].join(' '),
+      inputSchema: {
+        render_id: z
+          .string()
+          .optional()
+          .describe(
+            'rnd_ id of a render of this workspace that made an e-invoice; free',
+          ),
+        xml_base64: z
+          .string()
+          .optional()
+          .describe(
+            'The e-invoice XML (CII or UBL), base64 encoded, up to 4 MB; counts one of the day’s validations',
+          ),
+        ...(options.localFiles
+          ? {
+              path: z
+                .string()
+                .optional()
+                .describe(
+                  'Absolute path of an e-invoice XML on this machine; counts one of the day’s validations',
+                ),
+            }
+          : {}),
+        rules: z
+          .enum(['auto', 'factur-x', 'xrechnung', 'en16931'])
+          .optional()
+          .describe(
+            "auto (default) takes the rule set the file's identifier names; a rule set named here judges only a file whose identifier it is for. en16931 holds a render's EN 16931 invoice to CEN's own rules, which counts like an upload",
+          ),
+      },
+      outputSchema: {
+        result: z
+          .string()
+          .describe('passed, failed or not_checked; new values may be added'),
+        reason: z
+          .string()
+          .nullable()
+          .describe('Why it was not checked, such as unknown_customization_id'),
+        explanation: z.string().nullable(),
+        validator: z
+          .string()
+          .nullable()
+          .describe(
+            'The validator and its version, e.g. KoSIT validator 1.6.3',
+          ),
+        rules: z
+          .string()
+          .nullable()
+          .describe('The rule set and its release, as the validator names it'),
+        customization_id: z
+          .string()
+          .nullable()
+          .describe('The specification identifier (BT-24) the file names'),
+        checks: z.array(
+          z.object({
+            kind: z.string().describe('syntax, schema, rules or container'),
+            name: z.string(),
+            result: z.string().describe('passed, failed or not_run'),
+            errors: z.array(
+              z.object({
+                rule: z.string().nullable(),
+                message: z.string(),
+                location: z.string().nullable(),
+              }),
+            ),
+            warnings: z.number().describe('How many warnings the check found'),
+          }),
+        ),
+        xml_sha256: z
+          .string()
+          .nullable()
+          .describe('SHA-256 of the XML that was judged'),
+        allowance: z
+          .object({
+            limit: z.number().nullable(),
+            used: z.number(),
+            resets_at: z.string(),
+          })
+          .nullable()
+          .describe(
+            "What the day's validations have used after this call; null where nothing was counted",
+          ),
+      },
+      annotations: READS,
+    },
+    async (args) => {
+      try {
+        const { render_id, xml_base64, rules } = args;
+        const path = (args as { path?: string }).path;
+        const sources = [render_id, xml_base64, path].filter(
+          (s) => s !== undefined && s !== '',
+        );
+        if (sources.length !== 1)
+          return failure(
+            new Error(
+              'Pass exactly one of render_id, xml_base64' +
+                (options.localFiles ? ' or path' : ''),
+            ),
+          );
+        let report: EinvoiceValidationReport;
+        if (render_id) {
+          report = await api().einvoices.validate(render_id, {
+            ...(rules ? { rules } : {}),
+          });
+        } else {
+          let data: Uint8Array;
+          let name: string;
+          if (path) {
+            const { readFile, stat } = await import('node:fs/promises');
+            const { basename } = await import('node:path');
+            if ((await stat(path)).size > VALIDATE_LIMIT_BYTES)
+              return failure(
+                new Error(
+                  `${path} is larger than 4 MB, the most a validation reads`,
+                ),
+              );
+            data = new Uint8Array(await readFile(path));
+            name = basename(path);
+          } else {
+            data = Uint8Array.from(Buffer.from(xml_base64!, 'base64'));
+            if (data.length === 0)
+              return failure(new Error('xml_base64 is empty or not base64'));
+            if (data.length > VALIDATE_LIMIT_BYTES)
+              return failure(
+                new Error(
+                  'The XML is larger than 4 MB, the most a validation reads',
+                ),
+              );
+            name = 'invoice.xml';
+          }
+          report = await api().einvoices.validate(
+            { file: { data, name } },
+            { ...(rules ? { rules } : {}) },
+          );
+        }
+        return text({
+          result: report.result,
+          reason: report.reason,
+          explanation: report.explanation,
+          validator: report.validator,
+          rules: report.rules,
+          customization_id: report.route?.customization_id ?? null,
+          checks: report.checks.map((check) => ({
+            kind: check.kind,
+            name: check.name,
+            result: check.result,
+            errors: check.messages
+              .filter((message) => message.severity === 'error')
+              .map((message) => ({
+                rule: message.rule,
+                message: message.message,
+                location: message.location,
+              })),
+            warnings: check.messages.filter(
+              (message) => message.severity !== 'error',
+            ).length,
+          })),
+          xml_sha256: report.xml_sha256,
+          allowance: report.allowance,
+        });
+      } catch (e) {
+        return failure(e);
+      }
     },
   );
 

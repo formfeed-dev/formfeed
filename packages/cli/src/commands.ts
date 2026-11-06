@@ -50,6 +50,7 @@ import {
 } from '@formfeed/engine';
 import type {
   Channel,
+  EinvoiceValidationReport,
   FormfeedError,
   Render,
   RenderInput,
@@ -1072,10 +1073,19 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       '--profile <profile>',
       "basic or en16931 (default: the template's settings, else en16931)",
     )
+    .option(
+      '--validate',
+      "also send the written file to the API's validator, which says which rules it passed; it counts one of the organisation's validations of the day, Starter plan and above",
+    )
     .action(
-      (
+      async (
         slug: string,
-        opts: { data?: string; out?: string; profile?: string },
+        opts: {
+          data?: string;
+          out?: string;
+          profile?: string;
+          validate?: boolean;
+        },
       ) => {
         const s = settings();
         const project = requireProject(s);
@@ -1092,6 +1102,12 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         );
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, xml);
+        // the file as written goes to the validator: the bytes it judged are the bytes on disk
+        const validation = opts.validate
+          ? await client(s).einvoices.validate({
+              file: { data: xml, name: basename(file) },
+            })
+          : null;
         const summary = {
           file,
           profile: options.profile,
@@ -1102,14 +1118,27 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           total: invoiceAmountText(invoice.totals.grand),
           currency: invoice.currency,
           bytes: new TextEncoder().encode(xml).length,
+          ...(validation ? { validation } : {}),
         };
         emit(p(), summary, () => [
           `${slug}: ${EINVOICE_FLAVOUR_NAMES[options.flavour]} ${summary.spec_version}, ${EINVOICE_PROFILE_NAMES[options.profile]}, ${invoice.number}, ${invoice.lines.length} line(s), ${summary.total} ${invoice.currency} -> ${shown(file)}`,
-          // written without the validator: the full rule set runs when the API renders it
-          p().style.dim(
-            'checked offline against the rules the API applies before a render; the full validation runs with the render',
-          ),
+          ...(validation
+            ? validationLines(validation)
+            : // written without the validator: the full rule set runs when the API renders it
+              [
+                p().style.dim(
+                  'checked offline against the rules the API applies before a render; the full validation runs with the render (or ask for it now with --validate)',
+                ),
+              ]),
         ]);
+        if (validation && validation.result !== 'passed')
+          throw new CliError(
+            validation.result === 'failed'
+              ? 'the validator found errors in the file'
+              : `the file was not checked: ${validation.explanation ?? validation.reason ?? 'no rule set applies'}`,
+            exitCodes.validation,
+            { silent: true },
+          );
       },
     );
 
@@ -3127,6 +3156,37 @@ function officeFailureLines(source: string, e: unknown): string[] {
   return [
     `error  ${source}  ${message}${typeof code === 'string' ? `  [${code}]` : ''}`,
   ];
+}
+
+/**
+ * What the validator said about a file (`formfeed einvoice --validate`, plan 25 §9): the result, the
+ * validator and rules that judged it, every check with its errors, and the day's validations. A
+ * result, check or reason a later release of the API adds shows as sent.
+ */
+export function validationLines(report: EinvoiceValidationReport): string[] {
+  const lines = [
+    `validation  ${report.result}${report.validator ? ` by ${report.validator}` : ''}${report.rules ? `, ${report.rules}` : ''}`,
+  ];
+  if (report.result === 'not_checked' && report.explanation)
+    lines.push(`  ${report.explanation}`);
+  for (const check of report.checks) {
+    lines.push(`  ${check.result.padEnd(7)}  ${check.kind}: ${check.name}`);
+    for (const message of check.messages)
+      if (message.severity === 'error')
+        lines.push(
+          `    error  ${message.rule ? `${message.rule}: ` : ''}${message.message}`,
+        );
+    const warnings = check.messages.filter(
+      (message) => message.severity !== 'error',
+    ).length;
+    if (warnings)
+      lines.push(`    ${warnings} warning${warnings === 1 ? '' : 's'}`);
+  }
+  if (report.allowance)
+    lines.push(
+      `  validations today: ${report.allowance.used}${report.allowance.limit === null ? '' : ` of ${report.allowance.limit}`}, the day starts again at ${report.allowance.resets_at}`,
+    );
+  return lines;
 }
 
 /**

@@ -84,6 +84,64 @@ function fakeApi(seenKeys: string[] = []) {
           : undefined;
     const call = { method: init?.method ?? 'GET', path: url.pathname, body };
     calls.push(call);
+    // plan 25 §9: a render's stored report, or an upload the sidecar judged
+    if (call.path === '/v1/einvoices/validate' && call.method === 'POST')
+      return json({
+        id: 'b0b5a7d4-0000-4000-8000-0000000000bb',
+        result: 'failed',
+        reason: null,
+        explanation: null,
+        source:
+          body instanceof FormData
+            ? { type: 'upload', filename: 'invoice.xml', bytes: 21 }
+            : { type: 'render', render_id: 'rnd_1', stored: true },
+        route: {
+          syntax: 'cii',
+          document: 'invoice',
+          root: 'CrossIndustryInvoice',
+          customization_id:
+            'urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0',
+          rule_set: 'xrechnung',
+        },
+        validator: 'KoSIT validator 1.6.3',
+        rules: 'XRechnung 3.0.2, configuration of 2026-08-31',
+        scenario: 'EN16931 XRechnung (CII)',
+        profile: null,
+        checks: [
+          {
+            kind: 'rules',
+            name: 'Schematron rules for CIUS XRechnung (CII)',
+            result: 'failed',
+            messages: [
+              {
+                part: 'xml',
+                severity: 'error',
+                rule: 'BR-DE-15',
+                message:
+                  'Das Element "Buyer reference" (BT-10) muss übermittelt werden.',
+                location: '/rsm:CrossIndustryInvoice',
+              },
+              {
+                part: 'xml',
+                severity: 'warning',
+                rule: 'BR-DE-21',
+                message: 'Hinweis',
+                location: null,
+              },
+            ],
+          },
+        ],
+        truncated: false,
+        versions: { kosit: '1.6.3' },
+        xml_sha256: 'e'.repeat(64),
+        pdf_sha256: null,
+        display: null,
+        validated_at: '2026-11-06T10:00:00Z',
+        allowance:
+          body instanceof FormData
+            ? { limit: 100, used: 1, resets_at: '2026-11-07T00:00:00Z' }
+            : null,
+      });
     if (call.path === '/v1/pdf/convert' && call.method === 'POST')
       return json({
         id: 'rnd_pdf',
@@ -519,7 +577,7 @@ const structured = (r: { structuredContent?: unknown }) =>
   r.structuredContent as Record<string, unknown>;
 
 describe('@formfeed/mcp', () => {
-  it('lists the ten tools with schemas', async () => {
+  it('lists the eleven tools with schemas', async () => {
     const { client, close } = await connectedClient(fakeApi().fetchImpl);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -532,8 +590,19 @@ describe('@formfeed/mcp', () => {
       'list_templates',
       'render',
       'save_template',
+      'validate_einvoice',
       'validate_template',
     ]);
+    // the hosted server reads no files, so its validator takes the XML as base64 only
+    expect(
+      Object.keys(
+        (
+          tools.find((t) => t.name === 'validate_einvoice')?.inputSchema as {
+            properties: object;
+          }
+        ).properties,
+      ),
+    ).not.toContain('path');
     expect(tools.find((t) => t.name === 'render')?.inputSchema).toMatchObject({
       type: 'object',
     });
@@ -596,6 +665,54 @@ describe('@formfeed/mcp', () => {
       }
       await close();
     }
+  });
+
+  it('validates an e-invoice by render id or as base64, and hands the agent each check with its errors (plan 25 §9)', async () => {
+    const api = fakeApi();
+    const { client, close } = await connectedClient(api.fetchImpl);
+    const byRender = structured(
+      await client.callTool({
+        name: 'validate_einvoice',
+        arguments: { render_id: 'rnd_1' },
+      }),
+    );
+    expect(byRender).toMatchObject({
+      result: 'failed',
+      validator: 'KoSIT validator 1.6.3',
+      allowance: null,
+      checks: [
+        {
+          kind: 'rules',
+          result: 'failed',
+          errors: [{ rule: 'BR-DE-15' }],
+          warnings: 1,
+        },
+      ],
+    });
+    expect(api.calls.at(-1)?.body).toEqual({ render_id: 'rnd_1' });
+
+    const xml = '<rsm:CrossIndustryInvoice/>';
+    const uploaded = structured(
+      await client.callTool({
+        name: 'validate_einvoice',
+        arguments: {
+          xml_base64: Buffer.from(xml).toString('base64'),
+          rules: 'xrechnung',
+        },
+      }),
+    );
+    expect(uploaded['allowance']).toMatchObject({ limit: 100, used: 1 });
+    const form = api.calls.at(-1)?.body as FormData;
+    expect(form.get('rules')).toBe('xrechnung');
+    expect(await (form.get('file') as File).text()).toBe(xml);
+
+    // one source, never two or none
+    const both = await client.callTool({
+      name: 'validate_einvoice',
+      arguments: { render_id: 'rnd_1', xml_base64: 'PHgvPg==' },
+    });
+    expect(both.isError).toBe(true);
+    await close();
   });
 
   it('says which workspace the server works in, from the account (plan 23)', async () => {

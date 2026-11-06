@@ -27,6 +27,7 @@ const expected = [
   'list_templates',
   'render',
   'save_template',
+  'validate_einvoice',
   'validate_template',
 ];
 if (JSON.stringify(names) !== JSON.stringify(expected))
@@ -35,6 +36,12 @@ if (JSON.stringify(names) !== JSON.stringify(expected))
 const convert = tools.find((t) => t.name === 'convert_to_pdf');
 if (!convert?.inputSchema?.properties?.path)
   throw new Error('convert_to_pdf over stdio has no path parameter');
+// and so does its e-invoice validator (plan 25 §9)
+if (
+  !tools.find((t) => t.name === 'validate_einvoice')?.inputSchema?.properties
+    ?.path
+)
+  throw new Error('validate_einvoice over stdio has no path parameter');
 const result = await client.callTool({
   name: 'validate_template',
   arguments: {

@@ -147,6 +147,107 @@ describe('formfeed CLI: e-invoices (spec 17)', () => {
     );
   });
 
+  it('einvoice --validate sends the written file to the validator and fails on what it found (plan 25 §9)', async () => {
+    writeInvoiceTemplate({});
+    const sent: Array<{ name: string; text: string; rules: unknown }> = [];
+    let result = 'passed';
+    const fetchImpl = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = new URL(String(input));
+      if (url.pathname !== '/v1/einvoices/validate')
+        return new Response('{}', { status: 404 });
+      const form = init?.body as FormData;
+      const file = form.get('file') as File;
+      sent.push({
+        name: file.name,
+        text: await file.text(),
+        rules: form.get('rules'),
+      });
+      return new Response(
+        JSON.stringify({
+          id: 'r1',
+          result,
+          reason: null,
+          explanation: null,
+          source: { type: 'upload', filename: file.name, bytes: 10 },
+          route: {
+            syntax: 'cii',
+            document: 'invoice',
+            root: 'CrossIndustryInvoice',
+            customization_id: 'urn:cen.eu:en16931:2017',
+            rule_set: 'factur-x',
+          },
+          validator: 'Mustang 2.26.0',
+          rules: 'Factur-X 1.09.2 (Mustang 2.26.0)',
+          scenario: null,
+          profile: 'en16931',
+          checks: [
+            {
+              kind: 'schema',
+              name: 'XML Schema of Factur-X 1.09, profile EN 16931',
+              result: 'passed',
+              messages: [],
+            },
+            {
+              kind: 'rules',
+              name: 'Factur-X 1.09.2 (Mustang 2.26.0), profile EN 16931',
+              result: result === 'passed' ? 'passed' : 'failed',
+              messages:
+                result === 'passed'
+                  ? []
+                  : [
+                      {
+                        part: 'xml',
+                        severity: 'error',
+                        rule: 'BR-CO-15',
+                        message: 'Invoice total',
+                        location: null,
+                      },
+                    ],
+            },
+          ],
+          truncated: false,
+          versions: { mustang: '2.26.0' },
+          xml_sha256: 'a'.repeat(64),
+          pdf_sha256: null,
+          display: null,
+          validated_at: '2026-11-06T10:00:00Z',
+          allowance: { limit: 100, used: 3, resets_at: '2026-11-07T00:00:00Z' },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    const withKey = {
+      ...ctx,
+      env: { ...ctx.env, FORMFEED_API_KEY: 'ff_test_k' },
+      fetch: fetchImpl,
+    };
+
+    expect(
+      await run(['einvoice', 'invoice', '--validate'], withKey),
+      err.join('\n'),
+    ).toBe(0);
+    // the file as it was written, under its own name
+    expect(sent[0]).toMatchObject({ name: 'invoice.xml', rules: null });
+    expect(sent[0]!.text).toBe(readFileSync(join(dir, 'invoice.xml'), 'utf8'));
+    expect(out).toContain(
+      'validation  passed by Mustang 2.26.0, Factur-X 1.09.2 (Mustang 2.26.0)',
+    );
+    expect(out.at(-1)).toContain('validations today: 3 of 100');
+
+    result = 'failed';
+    out = [];
+    expect(await run(['einvoice', 'invoice', '--validate'], withKey)).toBe(1);
+    expect(out).toContain('    error  BR-CO-15: Invoice total');
+
+    // without the flag nothing is sent, as before
+    sent.length = 0;
+    expect(await run(['einvoice', 'invoice'], withKey)).toBe(0);
+    expect(sent).toHaveLength(0);
+  });
+
   it('einvoice works on a template that declares nothing, with the defaults', async () => {
     writeInvoiceTemplate({});
     expect(await run(['einvoice', 'invoice'], ctx), err.join('\n')).toBe(0);

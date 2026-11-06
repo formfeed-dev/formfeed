@@ -586,6 +586,81 @@ def test_pdf_convert_uploads_a_file_or_names_a_render():
         client.pdf.convert("rnd_docx", file=DOCX)
 
 
+VALIDATION = {
+    "id": "b0b5a7d4-0000-4000-8000-0000000000bb",
+    "result": "passed",
+    "reason": None,
+    "explanation": None,
+    "source": {"type": "upload", "filename": "RE-1.xml", "bytes": 10},
+    "route": {
+        "syntax": "cii",
+        "document": "invoice",
+        "root": "CrossIndustryInvoice",
+        "customization_id": "urn:cen.eu:en16931:2017",
+        "rule_set": "factur-x",
+    },
+    "validator": "Mustang 2.26.0",
+    "rules": "Factur-X 1.09.2 (Mustang 2.26.0)",
+    "scenario": None,
+    "profile": "en16931",
+    "checks": [{"kind": "rules", "name": "Factur-X 1.09.2 (Mustang 2.26.0), profile EN 16931", "result": "passed", "messages": []}],
+    "truncated": False,
+    "versions": {"mustang": "2.26.0"},
+    "xml_sha256": "a" * 64,
+    "pdf_sha256": None,
+    "display": None,
+    "validated_at": "2026-11-06T10:00:00Z",
+    "allowance": {"limit": 100, "used": 1, "resets_at": "2026-11-07T00:00:00Z"},
+}
+
+
+def test_einvoices_validate_uploads_an_xml_or_names_a_render():
+    client, rec = sync_client(lambda req, n: _json(VALIDATION))
+    report = client.einvoices.validate(file="<rsm:CrossIndustryInvoice/>", file_name="RE-1.xml", rules="xrechnung")
+    assert report.result == "passed" and report.allowance and report.allowance.limit == 100
+    assert report.checks[0].kind == "rules" and report.route and report.route.rule_set == "factur-x"
+    req = rec.calls[0]
+    assert str(req.url) == "https://api-eu.formfeed.dev/v1/einvoices/validate"
+    assert req.headers["idempotency-key"]
+    assert req.headers["content-type"].startswith("multipart/form-data")
+    body = _form_fields(req)
+    assert b'name="rules"\r\n\r\nxrechnung' in body and b'filename="RE-1.xml"' in body
+    assert b"<rsm:CrossIndustryInvoice/>" in body
+
+    client.einvoices.validate("rnd_1")
+    assert json.loads(rec.calls[1].content) == {"render_id": "rnd_1"}
+    client.einvoices.validate(Render.model_validate(RENDER), rules="en16931")
+    assert json.loads(rec.calls[2].content) == {"render_id": "rnd_1", "rules": "en16931"}
+    with pytest.raises(FormfeedError):
+        client.einvoices.validate()
+    with pytest.raises(FormfeedError):
+        client.einvoices.validate("rnd_1", file=b"<x/>")
+
+
+def test_einvoices_validate_reads_values_it_does_not_know_and_a_used_up_day():
+    future = {**VALIDATION, "result": "partly", "checks": [{"kind": "signature", "result": "skipped"}], "new_field": 1}
+    client, _ = sync_client(lambda req, n: _json(future))
+    report = client.einvoices.validate(file=b"<x/>")
+    assert report.result == "partly" and report.checks[0].kind == "signature"
+
+    problem = {"code": "forbidden", "detail": "used up", "feature": "einvoice_validation", "limit": 100, "used": 100, "resets_at": "2026-11-07T00:00:00Z"}
+    client, _ = sync_client(lambda req, n: _json(problem, 403))
+    with pytest.raises(FormfeedError) as err:
+        client.einvoices.validate(file=b"<x/>")
+    assert err.value.code == "forbidden" and err.value.problem["resets_at"] == "2026-11-07T00:00:00Z"
+
+    async def run():
+        rec = Recorder(lambda req, n: _json(VALIDATION))
+        async with AsyncFormfeed("ff_test_k", transport=httpx.MockTransport(rec.handler)) as client_async:
+            report = await client_async.einvoices.validate(file=b"<x/>")
+            await client_async.einvoices.validate("rnd_1")
+        return report, rec
+
+    report, rec = asyncio.run(run())
+    assert report.result == "passed"
+    assert rec.calls[0].headers["idempotency-key"] and json.loads(rec.calls[1].content) == {"render_id": "rnd_1"}
+
+
 def test_async_office_calls_mirror_the_sync_client():
     rec = Recorder(lambda req, n: httpx.Response(200, content=DOCX) if req.url.path.endswith("/file") else _json({**RENDER, **TEMPLATE}))
 

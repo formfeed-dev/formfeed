@@ -899,6 +899,91 @@ describe('PDF tools', () => {
     expect(calls[2]!.body).toEqual({ source: 'rnd_pptx' });
   });
 
+  it('validates an uploaded e-invoice XML or a render, with an idempotency key (plan 25 §9)', async () => {
+    const report = {
+      id: 'b0b5a7d4-0000-4000-8000-0000000000bb',
+      result: 'passed',
+      reason: null,
+      explanation: null,
+      source: { type: 'upload', filename: 'RE-1.xml', bytes: 10 },
+      route: {
+        syntax: 'cii',
+        document: 'invoice',
+        root: 'CrossIndustryInvoice',
+        customization_id: 'urn:cen.eu:en16931:2017',
+        rule_set: 'factur-x',
+      },
+      validator: 'Mustang 2.26.0',
+      rules: 'Factur-X 1.09.2 (Mustang 2.26.0)',
+      scenario: null,
+      profile: 'en16931',
+      checks: [],
+      truncated: false,
+      versions: { mustang: '2.26.0' },
+      xml_sha256: 'a'.repeat(64),
+      pdf_sha256: null,
+      display: null,
+      validated_at: '2026-11-06T10:00:00Z',
+      allowance: { limit: 100, used: 1, resets_at: '2026-11-07T00:00:00Z' },
+    };
+    const { calls, fetchImpl } = stub(() => json(report));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    const validation = await client.einvoices.validate(
+      { file: { data: '<rsm:CrossIndustryInvoice/>', name: 'RE-1.xml' } },
+      { rules: 'xrechnung' },
+    );
+    expect(validation.result).toBe('passed');
+    expect(validation.allowance?.limit).toBe(100);
+    expect(calls[0]!.url).toBe(
+      'https://api-eu.formfeed.dev/v1/einvoices/validate',
+    );
+    expect(calls[0]!.headers['idempotency-key']).toMatch(/\S+/);
+    const form = calls[0]!.body as FormData;
+    expect(form.get('rules')).toBe('xrechnung');
+    const file = form.get('file') as File;
+    expect(file.name).toBe('RE-1.xml');
+    expect(await file.text()).toBe('<rsm:CrossIndustryInvoice/>');
+
+    // bytes without a name are named for what they are
+    await client.einvoices.validate({ file: { data: new Uint8Array([60]) } });
+    expect(((calls[1]!.body as FormData).get('file') as File).name).toBe(
+      'invoice.xml',
+    );
+    expect((calls[1]!.body as FormData).get('rules')).toBeNull();
+
+    // a render by id or as a Render: JSON, answered from its stored report
+    await client.einvoices.validate('rnd_1');
+    expect(calls[2]!.body).toEqual({ render_id: 'rnd_1' });
+    await client.einvoices.validate(render as never, { rules: 'en16931' });
+    expect(calls[3]!.body).toEqual({ render_id: 'rnd_1', rules: 'en16931' });
+  });
+
+  it('turns a used-up day into a FormfeedError with its limit, use and reset', async () => {
+    const { fetchImpl } = stub(() =>
+      json(
+        {
+          code: 'forbidden',
+          detail:
+            "The starter plan validates 100 e-invoices a day, and today's are used up.",
+          feature: 'einvoice_validation',
+          limit: 100,
+          used: 100,
+          resets_at: '2026-11-07T00:00:00Z',
+        },
+        403,
+      ),
+    );
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    const error = await client.einvoices
+      .validate({ file: { data: '<x/>' } })
+      .catch((e: unknown) => e as FormfeedError);
+    expect(error).toBeInstanceOf(FormfeedError);
+    expect((error as FormfeedError).code).toBe('forbidden');
+    expect((error as FormfeedError).problem?.['resets_at']).toBe(
+      '2026-11-07T00:00:00Z',
+    );
+  });
+
   it('posts sources as render ids with an idempotency key, and info without one', async () => {
     const { calls, fetchImpl } = stub((call) =>
       call.url.endsWith('/pdf/info')

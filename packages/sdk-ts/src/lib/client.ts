@@ -247,6 +247,73 @@ export interface Einvoice {
 }
 
 /**
+ * What `einvoices.validate` holds a file to: `auto` takes the rule set its specification identifier
+ * (BT-24) names; a rule set named here judges only a file whose identifier it is for.
+ */
+export type EinvoiceValidationRules =
+  'auto' | 'factur-x' | 'xrechnung' | 'en16931';
+
+/** An e-invoice XML for `einvoices.validate`: up to 4 MB of CII or UBL. A PDF is not taken. */
+export interface EinvoiceUpload {
+  /** The XML: text, a Blob or File, a Uint8Array (Node's Buffer is one) or an ArrayBuffer. */
+  data: string | Blob | Uint8Array | ArrayBuffer;
+  /** The file name, e.g. `RE-2026-0001.xml`; a File's own name when omitted. */
+  name?: string;
+}
+
+/** One thing a validation held the file to, with its own result. `kind` and `result` take new values. */
+export interface EinvoiceValidationCheck {
+  /** `syntax`, `schema`, `rules` (one named rule set) or `container` (a render's PDF/A-3b file). */
+  kind: 'syntax' | 'schema' | 'rules' | 'container' | (string & {});
+  /** What was checked, as the validator or its configuration names it. */
+  name: string;
+  result: 'passed' | 'failed' | 'not_run' | (string & {});
+  messages: EinvoiceMessage[];
+}
+
+/**
+ * Which rules an e-invoice passed, by which validator and release, and which bytes it judged
+ * (`POST /einvoices/validate`). Not whether the document is a proper invoice for VAT purposes, and
+ * not the recipient's own check. `result` is `passed`, `failed` or `not_checked` (no rule set here is
+ * for the file, or it was not read; `reason` says which), and takes new values.
+ */
+export interface EinvoiceValidationReport {
+  id: string | null;
+  result: 'passed' | 'failed' | 'not_checked' | (string & {});
+  reason: string | null;
+  explanation: string | null;
+  source: {
+    type: 'upload' | 'render' | (string & {});
+    filename?: string | null;
+    bytes?: number;
+    render_id?: string;
+    /** True when the answer is the render's stored report, which costs nothing. */
+    stored?: boolean;
+  };
+  route: {
+    syntax: string | null;
+    document: string | null;
+    root: string | null;
+    /** BT-24 as the file names it. */
+    customization_id: string | null;
+    rule_set: string | null;
+  } | null;
+  validator: string | null;
+  rules: string | null;
+  scenario: string | null;
+  profile: string | null;
+  checks: EinvoiceValidationCheck[];
+  truncated: boolean;
+  versions: Record<string, string> | null;
+  xml_sha256: string | null;
+  pdf_sha256: string | null;
+  display: { checked: string[]; missing: string[] } | null;
+  validated_at: string;
+  /** What the day's validations have used after this request; null where nothing was counted. */
+  allowance: { limit: number | null; used: number; resets_at: string } | null;
+}
+
+/**
  * `settings.pdf.ua` as an object; `true` is `{ check: 'strict' }`. `strict` fails a render whose
  * file does not pass validation (422 `pdfua_validation_failed`) and delivers nothing; `report`
  * delivers the file without the PDF/UA identifier and says so in `accessibility.conformant`.
@@ -1169,6 +1236,50 @@ export class Formfeed {
         '/pdf/convert',
         { ...convert, source: idOf(source) },
         withKey(options),
+      );
+    },
+  };
+
+  /**
+   * Which rules an e-invoice passed (`POST /einvoices/validate`). A render of this workspace's own
+   * e-invoice (a `Render` or its id) is answered from the report it keeps, free; asking it for
+   * another rule set validates its file again and counts like an upload. An XML Formfeed did not
+   * make (`{ file }`, up to 4 MB, from the Starter plan) takes one of the organisation's validations
+   * of the day; a day used up is a 403 `forbidden` with `limit`, `used` and `resets_at`. Needs
+   * `einvoice:validate`. A busy validator answers 503, which is retried like any other.
+   */
+  readonly einvoices = {
+    validate: (
+      source: { file: EinvoiceUpload } | Render | string,
+      options: { rules?: EinvoiceValidationRules } = {},
+      request: RequestOptions = {},
+    ): Promise<EinvoiceValidationReport> => {
+      if (typeof source === 'object' && 'file' in source) {
+        const { data, name } = source.file;
+        const bytes =
+          typeof data === 'string' ? new TextEncoder().encode(data) : data;
+        const own =
+          typeof File !== 'undefined' && data instanceof File
+            ? data.name
+            : undefined;
+        return this.request<EinvoiceValidationReport>(
+          'POST',
+          '/einvoices/validate',
+          multipart(
+            { rules: options.rules },
+            { data: bytes, name: name ?? own ?? 'invoice.xml' },
+          ),
+          withKey(request),
+        );
+      }
+      return this.request<EinvoiceValidationReport>(
+        'POST',
+        '/einvoices/validate',
+        {
+          render_id: idOf(source),
+          ...(options.rules ? { rules: options.rules } : {}),
+        },
+        withKey(request),
       );
     },
   };
