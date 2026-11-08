@@ -27,7 +27,9 @@ const paperFormats: Record<string, string> = {
 };
 
 function pick(input: ApitemplateSettings, ...keys: string[]): unknown {
-  for (const key of keys) if (input[key] !== undefined && input[key] !== null && input[key] !== '') return input[key];
+  for (const key of keys)
+    if (input[key] !== undefined && input[key] !== null && input[key] !== '')
+      return input[key];
   return undefined;
 }
 
@@ -47,20 +49,31 @@ export function toLength(value: unknown): string | undefined {
  */
 export function toMarginLength(value: unknown): string | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return `${value}px`;
-  if (typeof value === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(value)) return `${value.trim()}px`;
+  if (typeof value === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(value))
+    return `${value.trim()}px`;
   return toLength(value);
 }
 
 const truthy = (value: unknown): boolean =>
-  value === true || value === 1 || value === '1' || value === 'true' || value === 'yes';
+  value === true ||
+  value === 1 ||
+  value === '1' ||
+  value === 'true' ||
+  value === 'yes';
 
 /**
  * apitemplate.io's header placeholders as Chromium's header classes. Formfeed renders header and
  * footer through the template engine first, where `{{pageNumber}}` would be an empty variable.
  */
 const chromePlaceholders: Array<[RegExp, string]> = [
-  [/\{\{\s*(?:page_number|pageNumber)\s*\}\}/gi, '<span class="pageNumber"></span>'],
-  [/\{\{\s*(?:total_pages|totalPages)\s*\}\}/gi, '<span class="totalPages"></span>'],
+  [
+    /\{\{\s*(?:page_number|pageNumber)\s*\}\}/gi,
+    '<span class="pageNumber"></span>',
+  ],
+  [
+    /\{\{\s*(?:total_pages|totalPages)\s*\}\}/gi,
+    '<span class="totalPages"></span>',
+  ],
   [/\{\{\s*date\s*\}\}/g, '<span class="date"></span>'],
   [/\{\{\s*title\s*\}\}/g, '<span class="title"></span>'],
   [/\{\{\s*url\s*\}\}/g, '<span class="url"></span>'],
@@ -69,13 +82,18 @@ const chromePlaceholders: Array<[RegExp, string]> = [
 /** Chromium header templates carry `pageNumber`/`totalPages` spans; apitemplate.io templates use placeholders. */
 export function convertHeaderFooter(html: unknown): string | undefined {
   if (typeof html !== 'string' || !html.trim()) return undefined;
-  return chromePlaceholders.reduce((out, [pattern, span]) => out.replace(pattern, span), html);
+  return chromePlaceholders.reduce(
+    (out, [pattern, span]) => out.replace(pattern, span),
+    html,
+  );
 }
 
-const escapeText = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapeText = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** Markup left once `<style>` blocks are removed: a custom header of styles only shows nothing. */
-const visibleMarkup = (html: string) => html.replace(/<style[\s\S]*?<\/style>/gi, '').trim();
+const visibleMarkup = (html: string) =>
+  html.replace(/<style[\s\S]*?<\/style>/gi, '').trim();
 
 /**
  * One header or footer from apitemplate.io's template settings: `custom_header` markup when it
@@ -94,16 +112,26 @@ function apitemplateChrome(
     return typeof value === 'string' ? value.trim() : '';
   });
   const size = take(`${kind}_font_size`);
-  if (visibleMarkup(customHtml)) return { html: convertHeaderFooter(customHtml), fromSlots: false };
+  if (visibleMarkup(customHtml))
+    return { html: convertHeaderFooter(customHtml), fromSlots: false };
   if (!slots.some(Boolean)) return { fromSlots: false };
   const sizeText = size === undefined ? '' : String(size).trim();
-  const fontSize = /^\d+(\.\d+)?$/.test(sizeText) ? `${sizeText}px` : /^\d+(\.\d+)?(px|pt|mm)$/.test(sizeText) ? sizeText : '9px';
+  const fontSize = /^\d+(\.\d+)?$/.test(sizeText)
+    ? `${sizeText}px`
+    : /^\d+(\.\d+)?(px|pt|mm)$/.test(sizeText)
+      ? sizeText
+      : '9px';
   const cells = slots
-    .map((text, i) => `<span style="flex:1;text-align:${['left', 'center', 'right'][i]}">${escapeText(text)}</span>`)
+    .map(
+      (text, i) =>
+        `<span style="flex:1;text-align:${['left', 'center', 'right'][i]}">${escapeText(text)}</span>`,
+    )
     .join('');
   const styles = customHtml.match(/<style[\s\S]*?<\/style>/gi)?.join('') ?? '';
   return {
-    html: convertHeaderFooter(`${styles}<div style="display:flex;gap:4mm;font-size:${fontSize}">${cells}</div>`),
+    html: convertHeaderFooter(
+      `${styles}<div style="display:flex;gap:4mm;font-size:${fontSize}">${cells}</div>`,
+    ),
     fromSlots: true,
   };
 }
@@ -112,13 +140,18 @@ function apitemplateChrome(
  * Whether the header/footer markup clears Chromium's padding for its box (`#header, #footer {
  * padding: 0 }`, the usual apitemplate.io reset); such designs run edge to edge.
  */
-export function clearsChromePadding(html: string | undefined, kind: 'header' | 'footer'): boolean {
+export function clearsChromePadding(
+  html: string | undefined,
+  kind: 'header' | 'footer',
+): boolean {
   if (!html) return false;
   for (const style of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi))
     for (const rule of (style[1] ?? '').matchAll(/([^{}]+)\{([^}]*)\}/g))
       if (
         new RegExp(`#${kind}\\b`).test(rule[1] ?? '') &&
-        /(^|;)\s*padding\s*:\s*0(px|mm)?\s*(!important\s*)?(;|$)/i.test((rule[2] ?? '').trim())
+        /(^|;)\s*padding\s*:\s*0(px|mm)?\s*(!important\s*)?(;|$)/i.test(
+          (rule[2] ?? '').trim(),
+        )
       )
         return true;
   return false;
@@ -135,13 +168,55 @@ const SCALE_MARKER = 'data-formfeed-apitemplate-scale';
  * same, so it keeps apitemplate.io's proportions in the PDF and in both previews. The footer grows
  * from its bottom edge, where Chromium places it.
  */
-export function scaleLikeApitemplate(html: string, kind: 'header' | 'footer'): string {
+export function scaleLikeApitemplate(
+  html: string,
+  kind: 'header' | 'footer',
+): string {
   if (html.includes(SCALE_MARKER)) return html;
   const origin = kind === 'footer' ? 'bottom left' : 'top left';
   return `<div ${SCALE_MARKER} style="width:75%;transform:scale(1.333333);transform-origin:${origin}">${html}</div>`;
 }
 
-export function mapApitemplateSettings(input: ApitemplateSettings | null | undefined): MappedSettings {
+/** The margin every browser gives the body unless a stylesheet says otherwise. */
+export const APITEMPLATE_BODY_MARGIN = 'body { margin: 8px; }';
+
+/** Whether a selector reaches the body element itself: its last compound is `body…` or `*…`. */
+function selectsBody(selector: string): boolean {
+  const compounds = selector
+    .trim()
+    .split(/\s*[\s>+~]\s*/)
+    .filter(Boolean);
+  return /^(body(?![-\w])|\*)/i.test(compounds.at(-1) ?? '');
+}
+
+/**
+ * apitemplate.io prints with the browser's default margin of 8px around the body, which Formfeed's
+ * print reset (`html, body { margin: 0 }`) removes: imported side by side, a template that set no
+ * margin on its body ran 4 mm wider here and a line broke after another word (19 templates of a
+ * customer account, blog post `what-an-import-does-to-a-template`). Returns the rule that keeps that
+ * margin, or `null` when the template's styles (`css`, and `<style>` blocks or a `<body style>` in
+ * `html`) give the body a margin of their own, a reset through `*` included.
+ */
+export function apitemplateBodyMargin(css: string, html = ''): string | null {
+  const blocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map(
+    (m) => m[1] ?? '',
+  );
+  const styles = [css, ...blocks]
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    // template syntax carries braces of its own
+    .replace(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g, 'x');
+  for (const rule of styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!/(^|[;\s])margin(-[a-z-]+)?\s*:/i.test(rule[2] ?? '')) continue;
+    if ((rule[1] ?? '').split(',').some(selectsBody)) return null;
+  }
+  if (/<body\b[^>]*\bstyle\s*=\s*(["'])[^"']*\bmargin/i.test(html)) return null;
+  return APITEMPLATE_BODY_MARGIN;
+}
+
+export function mapApitemplateSettings(
+  input: ApitemplateSettings | null | undefined,
+): MappedSettings {
   const settings: Record<string, unknown> = {};
   const notes: string[] = [];
   const used = new Set<string>();
@@ -160,7 +235,8 @@ export function mapApitemplateSettings(input: ApitemplateSettings | null | undef
   if (typeof paperSize === 'string') {
     const format = paperFormats[paperSize.toLowerCase()];
     if (format) paper['format'] = format;
-    else notes.push(`paper size "${paperSize}" is not a known format; A4 is used`);
+    else
+      notes.push(`paper size "${paperSize}" is not a known format; A4 is used`);
   }
   if (width && height) {
     paper['width'] = width;
@@ -169,60 +245,107 @@ export function mapApitemplateSettings(input: ApitemplateSettings | null | undef
   }
   if (orientation !== undefined) {
     const landscape =
-      orientation === 'landscape' || orientation === 2 || orientation === '2' || orientation === 'Landscape';
+      orientation === 'landscape' ||
+      orientation === 2 ||
+      orientation === '2' ||
+      orientation === 'Landscape';
     paper['landscape'] = landscape;
   }
   if (Object.keys(paper).length) settings['paper'] = paper;
 
   const margin: Record<string, string> = {};
   for (const side of ['top', 'right', 'bottom', 'left'] as const) {
-    const value = toMarginLength(take(`margin_${side}`, `margin${side[0]!.toUpperCase()}${side.slice(1)}`));
+    const value = toMarginLength(
+      take(`margin_${side}`, `margin${side[0]!.toUpperCase()}${side.slice(1)}`),
+    );
     if (value) margin[side] = value;
   }
   if (Object.keys(margin).length) settings['margin'] = margin;
 
   // create-pdf-from-html takes header_template; stored templates carry custom_header or the text slots
-  let header = convertHeaderFooter(take('header_template', 'headerTemplate', 'header_html', 'header'));
-  let footer = convertHeaderFooter(take('footer_template', 'footerTemplate', 'footer_html', 'footer'));
+  let header = convertHeaderFooter(
+    take('header_template', 'headerTemplate', 'header_html', 'header'),
+  );
+  let footer = convertHeaderFooter(
+    take('footer_template', 'footerTemplate', 'footer_html', 'footer'),
+  );
   const storedHeader = apitemplateChrome(take, 'header');
   const storedFooter = apitemplateChrome(take, 'footer');
   header ??= storedHeader.html;
   footer ??= storedFooter.html;
   if (storedHeader.fromSlots || storedFooter.fromSlots)
-    notes.push('header and footer text (left, center, right) rebuilt as HTML; {{pageNumber}}, {{totalPages}} and {{date}} are kept');
-  const displayHeaderFooter = take('displayHeaderFooter', 'display_header_footer', 'print_header_footer');
+    notes.push(
+      'header and footer text (left, center, right) rebuilt as HTML; {{pageNumber}}, {{totalPages}} and {{date}} are kept',
+    );
+  const displayHeaderFooter = take(
+    'displayHeaderFooter',
+    'display_header_footer',
+    'print_header_footer',
+  );
   const show = displayHeaderFooter === undefined || truthy(displayHeaderFooter);
   // a reset in either box's styles applies to both, as it does in Chromium's shared template page
-  const edgeToEdge = (kind: 'header' | 'footer') => clearsChromePadding(header, kind) || clearsChromePadding(footer, kind);
-  if (header && show) settings['header'] = { html: scaleLikeApitemplate(header, 'header'), ...(edgeToEdge('header') ? { padding: '0' } : {}) };
-  if (footer && show) settings['footer'] = { html: scaleLikeApitemplate(footer, 'footer'), ...(edgeToEdge('footer') ? { padding: '0' } : {}) };
+  const edgeToEdge = (kind: 'header' | 'footer') =>
+    clearsChromePadding(header, kind) || clearsChromePadding(footer, kind);
+  if (header && show)
+    settings['header'] = {
+      html: scaleLikeApitemplate(header, 'header'),
+      ...(edgeToEdge('header') ? { padding: '0' } : {}),
+    };
+  if (footer && show)
+    settings['footer'] = {
+      html: scaleLikeApitemplate(footer, 'footer'),
+      ...(edgeToEdge('footer') ? { padding: '0' } : {}),
+    };
   if ((header && edgeToEdge('header')) || (footer && edgeToEdge('footer')))
-    notes.push('header or footer clears its padding, so it runs edge to edge (padding 0)');
+    notes.push(
+      'header or footer clears its padding, so it runs edge to edge (padding 0)',
+    );
   if ((header || footer) && show)
-    notes.push('header and footer wrapped in a box scaled by 4/3, the size apitemplate.io draws them in');
+    notes.push(
+      'header and footer wrapped in a box scaled by 4/3, the size apitemplate.io draws them in',
+    );
 
   const printBackground = take('print_background', 'printBackground');
-  if (printBackground !== undefined) settings['printBackground'] = truthy(printBackground);
+  if (printBackground !== undefined)
+    settings['printBackground'] = truthy(printBackground);
   const scale = take('scale');
-  if (scale !== undefined && Number.isFinite(Number(scale))) settings['scale'] = Number(scale);
+  if (scale !== undefined && Number.isFinite(Number(scale)))
+    settings['scale'] = Number(scale);
   const pageRanges = take('page_ranges', 'pageRanges');
-  if (typeof pageRanges === 'string' && pageRanges.trim()) settings['pageRanges'] = pageRanges.trim();
-  const preferCss = take('prefer_css_page_size', 'preferCSSPageSize', 'preferCssPageSize');
-  if (preferCss !== undefined) settings['preferCssPageSize'] = truthy(preferCss);
+  if (typeof pageRanges === 'string' && pageRanges.trim())
+    settings['pageRanges'] = pageRanges.trim();
+  const preferCss = take(
+    'prefer_css_page_size',
+    'preferCSSPageSize',
+    'preferCssPageSize',
+  );
+  if (preferCss !== undefined)
+    settings['preferCssPageSize'] = truthy(preferCss);
 
   // images (create-image and JPEG/PNG templates)
   const imageType = take('output_image_type', 'outputImageType', 'image_type');
   const viewportWidth = take('viewport_width', 'viewportWidth', 'image_width');
-  const viewportHeight = take('viewport_height', 'viewportHeight', 'image_height');
-  const deviceScale = take('device_scale', 'deviceScaleFactor', 'image_resample_scale');
+  const viewportHeight = take(
+    'viewport_height',
+    'viewportHeight',
+    'image_height',
+  );
+  const deviceScale = take(
+    'device_scale',
+    'deviceScaleFactor',
+    'image_resample_scale',
+  );
   const image: Record<string, unknown> = {};
   if (imageType !== undefined) {
     const t = String(imageType).toLowerCase();
     image['format'] = t === '1' || t === 'jpeg' || t === 'jpg' ? 'jpeg' : 'png';
   }
-  if (viewportWidth !== undefined && Number.isFinite(Number(viewportWidth))) image['width'] = Number(viewportWidth);
-  if (viewportHeight !== undefined && Number.isFinite(Number(viewportHeight))) image['height'] = Number(viewportHeight);
-  if (deviceScale !== undefined && Number.isFinite(Number(deviceScale))) image['deviceScaleFactor'] = Number(deviceScale);
+  if (viewportWidth !== undefined && Number.isFinite(Number(viewportWidth)))
+    image['width'] = Number(viewportWidth);
+  if (viewportHeight !== undefined && Number.isFinite(Number(viewportHeight)))
+    image['height'] = Number(viewportHeight);
+  if (deviceScale !== undefined && Number.isFinite(Number(deviceScale)))
+    image['deviceScaleFactor'] = Number(deviceScale);
   if (Object.keys(image).length) settings['image'] = image;
 
   const ignored = Object.keys(input).filter((k) => !used.has(k));

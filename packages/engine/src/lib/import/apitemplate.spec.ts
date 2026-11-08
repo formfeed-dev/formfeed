@@ -1,4 +1,8 @@
-import { scaleLikeApitemplate } from '@formfeed/api-types';
+import {
+  APITEMPLATE_BODY_MARGIN,
+  apitemplateBodyMargin,
+  scaleLikeApitemplate,
+} from '@formfeed/api-types';
 import {
   importApitemplate,
   importApitemplateFromApi,
@@ -31,12 +35,19 @@ describe('apitemplate.io importer', () => {
     expect(result.settings.paper).toEqual({ format: 'A4', landscape: true });
     // bare numbers are pixels, as Chromium reads them; explicit units stay
     expect(result.settings.margin).toEqual({ top: '10px', bottom: '15mm' });
-    expect(result.settings.header?.html).toContain('<span class="pageNumber"></span>');
+    expect(result.settings.header?.html).toContain(
+      '<span class="pageNumber"></span>',
+    );
     expect(result.settings.printBackground).toBe(true);
-    expect(result.sampleData).toEqual({ invoice: { number: '1', lines: [{ price: 1 }] } });
+    expect(result.sampleData).toEqual({
+      invoice: { number: '1', lines: [{ price: 1 }] },
+    });
     expect(result.errors).toEqual([]);
     // the alias works, and the report points at the preferred helper name
-    expect(result.warnings.map((w) => w.code).sort()).toEqual(['deprecated-filter', 'setting-ignored']);
+    expect(result.warnings.map((w) => w.code).sort()).toEqual([
+      'deprecated-filter',
+      'setting-ignored',
+    ]);
     expect(result.changes.join(' ')).toContain('currency_format');
     expect(result.changes.join(' ')).toContain('Header and Footer');
   });
@@ -54,14 +65,26 @@ describe('apitemplate.io importer', () => {
     // an unknown filter fails the render, so it is an error; the constructs are warnings
     expect(result.errors.map((e) => e.code)).toContain('unknown-filter');
     const codes = result.warnings.map((w) => w.code);
-    expect(codes).toEqual(expect.arrayContaining(['set-in-loop', 'loop-cycle', 'python-format-operator']));
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        'set-in-loop',
+        'loop-cycle',
+        'python-format-operator',
+      ]),
+    );
     expect(result.warnings.find((w) => w.code === 'loop-cycle')?.line).toBe(2);
     expect(result.warnings.every((w) => w.docs)).toBe(true);
     // Python's `is divisibleby 2` needs parentheses in Nunjucks: a syntax error plus the pointer
-    const jinjaTest = importApitemplate({ name: 'Test', html: '{% if n is divisibleby 2 %}even{% endif %}' });
+    const jinjaTest = importApitemplate({
+      name: 'Test',
+      html: '{% if n is divisibleby 2 %}even{% endif %}',
+    });
     expect(jinjaTest.errors[0]?.code).toBe('syntax-error');
     expect(jinjaTest.warnings.map((w) => w.code)).toContain('jinja-test');
-    const broken = importApitemplate({ name: 'Syntax', html: '{% for x in %}' });
+    const broken = importApitemplate({
+      name: 'Syntax',
+      html: '{% for x in %}',
+    });
     expect(broken.errors[0]?.code).toBe('syntax-error');
   });
 
@@ -72,19 +95,83 @@ describe('apitemplate.io importer', () => {
       css: 'td { padding: 2px }',
       sample_data: { rows: [1] },
     });
-    expect(result.css).toBe('.apitemplate-is-content-hidden { display: none !important; }\ntd { padding: 2px }');
+    expect(result.css).toBe(
+      '.apitemplate-is-content-hidden { display: none !important; }\nbody { margin: 8px; }\ntd { padding: 2px }',
+    );
     expect(result.changes.join(' ')).toContain('apitemplate-is-content-hidden');
     expect(result.errors).toEqual([]);
-    expect(importApitemplate({ name: 'Plain', html: '<p>x</p>' }).css).toBe('');
+    expect(
+      importApitemplate({ name: 'Plain', html: '<p>x</p>' }).css,
+    ).not.toContain('apitemplate-is-content-hidden');
+  });
+
+  it("keeps the browser's 8px body margin unless the template gives the body one", () => {
+    const plain = importApitemplate({
+      name: 'Plain',
+      html: '<p>x</p>',
+      css: 'p { color: red }',
+    });
+    expect(plain.css).toBe('body { margin: 8px; }\np { color: red }');
+    expect(plain.changes.join(' ')).toContain('8px margin');
+    expect(importApitemplate({ name: 'Bare', html: '<p>x</p>' }).css).toBe(
+      'body { margin: 8px; }',
+    );
+    // a margin of the template's own, wherever it stands, is left alone
+    for (const [css, html] of [
+      ['body { margin: 0 }', '<p>x</p>'],
+      ['html, body { margin: 0; padding: 0 }', '<p>x</p>'],
+      ['body.print{margin-top:2px}', '<p>x</p>'],
+      ['html > body { margin: 1cm }', '<p>x</p>'],
+      ['* { margin: 0; box-sizing: border-box }', '<p>x</p>'],
+      ['@media print { body { margin: 0 } }', '<p>x</p>'],
+      ['body { margin: {{ m }}px }', '<p>x</p>'],
+      ['', '<style>body { margin: 0 }</style><p>x</p>'],
+      ['', '<body style="margin: 0"><p>x</p></body>'],
+    ] as const) {
+      const result = importApitemplate({ name: 'Own', html, css });
+      expect(result.css, css || html).not.toContain('margin: 8px');
+      expect(result.changes.join(' ')).not.toContain('8px margin');
+    }
+    // rules that do not give the body itself a margin
+    for (const css of [
+      'body .card { margin: 0 }',
+      '.body { margin: 0 }',
+      'body { scroll-margin-top: 4px }',
+      '@page { margin: 0 }',
+      '/* body { margin: 0 } */',
+      'body { color: {{ c }} }',
+    ])
+      expect(apitemplateBodyMargin(css), css).toBe(APITEMPLATE_BODY_MARGIN);
+    // image templates are not measured; apitemplate.io's own are layer designs
+    expect(
+      importApitemplate({ name: 'Card', html: '<p>x</p>', format: 'PNG' }).css,
+    ).toBe('');
   });
 
   it('turns JPEG templates into image templates and derives slugs', () => {
-    const result = importApitemplate({ name: 'Social Card ✨', html: '<div>{{ title }}</div>', format: 'JPEG', settings: { output_image_type: 'jpeg', viewport_width: 800, viewport_height: 418 } });
+    const result = importApitemplate({
+      name: 'Social Card ✨',
+      html: '<div>{{ title }}</div>',
+      format: 'JPEG',
+      settings: {
+        output_image_type: 'jpeg',
+        viewport_width: 800,
+        viewport_height: 418,
+      },
+    });
     expect(result.kind).toBe('image');
-    expect(result.settings.image).toEqual({ format: 'jpeg', width: 800, height: 418 });
+    expect(result.settings.image).toEqual({
+      format: 'jpeg',
+      width: 800,
+      height: 418,
+    });
     expect(result.slug).toBe('social-card');
     expect(slugFromName('!!')).toMatch(/^imported-/);
-    const bad = importApitemplate({ name: 'x', html: '<p></p>', sample_data: '{not json' });
+    const bad = importApitemplate({
+      name: 'x',
+      html: '<p></p>',
+      sample_data: '{not json',
+    });
     expect(bad.warnings.map((w) => w.code)).toContain('sample-json');
   });
 
@@ -110,10 +197,16 @@ describe('apitemplate.io importer', () => {
         '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />',
       ].join('\n'),
     );
-    expect(result.css).toBe('.loose { color: red }\n\n  body { font-family: "Chivo", sans-serif; }\n\np { margin: 0 }');
+    expect(result.css).toBe(
+      'body { margin: 8px; }\n.loose { color: red }\n\n  body { font-family: "Chivo", sans-serif; }\n\np { margin: 0 }',
+    );
     expect(result.changes.join(' ')).toContain('Head tab');
     // plain CSS stays untouched
-    expect(splitApitemplateCss('a > b { color: red }')).toEqual({ css: 'a > b { color: red }', head: '', body: '' });
+    expect(splitApitemplateCss('a > b { color: red }')).toEqual({
+      css: 'a > b { color: red }',
+      head: '',
+      body: '',
+    });
   });
 
   it('moves blocks of the CSS field that use template syntax to the end of the body', () => {
@@ -126,10 +219,18 @@ describe('apitemplate.io importer', () => {
       '<style>.bar { width: {{ share }}% }</style>',
       '<style>p { margin: 0 }</style>',
     ].join('\n');
-    const sample = '{"economics":{"cashflow":[1,2],"paybackPeriod":7},"share":40}';
-    const result = importApitemplate({ name: 'Charts', html: '<div id="chart"></div>\n', css, sample_data: sample });
-    expect(result.head).toBe('<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>');
-    expect(result.css).toBe('p { margin: 0 }');
+    const sample =
+      '{"economics":{"cashflow":[1,2],"paybackPeriod":7},"share":40}';
+    const result = importApitemplate({
+      name: 'Charts',
+      html: '<div id="chart"></div>\n',
+      css,
+      sample_data: sample,
+    });
+    expect(result.head).toBe(
+      '<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>',
+    );
+    expect(result.css).toBe('body { margin: 8px; }\np { margin: 0 }');
     expect(result.html).toBe(
       [
         '<div id="chart"></div>',
@@ -144,39 +245,76 @@ describe('apitemplate.io importer', () => {
     expect(result.changes.join(' ')).toContain('end of the template');
     expect(result.errors).toEqual([]);
     // loose rules with template syntax cannot stay in the static stylesheet either
-    expect(splitApitemplateCss('.x { color: {{ c }} }')).toEqual({ css: '', head: '', body: '<style>\n.x { color: {{ c }} }\n</style>' });
+    expect(splitApitemplateCss('.x { color: {{ c }} }')).toEqual({
+      css: '',
+      head: '',
+      body: '<style>\n.x { color: {{ c }} }\n</style>',
+    });
   });
 
   it('does not report every variable as missing when there is no sample data', () => {
-    const result = importApitemplate({ name: 'No sample', html: '<p>{{ customer.name }}</p>' });
+    const result = importApitemplate({
+      name: 'No sample',
+      html: '<p>{{ customer.name }}</p>',
+    });
     expect(result.warnings).toEqual([]);
     expect(result.changes.join(' ')).toContain('no sample data');
-    const withSample = importApitemplate({ name: 'Sample', html: '<p>{{ customer.name }}</p>', sample_data: {} });
-    expect(withSample.warnings.map((w) => w.code)).toEqual(['unknown-variable']);
+    const withSample = importApitemplate({
+      name: 'Sample',
+      html: '<p>{{ customer.name }}</p>',
+      sample_data: {},
+    });
+    expect(withSample.warnings.map((w) => w.code)).toEqual([
+      'unknown-variable',
+    ]);
   });
 });
 
 describe('apitemplate.io API import', () => {
-  const item = { template_id: '3a677b23217dd954', name: 'circuit-diagram', format: 'PDF', group_name: 'MDS' };
+  const item = {
+    template_id: '3a677b23217dd954',
+    name: 'circuit-diagram',
+    format: 'PDF',
+    group_name: 'MDS',
+  };
 
   it('parses the settings string of get-template and keeps body and CSS', () => {
     const result = importApitemplateFromApi(item, {
       template_id: item.template_id,
       body: '<h1>{{ project.name }}</h1>',
       css: 'h1 { color: red }',
-      settings: JSON.stringify({ paper_size: 'A4', orientation: '1', margin_top: '20', footer_template: '<span>{{ page_number }}</span>' }),
+      settings: JSON.stringify({
+        paper_size: 'A4',
+        orientation: '1',
+        margin_top: '20',
+        footer_template: '<span>{{ page_number }}</span>',
+      }),
       sample_json: '{"project": {"name": "Beispiel"}}',
     });
-    expect(result).toMatchObject({ name: 'circuit-diagram', slug: 'circuit-diagram', kind: 'pdf', engine: 'jinja2', html: '<h1>{{ project.name }}</h1>', css: 'h1 { color: red }', errors: [] });
+    expect(result).toMatchObject({
+      name: 'circuit-diagram',
+      slug: 'circuit-diagram',
+      kind: 'pdf',
+      engine: 'jinja2',
+      html: '<h1>{{ project.name }}</h1>',
+      css: 'body { margin: 8px; }\nh1 { color: red }',
+      errors: [],
+    });
     expect(result.settings.paper?.format).toBe('A4');
     expect(result.settings.margin?.top).toBe('20px');
     expect(result.settings.footer?.html).toContain('pageNumber');
     // their editor's JSON becomes the default data set, and the template is checked against it
     expect(result.sampleData).toEqual({ project: { name: 'Beispiel' } });
     expect(result.warnings).toEqual([]);
-    const missing = importApitemplateFromApi(item, { body: '<p>{{ offer.name }}</p>', sample_json: '{"offer": {}}' });
+    const missing = importApitemplateFromApi(item, {
+      body: '<p>{{ offer.name }}</p>',
+      sample_json: '{"offer": {}}',
+    });
     expect(missing.warnings.map((w) => w.code)).toEqual(['unknown-variable']);
-    const none = importApitemplateFromApi(item, { body: '<p>{{ offer.name }}</p>', sample_json: '' });
+    const none = importApitemplateFromApi(item, {
+      body: '<p>{{ offer.name }}</p>',
+      sample_json: '',
+    });
     expect(none.sampleData).toEqual({});
     expect(none.changes.join(' ')).toContain('no sample data');
   });
@@ -198,10 +336,13 @@ describe('apitemplate.io API import', () => {
         footer_left: '{{date}}',
         custom_header: '',
         footer_font_size: '11',
-        custom_footer: '<style>#header, #footer { padding: 0 !important; }</style>',
+        custom_footer:
+          '<style>#header, #footer { padding: 0 !important; }</style>',
       }),
     });
-    expect(result.warnings.filter((w) => w.code === 'setting-ignored')).toEqual([]);
+    expect(result.warnings.filter((w) => w.code === 'setting-ignored')).toEqual(
+      [],
+    );
     expect(result.settings.paper).toEqual({ format: 'A4', landscape: false });
     expect(result.settings.header?.html).toBe(
       scaleLikeApitemplate(
@@ -212,21 +353,37 @@ describe('apitemplate.io API import', () => {
       ),
     );
     // a custom footer of styles only keeps its styles above the slots
-    expect(result.settings.footer?.html).toContain('<style>#header, #footer { padding: 0 !important; }</style><div style="display:flex;gap:4mm;font-size:11px">');
-    expect(result.settings.footer?.html).toContain('<span style="flex:1;text-align:right"></span>');
+    expect(result.settings.footer?.html).toContain(
+      '<style>#header, #footer { padding: 0 !important; }</style><div style="display:flex;gap:4mm;font-size:11px">',
+    );
+    expect(result.settings.footer?.html).toContain(
+      '<span style="flex:1;text-align:right"></span>',
+    );
     expect(result.changes.join(' ')).toContain('rebuilt as HTML');
 
     // custom markup wins over the slots
     const custom = importApitemplateFromApi(item, {
       body: '<p>x</p>',
-      settings: { custom_header: '<table><tr><td>{{ pageNumber }}</td><td>{{ customer.name }}</td></tr></table>', header_left: 'ignored' },
+      settings: {
+        custom_header:
+          '<table><tr><td>{{ pageNumber }}</td><td>{{ customer.name }}</td></tr></table>',
+        header_left: 'ignored',
+      },
     });
     expect(custom.settings.header?.html).toBe(
-      scaleLikeApitemplate('<table><tr><td><span class="pageNumber"></span></td><td>{{ customer.name }}</td></tr></table>', 'header'),
+      scaleLikeApitemplate(
+        '<table><tr><td><span class="pageNumber"></span></td><td>{{ customer.name }}</td></tr></table>',
+        'header',
+      ),
     );
-    expect(custom.warnings.filter((w) => w.code === 'setting-ignored')).toEqual([]);
+    expect(custom.warnings.filter((w) => w.code === 'setting-ignored')).toEqual(
+      [],
+    );
     // header and footer stay off when the template turns them off
-    const off = importApitemplateFromApi(item, { body: '<p>x</p>', settings: { displayHeaderFooter: false, header_left: 'x' } });
+    const off = importApitemplateFromApi(item, {
+      body: '<p>x</p>',
+      settings: { displayHeaderFooter: false, header_left: 'x' },
+    });
     expect(off.settings.header).toBeUndefined();
   });
 
@@ -235,8 +392,10 @@ describe('apitemplate.io API import', () => {
     const result = importApitemplateFromApi(item, {
       body: '<p>x</p>',
       settings: {
-        custom_header: '<style>#header {\n    padding: 0 !important;\n}</style>\n<div style="width: 100%">logo</div>',
-        custom_footer: '<style>\n  #header, #footer {\n    padding: 0 !important;\n    font-family: Arial;\n  }\n</style><div>footer</div>',
+        custom_header:
+          '<style>#header {\n    padding: 0 !important;\n}</style>\n<div style="width: 100%">logo</div>',
+        custom_footer:
+          '<style>\n  #header, #footer {\n    padding: 0 !important;\n    font-family: Arial;\n  }\n</style><div>footer</div>',
       },
     });
     expect(result.settings.header).toMatchObject({ padding: '0' });
@@ -244,25 +403,41 @@ describe('apitemplate.io API import', () => {
     expect(result.changes.join(' ')).toContain('edge to edge');
     // apitemplate.io draws header and footer a third larger: the markup is wrapped to match, the
     // footer growing from its bottom edge, and wrapping twice changes nothing
-    expect(result.settings.header?.html).toMatch(/^<div data-formfeed-apitemplate-scale style="width:75%;transform:scale\(1\.333333\);transform-origin:top left"><style>#header/);
-    expect(result.settings.footer?.html).toContain('transform-origin:bottom left');
-    expect(scaleLikeApitemplate(result.settings.footer!.html!, 'footer')).toBe(result.settings.footer!.html);
+    expect(result.settings.header?.html).toMatch(
+      /^<div data-formfeed-apitemplate-scale style="width:75%;transform:scale\(1\.333333\);transform-origin:top left"><style>#header/,
+    );
+    expect(result.settings.footer?.html).toContain(
+      'transform-origin:bottom left',
+    );
+    expect(scaleLikeApitemplate(result.settings.footer!.html!, 'footer')).toBe(
+      result.settings.footer!.html,
+    );
     expect(result.changes.join(' ')).toContain('scaled by 4/3');
     // padding with a size, or none mentioned, keeps Formfeed's default
     const padded = importApitemplateFromApi(item, {
       body: '<p>x</p>',
-      settings: { custom_header: '<style>#header { padding: 0 20px; }</style><div>h</div>', custom_footer: '<div>f</div>' },
+      settings: {
+        custom_header:
+          '<style>#header { padding: 0 20px; }</style><div>h</div>',
+        custom_footer: '<div>f</div>',
+      },
     });
     expect(padded.settings.header?.padding).toBeUndefined();
     expect(padded.settings.footer?.padding).toBeUndefined();
   });
 
   it('reports a missing body and unreadable settings instead of failing', () => {
-    const empty = importApitemplateFromApi({ template_id: 'abc', name: '' }, { body: null, settings: '{broken' });
+    const empty = importApitemplateFromApi(
+      { template_id: 'abc', name: '' },
+      { body: null, settings: '{broken' },
+    );
     expect(empty.name).toBe('abc');
     expect(empty.errors[0]?.code).toBe('no-body');
     expect(empty.warnings[0]?.code).toBe('settings-json');
-    const objectSettings = importApitemplateFromApi(item, { body: '<p>x</p>', settings: { paper_size: 'Letter' } });
+    const objectSettings = importApitemplateFromApi(item, {
+      body: '<p>x</p>',
+      settings: { paper_size: 'Letter' },
+    });
     expect(objectSettings.settings.paper?.format).toBe('Letter');
   });
 

@@ -1,6 +1,16 @@
-import { mapApitemplateSettings } from '@formfeed/api-types';
+import {
+  apitemplateBodyMargin,
+  mapApitemplateSettings,
+} from '@formfeed/api-types';
 import type { TemplateSettings } from '../assemble';
-import { checkTemplate, parseSample, positionOf, slugFromName, type ImportNote, type ImportResult } from './common';
+import {
+  checkTemplate,
+  parseSample,
+  positionOf,
+  slugFromName,
+  type ImportNote,
+  type ImportResult,
+} from './common';
 
 export { slugFromName } from './common';
 export type { ImportNote, ImportResult } from './common';
@@ -26,35 +36,45 @@ export interface ApitemplateExport {
 const HIDDEN_WRAPPER = 'apitemplate-is-content-hidden';
 
 /** Python Jinja2 constructs Nunjucks does not run (spec 05 §8), found by pattern with a position. */
-const pythonisms: Array<{ pattern: RegExp; code: string; message: string; docs: string }> = [
+const pythonisms: Array<{
+  pattern: RegExp;
+  code: string;
+  message: string;
+  docs: string;
+}> = [
   {
     pattern: /\{\{[^}]*%\s*\(/,
     code: 'python-format-operator',
-    message: 'Python "%" string formatting is not supported; use the format() shim or a filter such as number() or money().',
+    message:
+      'Python "%" string formatting is not supported; use the format() shim or a filter such as number() or money().',
     docs: '/migrate/apitemplate-io#strings',
   },
   {
     pattern: /loop\.cycle\s*\(/,
     code: 'loop-cycle',
-    message: '`loop.cycle()` is not available; use `cycler()` or `loop.index % n`.',
+    message:
+      '`loop.cycle()` is not available; use `cycler()` or `loop.index % n`.',
     docs: '/migrate/apitemplate-io#loops',
   },
   {
     pattern: /\{%-?\s*(macro|call|filter|autoescape)\b/,
     code: 'partial-support',
-    message: 'Jinja2 macros, call blocks, filter blocks and autoescape blocks run with Nunjucks semantics; check the output.',
+    message:
+      'Jinja2 macros, call blocks, filter blocks and autoescape blocks run with Nunjucks semantics; check the output.',
     docs: '/templates/languages#jinja2',
   },
   {
     pattern: /\bis\s+(divisibleby|sameas|escaped|mapping|sequence|callable)\b/,
     code: 'jinja-test',
-    message: 'This Jinja2 test is not available; rewrite it with an expression (for example `x % 2 == 0`).',
+    message:
+      'This Jinja2 test is not available; rewrite it with an expression (for example `x % 2 == 0`).',
     docs: '/migrate/apitemplate-io#tests',
   },
   {
     pattern: /\{%-?\s*(import|from)\b/,
     code: 'imports',
-    message: 'Jinja2 imports refer to files apitemplate.io kept next to the template; move the macros into this template or a Formfeed partial.',
+    message:
+      'Jinja2 imports refer to files apitemplate.io kept next to the template; move the macros into this template or a Formfeed partial.',
     docs: '/templates/languages#partials',
   },
 ];
@@ -79,7 +99,8 @@ function setInLoop(source: string): ImportNote[] {
 }
 
 const STYLE_BLOCK = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
-const HEAD_MARKUP = /<script\b[\s\S]*?<\/script\s*>|<!--[\s\S]*?-->|<(?:link|meta|base)\b[^>]*>/gi;
+const HEAD_MARKUP =
+  /<script\b[\s\S]*?<\/script\s*>|<!--[\s\S]*?-->|<(?:link|meta|base)\b[^>]*>/gi;
 const TEMPLATED = /\{\{|\{%/;
 
 /**
@@ -89,10 +110,16 @@ const TEMPLATED = /\{\{|\{%/;
  * apitemplate.io also fills that field with the data, while Formfeed's CSS and head are static, so
  * blocks that use template syntax (chart scripts with `{{ data }}`) go to the end of the body instead.
  */
-export function splitApitemplateCss(source: string): { css: string; head: string; body: string } {
+export function splitApitemplateCss(source: string): {
+  css: string;
+  head: string;
+  body: string;
+} {
   const styleElement = (rules: string) => `<style>\n${rules}\n</style>`;
   if (!/<\/?(style|link|script|meta|base)\b|<!--/i.test(source))
-    return TEMPLATED.test(source) ? { css: '', head: '', body: styleElement(source.trim()) } : { css: source, head: '', body: '' };
+    return TEMPLATED.test(source)
+      ? { css: '', head: '', body: styleElement(source.trim()) }
+      : { css: source, head: '', body: '' };
   const styles: string[] = [];
   const head: string[] = [];
   const body: string[] = [];
@@ -102,7 +129,9 @@ export function splitApitemplateCss(source: string): { css: string; head: string
     return '\n';
   });
   rest = rest.replace(HEAD_MARKUP, (tag) => {
-    (TEMPLATED.test(tag) && !tag.startsWith('<!--') ? body : head).push(tag.trim());
+    (TEMPLATED.test(tag) && !tag.startsWith('<!--') ? body : head).push(
+      tag.trim(),
+    );
     return '\n';
   });
   // plain rules next to the tags are CSS too
@@ -111,7 +140,11 @@ export function splitApitemplateCss(source: string): { css: string; head: string
     body.unshift(styleElement(loose));
     loose = '';
   }
-  return { css: [loose, ...styles].filter(Boolean).join('\n\n'), head: head.join('\n'), body: body.join('\n') };
+  return {
+    css: [loose, ...styles].filter(Boolean).join('\n\n'),
+    head: head.join('\n'),
+    body: body.join('\n'),
+  };
 }
 
 export function importApitemplate(input: ApitemplateExport): ImportResult {
@@ -119,54 +152,112 @@ export function importApitemplate(input: ApitemplateExport): ImportResult {
   const changes: string[] = [];
   const name = (input.name ?? '').trim() || 'Imported template';
   const format = String(input.format ?? '').toUpperCase();
-  const kind: 'pdf' | 'image' = format === 'JPEG' || format === 'PNG' || format === 'JPG' ? 'image' : 'pdf';
-  if (kind === 'image') changes.push(`${format} template imported as an image template`);
+  const kind: 'pdf' | 'image' =
+    format === 'JPEG' || format === 'PNG' || format === 'JPG' ? 'image' : 'pdf';
+  if (kind === 'image')
+    changes.push(`${format} template imported as an image template`);
 
   const mapped = mapApitemplateSettings(input.settings ?? undefined);
   const settings = mapped.settings as TemplateSettings;
   for (const note of mapped.notes) changes.push(note);
   for (const key of mapped.ignored)
-    warnings.push({ code: 'setting-ignored', message: `Setting "${key}" has no Formfeed equivalent and was dropped.`, docs: '/migrate/apitemplate-io#settings' });
-  if (settings.header?.html || settings.footer?.html) changes.push('header and footer templates moved to the Header and Footer tabs');
+    warnings.push({
+      code: 'setting-ignored',
+      message: `Setting "${key}" has no Formfeed equivalent and was dropped.`,
+      docs: '/migrate/apitemplate-io#settings',
+    });
+  if (settings.header?.html || settings.footer?.html)
+    changes.push(
+      'header and footer templates moved to the Header and Footer tabs',
+    );
   if (kind === 'image' && !settings.image) {
-    settings.image = { width: 1200, height: 630, deviceScaleFactor: 2, format: format === 'PNG' ? 'png' : 'jpeg' };
+    settings.image = {
+      width: 1200,
+      height: 630,
+      deviceScaleFactor: 2,
+      format: format === 'PNG' ? 'png' : 'jpeg',
+    };
     changes.push('image size defaults to 1200 × 630 (change it in Settings)');
   }
 
-  const noSample = input.sample_data === undefined || input.sample_data === null || (typeof input.sample_data === 'string' && !input.sample_data.trim());
-  if (noSample) changes.push('no sample data: the preview stays empty and missing fields are not checked until you add some');
+  const noSample =
+    input.sample_data === undefined ||
+    input.sample_data === null ||
+    (typeof input.sample_data === 'string' && !input.sample_data.trim());
+  if (noSample)
+    changes.push(
+      'no sample data: the preview stays empty and missing fields are not checked until you add some',
+    );
   const sample = parseSample(input.sample_data);
-  if (sample.error) warnings.push({ code: 'sample-json', message: `Sample data is not valid JSON (${sample.error}); the draft starts without sample data.`, docs: '/migrate/apitemplate-io#sample-data' });
+  if (sample.error)
+    warnings.push({
+      code: 'sample-json',
+      message: `Sample data is not valid JSON (${sample.error}); the draft starts without sample data.`,
+      docs: '/migrate/apitemplate-io#sample-data',
+    });
 
   const split = splitApitemplateCss(input.css ?? '');
-  const html = split.body ? `${(input.html ?? '').trimEnd()}\n${split.body}\n` : (input.html ?? '');
+  const html = split.body
+    ? `${(input.html ?? '').trimEnd()}\n${split.body}\n`
+    : (input.html ?? '');
   let css = split.css;
   const head = split.head;
-  if (head) changes.push('<link> and <script> tags of the CSS field moved to the Head tab, <style> contents kept as CSS');
-  if (split.body) changes.push('script and style blocks of the CSS field that use template syntax moved to the end of the template, where they are filled with the data');
+  if (head)
+    changes.push(
+      '<link> and <script> tags of the CSS field moved to the Head tab, <style> contents kept as CSS',
+    );
+  if (split.body)
+    changes.push(
+      'script and style blocks of the CSS field that use template syntax moved to the end of the template, where they are filled with the data',
+    );
+  // apitemplate.io prints with the browser's 8px body margin, which Formfeed's print reset removes
+  const bodyMargin = kind === 'pdf' ? apitemplateBodyMargin(css, html) : null;
+  if (bodyMargin) {
+    css = css ? `${bodyMargin}\n${css}` : bodyMargin;
+    changes.push(
+      `the body keeps the 8px margin browsers give it, which apitemplate.io prints with and Formfeed's print reset removes: "${bodyMargin}" added to the CSS`,
+    );
+  }
   // apitemplate.io's visual editor wraps each `{% for %}`/`{% endfor %}` in an element of this class
   // (table rows of empty cells, too) and hides it with its own stylesheet; without the rule every
   // loop iteration adds an empty row or block to the document
   if (html.includes(HIDDEN_WRAPPER)) {
     css = `.${HIDDEN_WRAPPER} { display: none !important; }\n${css}`;
-    changes.push(`elements of the editor class "${HIDDEN_WRAPPER}" are hidden by a rule added to the CSS`);
+    changes.push(
+      `elements of the editor class "${HIDDEN_WRAPPER}" are hidden by a rule added to the CSS`,
+    );
   }
   for (const rule of pythonisms) {
     const m = rule.pattern.exec(html);
-    if (m) warnings.push({ code: rule.code, message: rule.message, docs: rule.docs, ...positionOf(html, m.index) });
+    if (m)
+      warnings.push({
+        code: rule.code,
+        message: rule.message,
+        docs: rule.docs,
+        ...positionOf(html, m.index),
+      });
   }
   warnings.push(...setInLoop(html));
 
   // without sample data every variable would count as missing
-  const checked = checkTemplate('jinja2', html, noSample ? undefined : sample.data, name, {
-    syntax: '/templates/languages#jinja2',
-    filters: '/templates/helpers',
-    sampleData: '/migrate/apitemplate-io#sample-data',
-  });
+  const checked = checkTemplate(
+    'jinja2',
+    html,
+    noSample ? undefined : sample.data,
+    name,
+    {
+      syntax: '/templates/languages#jinja2',
+      filters: '/templates/helpers',
+      sampleData: '/migrate/apitemplate-io#sample-data',
+    },
+  );
   warnings.push(...checked.warnings);
   const aliasHits = /\|\s*(currency_format|table|page_break|raw|translate)\b/g;
   const aliases = [...new Set([...html.matchAll(aliasHits)].map((m) => m[1]))];
-  if (aliases.length) changes.push(`apitemplate.io filters kept through aliases: ${aliases.join(', ')}`);
+  if (aliases.length)
+    changes.push(
+      `apitemplate.io filters kept through aliases: ${aliases.join(', ')}`,
+    );
 
   return {
     source: 'apitemplate',
@@ -202,7 +293,9 @@ export const apitemplateRegions = {
 } as const;
 export type ApitemplateRegion = keyof typeof apitemplateRegions;
 
-export function isApitemplateRegion(value: unknown): value is ApitemplateRegion {
+export function isApitemplateRegion(
+  value: unknown,
+): value is ApitemplateRegion {
   return typeof value === 'string' && Object.hasOwn(apitemplateRegions, value);
 }
 
@@ -237,7 +330,9 @@ export interface ApitemplateApiTemplate {
  * Only PDF templates carry HTML; apitemplate.io's image templates are layer designs that
  * `get-template` does not return.
  */
-export function isApitemplateHtmlTemplate(item: Pick<ApitemplateListItem, 'format'>): boolean {
+export function isApitemplateHtmlTemplate(
+  item: Pick<ApitemplateListItem, 'format'>,
+): boolean {
   return !item.format || String(item.format).toUpperCase() === 'PDF';
 }
 
@@ -246,17 +341,22 @@ export function isApitemplateHtmlTemplate(item: Pick<ApitemplateListItem, 'forma
  * a body (an image template, or an editor the API does not serve) becomes a result with an error
  * and no HTML, which callers skip.
  */
-export function importApitemplateFromApi(item: ApitemplateListItem, template: ApitemplateApiTemplate): ImportResult {
+export function importApitemplateFromApi(
+  item: ApitemplateListItem,
+  template: ApitemplateApiTemplate,
+): ImportResult {
   let settings: Record<string, unknown> | null = null;
   let settingsError: string | undefined;
   if (typeof template.settings === 'string' && template.settings.trim()) {
     try {
       const parsed: unknown = JSON.parse(template.settings);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) settings = parsed as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+        settings = parsed as Record<string, unknown>;
     } catch (e) {
       settingsError = e instanceof Error ? e.message : String(e);
     }
-  } else if (template.settings && typeof template.settings === 'object') settings = template.settings;
+  } else if (template.settings && typeof template.settings === 'object')
+    settings = template.settings;
 
   const name = (item.name ?? '').trim() || item.template_id;
   const html = typeof template.body === 'string' ? template.body : '';
