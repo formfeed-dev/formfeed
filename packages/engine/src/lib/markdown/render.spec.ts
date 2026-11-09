@@ -139,39 +139,48 @@ describe('renderMarkdown without an engine', () => {
     expect(allow.document).toContain('<script>x()</script>');
   });
 
-  it('holds the conversion to the render’s limits', async () => {
+  it('checks its own conversion’s time afterwards, where nothing could stop it', async () => {
+    // a quarter of a megabyte takes more than the millisecond allowed here
+    await expect(
+      render(
+        { markdown: 'word '.repeat(50_000) },
+        {},
+        { limits: { ms: 1, outputBytes: 20 * 1024 * 1024, includeDepth: 8 } },
+      ),
+    ).rejects.toMatchObject({ name: 'RenderLimitError', limit: 'ms' });
+  });
+
+  it('leaves the time to a converter passed in, and holds what it wrote to the size limit', async () => {
+    const slow = async () => {
+      // a thread that started slowly: the conversion keeps its own time
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return { html: '<div class="ff-markdown"></div>', frontMatter: {} };
+    };
+    const limits = { ms: 20, outputBytes: 4096, includeDepth: 8 };
     await expect(
       renderMarkdown(
         { markdown: 'Text' },
         {},
-        context(),
+        context({ limits }),
         'print',
         {},
-        async (text, options) => {
-          await new Promise((resolve) => setTimeout(resolve, 60));
-          const { markdownToHtml } = await import('./convert');
-          return markdownToHtml(text, options);
-        },
-      ).then(
-        () => 'rendered',
-        (e: unknown) => e,
+        slow,
       ),
-    ).resolves.toBe('rendered');
-    const late = renderMarkdown(
-      { markdown: 'Text' },
-      {},
-      context({ limits: { ms: 20, outputBytes: 1e6, includeDepth: 8 } }),
-      'print',
-      {},
-      async () => {
-        await new Promise((resolve) => setTimeout(resolve, 60));
-        return { html: '<div class="ff-markdown"></div>', frontMatter: {} };
-      },
-    );
-    await expect(late).rejects.toMatchObject({
-      name: 'RenderLimitError',
-      limit: 'ms',
+    ).resolves.toMatchObject({ settings: expect.any(Object) });
+    const large = async () => ({
+      html: `<div class="ff-markdown">${'x'.repeat(8192)}</div>`,
+      frontMatter: {},
     });
+    await expect(
+      renderMarkdown(
+        { markdown: 'Text' },
+        {},
+        context({ limits }),
+        'print',
+        {},
+        large,
+      ),
+    ).rejects.toMatchObject({ name: 'RenderLimitError', limit: 'outputBytes' });
     await expect(
       render(
         { markdown: 'word '.repeat(2000) },

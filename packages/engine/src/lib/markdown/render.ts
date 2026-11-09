@@ -33,7 +33,8 @@ export interface MarkdownSource {
 
 /**
  * What converts the text. `markdownToHtml` by default; the render-worker passes one that runs it in
- * a thread of its own, which it can stop at the time limit (plan 29, decision 13).
+ * a thread of its own, which it can stop at the time limit (plan 29, decision 13). A converter
+ * passed in answers for its own time.
  */
 export type MarkdownConverter = (
   text: string,
@@ -117,13 +118,16 @@ export async function renderMarkdown(
     breaks: options.breaks,
     kept,
   });
-  // the conversion runs inside the render's limits: its time, and the size of what it wrote
+  // The default converter ran in this thread, where nothing could stop it, so its time is checked
+  // once it is done. A converter passed in keeps the time itself: the render-worker's thread is
+  // stopped at the limit, and the start of a thread is no part of a conversion's time.
   const elapsed = Date.now() - startedAt;
-  if (elapsed > ctx.limits.ms)
+  if (convert === markdownToHtml && elapsed > ctx.limits.ms)
     throw new RenderLimitError(
       'ms',
       `The Markdown document took ${elapsed} ms to render; the limit is ${ctx.limits.ms} ms`,
     );
+  // the size of what it wrote is the render's limit either way
   enforceOutputBytes(converted.html, ctx.limits);
 
   // what an engine rendered is escaped HTML; the PDF's metadata is text, as the front matter's is

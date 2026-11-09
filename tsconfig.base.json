@@ -52,6 +52,9 @@
       "@formfeed/engine/markdown": [
         "./packages/engine/src/lib/markdown/settings.ts"
       ],
+      "@formfeed/engine/markdown/convert": [
+        "./packages/engine/src/lib/markdown/convert.ts"
+      ],
       "@formfeed/devkit/emit": [
         "./packages/devkit/src/lib/types/generate.ts"
       ],
