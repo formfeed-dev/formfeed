@@ -91,6 +91,14 @@ export function enforceLimits(
       'ms',
       `Template render took ${elapsed} ms; the limit is ${limits.ms} ms`,
     );
+  return enforceOutputBytes(output, limits);
+}
+
+/** Checks the size of a render's output alone, such as the HTML a Markdown conversion wrote. */
+export function enforceOutputBytes(
+  output: string,
+  limits: RenderLimits,
+): string {
   // cheap upper bound first; exact byte length only when close to the limit
   if (output.length > limits.outputBytes / 4) {
     const bytes = encoder.encode(output).length;

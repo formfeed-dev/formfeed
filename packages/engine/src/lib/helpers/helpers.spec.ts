@@ -98,6 +98,61 @@ describe('format helpers', () => {
     );
     expect(call('default', '', 'x')).toBe('x');
     expect(call('default', 0, 'x')).toBe(0);
+  });
+
+  it('converts Markdown with raw HTML by default, as text with html: safe', () => {
+    const text = 'A <span onclick="x()">tag</span>\n\n<script>x()</script>';
+    expect(call('markdown', text)).toBe(
+      '<p>A <span onclick="x()">tag</span></p>\n<script>x()</script>',
+    );
+    expect(call('markdown', text, { html: 'safe' })).toBe(
+      '<p>A &lt;span onclick=&quot;x()&quot;&gt;tag&lt;/span&gt;</p>\n<p class="ff-raw">&lt;script&gt;x()&lt;/script&gt;</p>\n',
+    );
+    expect(call('markdown', 'one\ntwo', { breaks: true })).toBe(
+      '<p>one<br>\ntwo</p>\n',
+    );
+    // Nunjucks' keyword arguments carry their marker
+    expect(
+      call('markdown', 'one\ntwo', { __keywords: true, breaks: true }),
+    ).toBe('<p>one<br>\ntwo</p>\n');
+    expect(call('markdown', null)).toBe('');
+  });
+
+  it('stops on an option of markdown that does not exist', () => {
+    expect(() => call('markdown', 'x', { html: 'sanitize' })).toThrow(
+      `markdown: html is "sanitize"; it is 'safe' or 'allow'`,
+    );
+    expect(() => call('markdown', 'x', { breaks: 'yes' })).toThrow(
+      'markdown: breaks is true or false',
+    );
+    expect(() => call('markdown', 'x', { sanitize: true })).toThrow(
+      'markdown: sanitize is not an option; the options are html and breaks',
+    );
+    expect(() => call('markdown', 'x', 'safe')).toThrow(
+      'markdown: the options are named',
+    );
+    // one call is one step the time limit cannot interrupt, so it takes what a Markdown source may be
+    expect(call('markdown', 'a'.repeat(1024 * 1024))).toContain('<p>a');
+    expect(() => call('markdown', 'a'.repeat(1024 * 1024 + 1))).toThrow(
+      'markdown: the text is larger than 1 MB, the most one conversion takes',
+    );
+  });
+
+  it('in a Markdown document converts as the document does', () => {
+    const inDocument: HelperContext = {
+      ...ctx,
+      markdown: {
+        html: 'safe',
+        keep: (html) => html,
+        kept: { nonce: 'n', html: [] },
+      },
+    };
+    expect(helper('markdown').fn(inDocument, '<b>x</b>')).toBe(
+      '<p>&lt;b&gt;x&lt;/b&gt;</p>\n',
+    );
+    expect(
+      helper('markdown').fn(inDocument, '<b>x</b>', { html: 'allow' }),
+    ).toBe('<p><b>x</b></p>\n');
     expect(call('asset', '/logo.png')).toBe(
       'https://cdn.formfeed.test/a/ws1/logo.png',
     );

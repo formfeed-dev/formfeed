@@ -1,6 +1,6 @@
 /**
  * Value coercions small enough that a module may want them without the rest of the engine. They
- * live here rather than in `helpers/format.ts`, which pulls in date-fns, marked and n2words: the
+ * live here rather than in `helpers/format.ts`, which pulls in date-fns, markdown-it and n2words: the
  * landing site's GiroCode tool imports `lib/codes` in the browser and would otherwise carry all
  * three for the sake of one eight-line function.
  */

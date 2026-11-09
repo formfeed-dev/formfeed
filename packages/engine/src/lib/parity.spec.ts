@@ -123,20 +123,36 @@ const cases: ParityCase[] = [
   {
     // plain data with its options beside it: an object literal, keyword arguments, hash arguments
     name: 'chart from labels and values',
-    data: { sales: { labels: ['Q1', 'Q2'], values: [1, '2.5'] }, accent: '#0f766e' },
+    data: {
+      sales: { labels: ['Q1', 'Q2'], values: [1, '2.5'] },
+      accent: '#0f766e',
+    },
     sources: {
       jinja2: `{{ chart(sales, { type: 'line', width: 300, height: 150, color: accent }) }}`,
       liquid: `{{ sales | chart: type: 'line', width: 300, height: 150, color: accent }}`,
       handlebars: `{{chart sales type='line' width=300 height=150 color=accent}}`,
     },
-    expected: `<canvas class="ff-chart" width="300" height="150" style="width:300px;height:150px" data-ff-chart="${JSON.stringify({
-      type: 'line',
-      data: {
-        labels: ['Q1', 'Q2'],
-        datasets: [{ data: [1, 2.5], backgroundColor: '#0f766e', borderColor: '#0f766e', fill: false }],
+    expected: `<canvas class="ff-chart" width="300" height="150" style="width:300px;height:150px" data-ff-chart="${JSON.stringify(
+      {
+        type: 'line',
+        data: {
+          labels: ['Q1', 'Q2'],
+          datasets: [
+            {
+              data: [1, 2.5],
+              backgroundColor: '#0f766e',
+              borderColor: '#0f766e',
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          animation: false,
+          responsive: false,
+          plugins: { legend: { display: false } },
+        },
       },
-      options: { animation: false, responsive: false, plugins: { legend: { display: false } } },
-    }).replace(/"/g, '&quot;')}"></canvas>`,
+    ).replace(/"/g, '&quot;')}"></canvas>`,
   },
 ];
 
@@ -154,6 +170,11 @@ const ledger = {
   amount: 42,
   blurb: 'The quick brown fox jumps over the lazy dog',
   md: '**bold** and *em*',
+  mdRaw:
+    'Hi <b>there</b> [web](https://example.test) [ftp](ftp://example.test)\n\n- [x] done\n- [ ] open',
+  mdChat: 'one\ntwo',
+  mdTable:
+    '| a | b |\n|:--|--:|\n| <i>x</i> |   |\n\nNote[^1].\n\n[^1]: Footnote.',
   markup: '<em>x</em>',
   obj: { a: 1, b: [true, null] },
   quote: 'Tom & "Jerry"',
@@ -241,7 +262,8 @@ const helperCases: ParityCase[] = [
       liquid: `{% assign rows = items | chunk: 2 %}{% for row in rows %}<tr>{% for i in row %}<td>{{ i.name }}</td>{% endfor %}</tr>{% endfor %}`,
       handlebars: `{{#each (chunk items 2)}}<tr>{{#each this}}<td>{{name}}</td>{{/each}}</tr>{{/each}}`,
     },
-    expected: '<tr><td>Widget</td><td>Gadget</td></tr><tr><td>Doohickey</td></tr>',
+    expected:
+      '<tr><td>Widget</td><td>Gadget</td></tr><tr><td>Doohickey</td></tr>',
   },
   {
     name: 'range',
@@ -395,6 +417,44 @@ const helperCases: ParityCase[] = [
     expected: '<p><strong>bold</strong> and <em>em</em></p>',
   },
   {
+    // the option in each dialect: an object in Jinja2, keyword arguments in Liquid, a hash in Handlebars
+    name: 'markdown in safe: raw HTML as text, links to their list, task lists',
+    data: ledger,
+    sources: {
+      jinja2: `{{ mdRaw | markdown({ html: 'safe' }) }}|{{ mdRaw | markdown(html='safe') }}`,
+      liquid: `{{ mdRaw | markdown: html: 'safe' }}|{{ mdRaw | markdown: html: 'safe' }}`,
+      handlebars: `{{markdown mdRaw html='safe'}}|{{markdown mdRaw html='safe'}}`,
+    },
+    expected: Array(2)
+      .fill(
+        '<p>Hi &lt;b&gt;there&lt;/b&gt; <a href="https://example.test">web</a> ftp</p><ul class="contains-task-list"><li class="task-list-item"><input type="checkbox" disabled checked> done</li><li class="task-list-item"><input type="checkbox" disabled> open</li></ul>',
+      )
+      .join(' |'),
+  },
+  {
+    name: 'markdown with line breaks',
+    data: ledger,
+    sources: {
+      jinja2: `{{ mdChat | markdown({ breaks: true }) }}{{ mdChat | markdown }}`,
+      liquid: `{{ mdChat | markdown: breaks: true }}{{ mdChat | markdown }}`,
+      handlebars: `{{markdown mdChat breaks=true}}{{markdown mdChat}}`,
+    },
+    expected: '<p>one<br> two</p><p>one two</p>',
+  },
+  {
+    // without options raw HTML passes, as it did before the helper moved to markdown-it
+    name: 'markdown tables, raw HTML and footnotes by default',
+    data: ledger,
+    sources: {
+      jinja2: `{{ mdTable | markdown }}`,
+      liquid: `{{ mdTable | markdown }}`,
+      handlebars: `{{markdown mdTable}}`,
+    },
+    expected: new RegExp(
+      '^<table><thead><tr><th style="text-align:left">a</th><th style="text-align:right">b</th></tr></thead><tbody><tr><td style="text-align:left"><i>x</i></td><td style="text-align:right"></td></tr></tbody></table><p>Note<sup class="footnote-ref"><a href="#fn-[a-z0-9]+-1" id="fnref-[a-z0-9]+-1">\\[1\\]</a></sup>\\.</p>',
+    ),
+  },
+  {
     // Liquid does not escape output by default, so the template asks for it
     name: 'escaped data next to safe output',
     data: ledger,
@@ -428,7 +488,10 @@ const helperCases: ParityCase[] = [
   {
     name: 't with parameters and a missing key',
     data: ledger,
-    context: { locale: 'de', i18n: { de: { greeting: 'Hallo {name}', total: 'Summe' } } },
+    context: {
+      locale: 'de',
+      i18n: { de: { greeting: 'Hallo {name}', total: 'Summe' } },
+    },
     sources: {
       jinja2: `{{ t('greeting', { name: customer.name }) }}|{{ t('total') }}|{{ t('missing') }}`,
       liquid: `{{ 'greeting' | t: name: customer.name }}|{{ 'total' | t }}|{{ 'missing' | t }}`,
@@ -455,7 +518,8 @@ const helperCases: ParityCase[] = [
       liquid: `{{ 'https://formfeed.dev' | qrcode: size: 64 }}`,
       handlebars: `{{qrcode 'https://formfeed.dev' size=64}}`,
     },
-    expected: /^data:image\/svg\+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww\.w3\.org%2F2000%2Fsvg%22%20width%3D%2264%22/,
+    expected:
+      /^data:image\/svg\+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww\.w3\.org%2F2000%2Fsvg%22%20width%3D%2264%22/,
   },
   {
     name: 'barcode',
@@ -541,7 +605,12 @@ const helperCases: ParityCase[] = [
   {
     // Handlebars used to call the helper of the same name: `{{date}}` printed today, `{{number}}` nothing
     name: 'data fields named like helpers',
-    data: { title: 'Rechnung', date: '2026-09-07', number: 'RE-42', first: 'Erika' },
+    data: {
+      title: 'Rechnung',
+      date: '2026-09-07',
+      number: 'RE-42',
+      first: 'Erika',
+    },
     sources: {
       jinja2: `{{ title }} {{ number }} vom {{ date }} an {{ first }}`,
       liquid: `{{ title }} {{ number }} vom {{ date }} an {{ first }}`,
@@ -552,7 +621,9 @@ const helperCases: ParityCase[] = [
   {
     // Jinja2 used to answer these with Python dict methods: the loop over invoice.items rendered nothing
     name: 'data fields named like dict methods',
-    data: { invoice: { items: [{ d: 'A' }, { d: 'B' }], keys: 'k', values: [1, 2] } },
+    data: {
+      invoice: { items: [{ d: 'A' }, { d: 'B' }], keys: 'k', values: [1, 2] },
+    },
     sources: {
       jinja2: `{% for i in invoice.items %}{{ i.d }}{% endfor %}|{{ invoice.keys }}|{{ invoice.values | length }}`,
       liquid: `{% for i in invoice.items %}{{ i.d }}{% endfor %}|{{ invoice.keys }}|{{ invoice.values | length }}`,
@@ -594,7 +665,9 @@ const allCases = [...cases, ...helperCases];
 async function renderCase(c: ParityCase, id: EngineId): Promise<string> {
   const engine = engines[id];
   const tpl = engine.compile(c.sources[id], { name: c.name });
-  return normalise(await engine.render(tpl, c.data, context(c.partials, id, c.context)));
+  return normalise(
+    await engine.render(tpl, c.data, context(c.partials, id, c.context)),
+  );
 }
 
 describe('engine parity', () => {
@@ -606,13 +679,16 @@ describe('engine parity', () => {
     for (const id of engineIds) {
       it(`${c.name} [${id}]`, async () => {
         const out = await renderCase(c, id);
-        if (typeof c.expected === 'string') expect(out).toBe(normalise(c.expected));
+        if (typeof c.expected === 'string')
+          expect(out).toBe(normalise(c.expected));
         else expect(out).toMatch(c.expected);
       });
     }
     if (c.expected instanceof RegExp)
       it(`${c.name} [identical in every engine]`, async () => {
-        const outputs = await Promise.all(engineIds.map((id) => renderCase(c, id)));
+        const outputs = await Promise.all(
+          engineIds.map((id) => renderCase(c, id)),
+        );
         expect(new Set(outputs).size).toBe(1);
       });
   }
@@ -627,7 +703,9 @@ describe('every helper is exercised by a parity case', () => {
   ]);
   for (const name of defaultHelpers().definitions.keys())
     it(name, () => {
-      expect(sources.some((s) => new RegExp(`\\b${name}\\b`).test(s))).toBe(true);
+      expect(sources.some((s) => new RegExp(`\\b${name}\\b`).test(s))).toBe(
+        true,
+      );
     });
 });
 
@@ -683,7 +761,8 @@ describe('jinja2 python compatibility', () => {
   });
 
   it('runs Python format specs, namespaces and the Jinja2 forms of truncate, map and selectattr', async () => {
-    const render = (src: string, data: unknown) => engines.jinja2.render(engines.jinja2.compile(src), data, ctx);
+    const render = (src: string, data: unknown) =>
+      engines.jinja2.render(engines.jinja2.compile(src), data, ctx);
     // apitemplate.io's German number formatting idiom
     expect(
       await render(
@@ -694,25 +773,68 @@ describe('jinja2 python compatibility', () => {
     expect(
       await render(
         `{% set ns = namespace(count=0, power=0) %}{% for m in mods %}{% set ns.count = ns.count + m.n %}{% set ns.power = ns.power + m.n * m.w %}{% endfor %}{{ ns.count }}/{{ ns.power }}`,
-        { mods: [{ n: 2, w: 400 }, { n: 3, w: 450 }] },
+        {
+          mods: [
+            { n: 2, w: 400 },
+            { n: 3, w: 450 },
+          ],
+        },
       ),
     ).toBe('5/2150');
-    await expect(render(`{% set data.x = 1 %}`, { data: {} })).rejects.toThrow('non-namespace');
-    expect(await render(`{{ s | truncate(12, True, '~') }}|{{ s | truncate(12) }}|{{ short | truncate(12, False) }}`, { s: 'one two three four', short: 'tiny' })).toBe(
-      'one two thr~|one two thr…|tiny',
+    await expect(render(`{% set data.x = 1 %}`, { data: {} })).rejects.toThrow(
+      'non-namespace',
     );
-    expect(await render(`{{ s | truncate(12, False, '~', 0) }}`, { s: 'one two three four' })).toBe('one two~');
-    expect(await render(`{{ xs | map(attribute='a.b') | join(',') }}|{{ words | map('upper') | join(',') }}|{{ xs | map('a') | length }}`, { xs: [{ a: { b: 1 } }, { a: { b: 2 } }], words: ['x', 'y'] })).toBe(
-      '1,2|X,Y|2',
-    );
-    const lines = { xs: [{ net: 5000, vat: { v: 500 } }, { net: 200, vat: { v: 50 } }] };
-    expect(await render(`{{ xs | sum(attribute='net') }}|{{ xs | sum(attribute='vat.v', start=1) }}|{{ xs | sum('net') }}|{{ [1, 2] | sum }}`, lines)).toBe('5200|551|5200|3');
+    expect(
+      await render(
+        `{{ s | truncate(12, True, '~') }}|{{ s | truncate(12) }}|{{ short | truncate(12, False) }}`,
+        { s: 'one two three four', short: 'tiny' },
+      ),
+    ).toBe('one two thr~|one two thr…|tiny');
+    expect(
+      await render(`{{ s | truncate(12, False, '~', 0) }}`, {
+        s: 'one two three four',
+      }),
+    ).toBe('one two~');
+    expect(
+      await render(
+        `{{ xs | map(attribute='a.b') | join(',') }}|{{ words | map('upper') | join(',') }}|{{ xs | map('a') | length }}`,
+        { xs: [{ a: { b: 1 } }, { a: { b: 2 } }], words: ['x', 'y'] },
+      ),
+    ).toBe('1,2|X,Y|2');
+    const lines = {
+      xs: [
+        { net: 5000, vat: { v: 500 } },
+        { net: 200, vat: { v: 50 } },
+      ],
+    };
+    expect(
+      await render(
+        `{{ xs | sum(attribute='net') }}|{{ xs | sum(attribute='vat.v', start=1) }}|{{ xs | sum('net') }}|{{ [1, 2] | sum }}`,
+        lines,
+      ),
+    ).toBe('5200|551|5200|3');
     // lists and dicts print as Python shows them, so `"data": {{ values }}` in a chart script is an array
-    expect(await render(`<script>var a = {{ xs }};</script>{{ d }}`, { xs: [-1500.5, 200], d: { k: ['x', "it's"], on: true, no: null } })).toBe(
+    expect(
+      await render(`<script>var a = {{ xs }};</script>{{ d }}`, {
+        xs: [-1500.5, 200],
+        d: { k: ['x', "it's"], on: true, no: null },
+      }),
+    ).toBe(
       `<script>var a = [-1500.5, 200];</script>{&#39;k&#39;: [&#39;x&#39;, &quot;it&#39;s&quot;], &#39;on&#39;: True, &#39;no&#39;: None}`,
     );
-    expect(await render(`{{ xs }}|{{ flag }}|{{ xs | join(',') }}`, { xs: [], flag: true })).toBe('[]|true|');
-    const items = { xs: [{ c: 'ROOF', n: 1 }, { c: 'OTHER', n: 2 }, { c: 'ROOF', n: 3, on: true }] };
+    expect(
+      await render(`{{ xs }}|{{ flag }}|{{ xs | join(',') }}`, {
+        xs: [],
+        flag: true,
+      }),
+    ).toBe('[]|true|');
+    const items = {
+      xs: [
+        { c: 'ROOF', n: 1 },
+        { c: 'OTHER', n: 2 },
+        { c: 'ROOF', n: 3, on: true },
+      ],
+    };
     expect(
       await render(
         `{% for x in xs | selectattr("c", "equalto", "ROOF") %}{{ x.n }}{% endfor %}|{% for x in xs | rejectattr("c", "==", "ROOF") %}{{ x.n }}{% endfor %}|{{ xs | selectattr("on") | length }}|{{ xs | selectattr("n", "gt", 1) | length }}|{{ xs | selectattr("c", "in", ["OTHER"]) | length }}`,
@@ -723,14 +845,20 @@ describe('jinja2 python compatibility', () => {
 
   it('keeps slice bounds, which the member lookup used to drop', async () => {
     const tpl = engines.jinja2.compile(`{{ nums[1:3] | join(',') }}`);
-    expect(await engines.jinja2.render(tpl, { nums: [1, 2, 3, 4] }, ctx)).toBe('2,3');
+    expect(await engines.jinja2.render(tpl, { nums: [1, 2, 3, 4] }, ctx)).toBe(
+      '2,3',
+    );
   });
 
   it('prefers a data field to the Python dict method of the same name', async () => {
     const tpl = engines.jinja2.compile(
       `{{ d.items | length }}|{% for k, v in m.items() %}{{ k }}={{ v }}{% endfor %}`,
     );
-    const out = await engines.jinja2.render(tpl, { d: { items: [1, 2, 3] }, m: { a: 1 } }, ctx);
+    const out = await engines.jinja2.render(
+      tpl,
+      { d: { items: [1, 2, 3] }, m: { a: 1 } },
+      ctx,
+    );
     expect(out).toBe('3|a=1');
   });
 

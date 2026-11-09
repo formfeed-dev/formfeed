@@ -26,11 +26,13 @@
     "fflate": "0.8.3",
     "handlebars": "4.7.10",
     "liquidjs": "10.29.0",
-    "marked": "18.0.11",
+    "markdown-it": "15.0.3",
+    "markdown-it-footnote": "4.0.0",
     "n2words": "^6.1.2",
     "nunjucks": "3.2.4",
     "pagedjs": "0.4.3",
     "qrcode": "1.5.4",
+    "yaml": "^2.9.0",
     "zod": "4.5.4"
   },
   "devDependencies": {

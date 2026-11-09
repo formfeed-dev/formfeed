@@ -49,6 +49,9 @@
       "@formfeed/engine/pdfa": [
         "./packages/engine/src/lib/pdfa/index.ts"
       ],
+      "@formfeed/engine/markdown": [
+        "./packages/engine/src/lib/markdown/settings.ts"
+      ],
       "@formfeed/devkit/emit": [
         "./packages/devkit/src/lib/types/generate.ts"
       ],

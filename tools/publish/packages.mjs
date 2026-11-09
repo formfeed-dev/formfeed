@@ -74,10 +74,13 @@ export const packages = [
       'date-fns',
       'handlebars',
       'liquidjs',
-      'marked',
+      'markdown-it',
+      'markdown-it-footnote',
       'n2words',
       'nunjucks',
       'qrcode',
+      // the front matter of a Markdown document, imported only when one opens with it (plan 29)
+      'yaml',
       // the `_invoice` schema of the e-invoice module (spec 17 §4.3)
       'zod',
     ],

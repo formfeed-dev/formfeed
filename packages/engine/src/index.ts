@@ -2,7 +2,12 @@
 /// <reference path="./types/modules.d.ts" />
 export * from './lib/types';
 export { EngineSyntaxError, RenderError, RenderLimitError } from './lib/errors';
-export { defaultLimits, depthGuard, enforceLimits } from './lib/limits';
+export {
+  defaultLimits,
+  depthGuard,
+  enforceLimits,
+  enforceOutputBytes,
+} from './lib/limits';
 export {
   DefaultHelperRegistry,
   EPC_MAX_BYTES,
@@ -368,6 +373,44 @@ export type {
   StaticAuditDiagnostic,
   StaticAuditInput,
 } from './lib/accessibility/static';
+// Markdown (plan 29): `@formfeed/engine/markdown` inside the workspace is its settings without the
+// parser, for the gateway's sake; the converter and `renderMarkdown` are named here.
+export {
+  MARKDOWN_CONVERTER,
+  MARKDOWN_HTML_MODES,
+  MARKDOWN_LIMITS,
+  MARKDOWN_REFUSALS,
+  MARKDOWN_THEMES,
+  MARKDOWN_THEME_REVISIONS,
+  isMarkdownSettings,
+  markdownSettingsProblem,
+  markdownTextWithinLimit,
+  markdownVersion,
+  resolveMarkdown,
+} from './lib/markdown/settings';
+export type {
+  MarkdownHtmlMode,
+  MarkdownProblem,
+  MarkdownSettings,
+  MarkdownTheme,
+  ResolvedMarkdown,
+} from './lib/markdown/settings';
+export {
+  imageAllowed,
+  linkAllowed,
+  markdownFragment,
+  markdownToHtml,
+} from './lib/markdown/convert';
+export type {
+  ConvertedMarkdown,
+  MarkdownConvertOptions,
+} from './lib/markdown/convert';
+export { KeptHtmlCollector } from './lib/markdown/kept';
+export type { KeptHtml } from './lib/markdown/kept';
+export type { FrontMatterMetadata } from './lib/markdown/front-matter';
+export { markdownThemeCss } from './lib/markdown/themes';
+export { renderMarkdown } from './lib/markdown/render';
+export type { MarkdownConverter, MarkdownSource } from './lib/markdown/render';
 export { auditRuntime } from './lib/generated/frames';
 export { encodeTemplateText } from './lib/source-edit';
 export type { Dictionaries } from './lib/translation';

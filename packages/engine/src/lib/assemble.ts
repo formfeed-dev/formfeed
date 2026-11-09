@@ -3,6 +3,7 @@ import type { PdfaSetting } from './pdfa';
 import { brandCss, brandFontFamilies } from './brand';
 import type { BrandContext } from './brand';
 import type { EinvoiceOptionsInput } from './einvoice/schema';
+import type { MarkdownSettings } from './markdown/settings';
 import { getEngine } from './engines';
 import { fitRuntime } from './generated/frames';
 import { escapeHtml } from './helpers';
@@ -97,6 +98,11 @@ export interface TemplateSettings {
    * switches it off for one request.
    */
   einvoice?: EinvoiceOptionsInput | false | null;
+  /**
+   * A Markdown source (plan 29): its theme, what raw HTML becomes, line breaks and a stylesheet of
+   * its own. Read it through `resolveMarkdown`; a stored template's is ignored.
+   */
+  markdown?: MarkdownSettings | null;
   /**
    * The visual editor's document (plan 16 §4.1, `DesignDocument` once `parseDesign` accepted it). It
    * is authoring data: nothing renders it, the version's HTML and CSS are what it emitted.
@@ -320,6 +326,8 @@ export interface AssembleInput extends AssembleExtras {
   /** Preview marks the document so the preview frame can style it; print is what Chromium gets. */
   mode?: 'preview' | 'print';
   title?: string;
+  /** The theme of a Markdown document, between the print reset and the document's own CSS (plan 29). */
+  theme?: string;
 }
 
 /** Produces the full document handed to Chromium or the preview frame (spec 05 §5). */
@@ -353,6 +361,9 @@ export function assembleDocument(input: AssembleInput): string {
     : input.extraCss
       ? `<style data-formfeed="extra">${input.extraCss}</style>\n`
       : '';
+  const theme = input.theme
+    ? `<style data-formfeed="markdown">${input.theme}</style>\n`
+    : '';
   const charts = chartScripts(input.html, input.vendor);
   // text that shrinks to fit its box (plan 16 §4.3); the render-worker calls it again before capturing
   const fit = input.html.includes('data-ff-fit')
@@ -365,7 +376,7 @@ export function assembleDocument(input: AssembleInput): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${base}${title}${input.head ?? ''}
 ${fontStyle}${brandStyle}<style data-formfeed="reset">${printReset(settings, kind)}</style>
-${tailwind}<style data-formfeed="template">${input.css ?? ''}</style>
+${theme}${tailwind}<style data-formfeed="template">${input.css ?? ''}</style>
 ${charts.head}</head>
 <body class="formfeed-body formfeed-${kind}${input.mode === 'preview' ? ' formfeed-preview' : ''}">
 ${input.html}

@@ -125,3 +125,10 @@ declare module 'bwip-js' {
   }
   export function toSVG(options: RenderOptions): string;
 }
+
+declare module 'markdown-it-footnote' {
+  import type { MarkdownIt } from 'markdown-it';
+  /** markdown-it's footnote plugin (`[^1]`); it ships no typings of its own. */
+  const footnote: (md: MarkdownIt) => void;
+  export default footnote;
+}

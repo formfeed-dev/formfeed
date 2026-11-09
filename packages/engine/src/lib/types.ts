@@ -1,4 +1,6 @@
 import type { BrandContext } from './brand';
+import type { KeptHtml } from './markdown/kept';
+import type { MarkdownHtmlMode } from './markdown/settings';
 /**
  * Shared contracts of `@formfeed/engine` (spec 05). Used by the Angular editor (browser) and the
  * Fly.io render-worker (Node); nothing here may touch Node-only APIs.
@@ -108,6 +110,24 @@ export interface RenderContext {
   mode?: 'html' | 'office';
   /** Office mode, set by `renderOffice`: see `HelperContext.drawing`. */
   drawing?: (request: OfficeDrawingRequest) => string;
+  /** The text of a Markdown render, set by `renderMarkdown`: see `HelperContext.markdown`. */
+  markdown?: MarkdownRenderContext;
+}
+
+/**
+ * The text of a Markdown render with an engine (plan 29 §5), which is read as Markdown once the
+ * engine has rendered it.
+ */
+export interface MarkdownRenderContext {
+  /** The document's `settings.markdown.html`, which the `markdown` helper takes as its default. */
+  html: MarkdownHtmlMode;
+  /**
+   * Keeps the HTML a helper wrote and returns the placeholder the converter puts it back for, so
+   * that the `safe` mode keeps it rather than showing it as text.
+   */
+  keep(html: string): string;
+  /** The HTML kept so far, for the `markdown` helper's own conversion. */
+  readonly kept: KeptHtml;
 }
 
 export interface CompileOptions {
@@ -166,6 +186,12 @@ export interface HelperDefinition {
   aliases?: string[];
   /** Result is HTML that must not be escaped by the engine. */
   html?: boolean;
+  /**
+   * With `html`: the result is the helper's argument, unescaped (`safe`), not markup the helper
+   * wrote. In a Markdown render it stays text for the converter, while what the other HTML helpers
+   * write is kept as HTML (`RenderContext.markdown`).
+   */
+  passThrough?: boolean;
   /** Emits a warning diagnostic pointing to the preferred name (deprecated aliases). */
   deprecatedAlias?: Record<string, string>;
   doc: HelperDoc;
@@ -187,12 +213,29 @@ export interface HelperContext {
    * the post pass turns into it. Set by `renderOffice`.
    */
   drawing?: (request: OfficeDrawingRequest) => string;
+  /**
+   * The text of a Markdown render (`renderMarkdown` with an engine): the registry hands what the HTML
+   * helpers write to its `keep`, and the `markdown` helper converts with its mode and kept HTML.
+   */
+  markdown?: MarkdownRenderContext;
 }
 
 /** What a helper asks the office post pass to place where its placeholder stands. */
 export type OfficeDrawingRequest =
-  | { kind: 'svg'; svg: string; width?: number | string; height?: number | string; alt?: string }
-  | { kind: 'url'; url: string; width?: number | string; height?: number | string; alt?: string }
+  | {
+      kind: 'svg';
+      svg: string;
+      width?: number | string;
+      height?: number | string;
+      alt?: string;
+    }
+  | {
+      kind: 'url';
+      url: string;
+      width?: number | string;
+      height?: number | string;
+      alt?: string;
+    }
   | { kind: 'page-break' };
 
 export interface HelperRegistry {

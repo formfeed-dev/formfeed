@@ -2,13 +2,18 @@ import { TZDate } from '@date-fns/tz';
 import { add, format as formatDate, isValid, parseISO } from 'date-fns';
 import { de, enGB, enUS, es, fr, it, nl } from 'date-fns/locale';
 import type { Locale as DateFnsLocale } from 'date-fns';
-import { marked } from 'marked';
 import { toCardinal as deWords } from 'n2words/de';
 import { toCardinal as enWords } from 'n2words/en';
 import { toCardinal as esWords } from 'n2words/es';
 import { toCardinal as frWords } from 'n2words/fr';
 import { toCardinal as itWords } from 'n2words/it';
 import { toCardinal as nlWords } from 'n2words/nl';
+import { markdownFragment } from '../markdown/convert';
+import {
+  MARKDOWN_HTML_MODES,
+  markdownTextWithinLimit,
+  type MarkdownHtmlMode,
+} from '../markdown/settings';
 import { resolveTranslation } from '../translation';
 import type { HelperContext, HelperDefinition } from '../types';
 import { toNumber } from '../values';
@@ -80,6 +85,38 @@ function requireFinite(helper: string, value: unknown): void {
     throw new Error(
       `${helper}: got ${value}, the result of a calculation with a value that is missing or not a number`,
     );
+}
+
+/**
+ * The options of `markdown(value, { html, breaks })`: Jinja2 passes an object or keywords, Liquid
+ * keyword arguments folded into one object, Handlebars its hash. A name or value that does not exist
+ * stops the render, so a typo cannot quietly let raw HTML through.
+ */
+function markdownOptions(
+  options: unknown,
+  fallback: MarkdownHtmlMode,
+): { html: MarkdownHtmlMode; breaks: boolean } {
+  if (options === undefined || options === null || options === '')
+    return { html: fallback, breaks: false };
+  if (!isNamedArgs(options))
+    throw new Error(
+      "markdown: the options are named, such as { html: 'safe' } or html='safe'",
+    );
+  const { __keywords: _marker, ...named } = options;
+  for (const key of Object.keys(named))
+    if (key !== 'html' && key !== 'breaks')
+      throw new Error(
+        `markdown: ${key} is not an option; the options are html and breaks`,
+      );
+  const html = named['html'] ?? fallback;
+  if (!(MARKDOWN_HTML_MODES as readonly unknown[]).includes(html))
+    throw new Error(
+      `markdown: html is ${JSON.stringify(html)}; it is ${MARKDOWN_HTML_MODES.map((m) => `'${m}'`).join(' or ')}`,
+    );
+  const breaks = named['breaks'] ?? false;
+  if (typeof breaks !== 'boolean')
+    throw new Error('markdown: breaks is true or false');
+  return { html: html as MarkdownHtmlMode, breaks };
 }
 
 const wordsByLang: Record<string, (n: number | string | bigint) => string> = {
@@ -447,29 +484,42 @@ export const formatHelpers: HelperDefinition[] = [
     name: 'markdown',
     html: true,
     doc: {
-      signature: 'markdown(value)',
+      signature: 'markdown(value, { html, breaks })',
       description:
-        'Renders Markdown to HTML (no sanitiser: template data is trusted by the author).',
+        "Renders Markdown to HTML: GitHub Flavored Markdown (tables, task lists, strikethrough, autolinks) and footnotes. Raw HTML in the text passes as written, because template data is the author's; `html: 'safe'` shows it as text instead, for Markdown from someone else. Links and pictures keep to safe addresses either way. `breaks: true` makes every line break a `<br>`, as in a chat. A text of more than 1 MB stops the render.",
       examples: {
-        jinja2: '{{ notes | markdown }}',
-        liquid: '{{ notes | markdown }}',
-        handlebars: '{{markdown notes}}',
+        jinja2: "{{ notes | markdown({ html: 'safe' }) }}",
+        liquid: "{{ notes | markdown: html: 'safe' }}",
+        handlebars: "{{markdown notes html='safe'}}",
       },
       category: 'text',
     },
-    fn: (ctx, value) => {
+    fn: (ctx, value, options?) => {
       if (ctx.mode === 'office') throw new Error(officeUnsupported('markdown'));
-      return marked.parse(str(value), {
-        async: false,
-        gfm: true,
-        breaks: false,
-      }) as string;
+      // inside a Markdown document the helper converts as the document does, unless told otherwise
+      const { html, breaks } = markdownOptions(
+        options,
+        ctx.markdown?.html ?? 'allow',
+      );
+      // one call is one step the render's time limit cannot interrupt: at most what a Markdown
+      // source may be, which converts in about two seconds of one CPU at its slowest (plan 29 §2)
+      const text = str(value);
+      if (!markdownTextWithinLimit(text))
+        throw new Error(
+          'markdown: the text is larger than 1 MB, the most one conversion takes',
+        );
+      return markdownFragment(text, {
+        html,
+        breaks,
+        kept: ctx.markdown?.kept,
+      });
     },
   },
   {
     name: 'safe',
     aliases: ['raw'],
     html: true,
+    passThrough: true,
     doc: {
       signature: 'safe(value)',
       description: 'Marks a string as HTML so the engine does not escape it.',

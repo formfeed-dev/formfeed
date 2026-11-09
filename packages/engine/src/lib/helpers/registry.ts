@@ -48,9 +48,16 @@ export class DefaultHelperRegistry implements HelperRegistry {
       string,
       { fn: (...args: unknown[]) => unknown; html: boolean }
     >();
+    // the text of a Markdown render: HTML a helper wrote waits behind a placeholder until the
+    // converter has run, so that the `safe` mode does not show it as text (plan 29 §5)
+    const keep = ctx.markdown?.keep;
     for (const def of this.byName.values()) {
+      const call = (...args: unknown[]) => def.fn(ctx, ...args);
       const entry = {
-        fn: (...args: unknown[]) => def.fn(ctx, ...args),
+        fn:
+          keep && def.html && !def.passThrough
+            ? (...args: unknown[]) => keep(String(call(...args) ?? ''))
+            : call,
         html: def.html ?? false,
       };
       bound.set(def.name, entry);
