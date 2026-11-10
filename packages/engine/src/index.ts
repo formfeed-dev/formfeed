@@ -411,6 +411,16 @@ export type { FrontMatterMetadata } from './lib/markdown/front-matter';
 export { markdownThemeCss } from './lib/markdown/themes';
 export { renderMarkdown } from './lib/markdown/render';
 export type { MarkdownConverter, MarkdownSource } from './lib/markdown/render';
+export {
+  MARKDOWN_PICTURE_TYPES,
+  MarkdownPictureError,
+  inlineMarkdownPictures,
+} from './lib/markdown/pictures';
+export type {
+  InlinedPictures,
+  MarkdownPictureProblem,
+  PictureFiles,
+} from './lib/markdown/pictures';
 export { auditRuntime } from './lib/generated/frames';
 export { encodeTemplateText } from './lib/source-edit';
 export type { Dictionaries } from './lib/translation';

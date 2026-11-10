@@ -3,6 +3,7 @@ import {
   checkInvoice,
   getEngine,
   inferSchema,
+  inlineMarkdownPictures,
   outputFormats,
   type Diagnostic,
 } from '@formfeed/engine';
@@ -421,7 +422,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   const server = new McpServer(SERVER_INFO, {
     instructions:
       (client ? '' : `${NO_KEY_INSTRUCTION} `) +
-      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. validate_einvoice says which rules an e-invoice XML passed, by which validator, also one Formfeed did not make. convert_to_pdf turns office documents into PDFs. To change a template or write a new one, read it with get_template_source and save it with save_template: it stays a draft until a person publishes it in Formfeed. get_workspace says which workspace this server works in and what the period has left.',
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. validate_einvoice says which rules an e-invoice XML passed, by which validator, also one Formfeed did not make. markdown_to_pdf turns a Markdown document, such as a report you wrote, into a PDF without a template. convert_to_pdf turns office documents into PDFs. To change a template or write a new one, read it with get_template_source and save it with save_template: it stays a draft until a person publishes it in Formfeed. get_workspace says which workspace this server works in and what the period has left.',
   });
 
   /**
@@ -1199,7 +1200,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     {
       title: 'Render a document',
       description:
-        "Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url; for an image (png, jpg or webp) up to 2 MB the result also carries the picture itself, so look at what you made before handing it on (a PDF comes as its link). Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key or a signed-in agent consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. With einvoice the PDF becomes a ZUGFeRD / Factur-X e-invoice built from data._invoice (check the block with check_invoice first): the render then carries einvoice, the validator's report, and a refused invoice names the fields and rules to fix. The link expires at expires_at; get_render issues a fresh one.",
+        "Creates a document by filling a stored template, or ad-hoc html, with data: a PDF or image, or DOCX, PPTX or PDF from Word and PowerPoint templates. Returns the render with status and download_url; for an image (png, jpg or webp) up to 2 MB the result also carries the picture itself, so look at what you made before handing it on (a PDF comes as its link). Use it to make a document from data; to turn an existing office file into a PDF, use convert_to_pdf, and for a Markdown document, markdown_to_pdf. Stored templates render their published version, so one whose published_version is null fails with template_not_found. Every call is a new render: a live key or a signed-in agent consumes units, a test key is free (watermarked on the Free plan). A render that fails returns status failed and an error with code and message; validate_template finds most causes beforehand. With einvoice the PDF becomes a ZUGFeRD / Factur-X e-invoice built from data._invoice (check the block with check_invoice first): the render then carries einvoice, the validator's report, and a refused invoice names the fields and rules to fix. The link expires at expires_at; get_render issues a fresh one.",
       inputSchema: {
         template: z
           .string()
@@ -1309,6 +1310,176 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           meta: { source: 'mcp' },
         });
         if (wait && render.status !== 'succeeded' && render.status !== 'failed')
+          render = await api().renders.waitFor(render.id);
+        return await renderResult(render);
+      } catch (e) {
+        return failure(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'markdown_to_pdf',
+    {
+      title: 'Turn Markdown into a PDF',
+      description: [
+        'Turns a Markdown document into a PDF without a template, e.g. a report, notes or an answer you wrote, and returns the render with status and download_url.',
+        'It reads GitHub Flavored Markdown (tables, task lists, strikethrough) and footnotes; a YAML front matter block gives the title, author, subject and keywords, else the first heading is the title; a line \\newpage starts a new page.',
+        'Raw HTML in the text is shown as text. A picture named without an address (![Logo](logo.png)) is a file of the workspace library, uploaded in Formfeed;',
+        options.localFiles
+          ? 'with path, a picture beside the file is sent along instead.'
+          : 'a picture can also be a data:image URI.',
+        'The headings become the PDF bookmarks by default, and pdf_ua checks the file against PDF/UA-1 before it is delivered.',
+        'To fill a template with data, use render; to convert an office file, use convert_to_pdf.',
+        'Every call is a new render: one unit per started five pages on a live key or for a signed-in agent, free with a test key; every plan.',
+      ].join(' '),
+      inputSchema: {
+        // the hosted server reads no files, so the text is all there is
+        markdown: (options.localFiles
+          ? z.string().optional()
+          : z.string()
+        ).describe(
+          'The document as Markdown text, up to 1 MB' +
+            (options.localFiles ? '; pass this or path' : ''),
+        ),
+        ...(options.localFiles
+          ? {
+              path: z
+                .string()
+                .optional()
+                .describe(
+                  'Absolute path of a Markdown file on this machine; pictures inside its folder are sent along',
+                ),
+            }
+          : {}),
+        title: z
+          .string()
+          .max(500)
+          .optional()
+          .describe(
+            'The PDF title; left out, the front matter title or the first heading',
+          ),
+        theme: z
+          .enum(['document', 'none'])
+          .optional()
+          .describe(
+            'document (default) styles the text, in the brand kit fonts and colour where the workspace has one; none leaves the styling to css',
+          ),
+        css: z
+          .string()
+          .max(256 * 1024)
+          .optional()
+          .describe(
+            'A stylesheet after the theme, e.g. h1 { color: #0f766e }; the document is inside div.ff-markdown',
+          ),
+        paper: z
+          .enum(['A4', 'Letter'])
+          .optional()
+          .describe('Paper size; A4 when left out'),
+        landscape: z.boolean().optional().describe('Landscape pages'),
+        outline: z
+          .boolean()
+          .default(true)
+          .describe(
+            'Bookmarks from the headings (default true); they cost nothing',
+          ),
+        pdf_ua: z
+          .boolean()
+          .optional()
+          .describe(
+            'Makes the file a PDF/UA-1 document checked by veraPDF; a file that fails is not delivered and the result names the rules',
+          ),
+        filename: z
+          .string()
+          .optional()
+          .describe('Name of the PDF behind download_url, e.g. report.pdf'),
+        wait: z
+          .boolean()
+          .default(true)
+          .describe(
+            'true waits for a render that continues in the background; false returns it as it is, to check later with get_render',
+          ),
+      },
+      outputSchema: renderOutput,
+      annotations: CREATES,
+    },
+    async (args) => {
+      try {
+        const path = (args as { path?: string }).path;
+        if ((args.markdown === undefined) === (path === undefined))
+          return failure(
+            new Error(
+              options.localFiles
+                ? 'Pass exactly one of markdown or path'
+                : 'Pass markdown',
+            ),
+          );
+        let markdown: string;
+        let name = 'document';
+        if (path !== undefined) {
+          const { readFile, stat } = await import('node:fs/promises');
+          const { basename, dirname, extname, isAbsolute, relative, resolve } =
+            await import('node:path');
+          if (!/\.(md|markdown)$/i.test(path))
+            return failure(new Error(`${path} is not a Markdown file (.md)`));
+          const folder = dirname(path);
+          const pictures = await inlineMarkdownPictures(
+            (await readFile(path, 'utf8')).replace(/^\uFEFF/, ''),
+            {
+              locate(picture) {
+                const file = resolve(folder, picture);
+                const inside = relative(folder, file);
+                return inside && !inside.startsWith('..') && !isAbsolute(inside)
+                  ? file
+                  : null;
+              },
+              async read(file) {
+                const info = await stat(file).catch(() => null);
+                return info?.isFile()
+                  ? new Uint8Array(await readFile(file))
+                  : null;
+              },
+            },
+          );
+          markdown = pictures.markdown;
+          name = basename(path, extname(path));
+        } else markdown = args.markdown!;
+        const { title, theme, css, paper, landscape, outline, pdf_ua } = args;
+        const settings = {
+          ...(theme || css
+            ? {
+                markdown: {
+                  ...(theme ? { theme } : {}),
+                  ...(css ? { css } : {}),
+                },
+              }
+            : {}),
+          ...(paper || landscape !== undefined
+            ? {
+                paper: {
+                  ...(paper ? { format: paper } : {}),
+                  ...(landscape !== undefined ? { landscape } : {}),
+                },
+              }
+            : {}),
+          pdf: {
+            outline,
+            ...(pdf_ua ? { ua: true } : {}),
+            ...(title ? { metadata: { title } } : {}),
+          },
+        };
+        let render = await api().renders.create({
+          markdown,
+          output: 'pdf',
+          settings,
+          filename: args.filename ?? `${name}.pdf`,
+          meta: { source: 'mcp' },
+        });
+        if (
+          args.wait &&
+          render.status !== 'succeeded' &&
+          render.status !== 'failed'
+        )
           render = await api().renders.waitFor(render.id);
         return await renderResult(render);
       } catch (e) {

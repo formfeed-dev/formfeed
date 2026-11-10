@@ -32,6 +32,8 @@ export type {
   FormfeedTemplates,
   Job,
   LibraryFile,
+  MarkdownSettings,
+  RenderSettings,
   OutputFormat,
   PdfInfo,
   PdfOutputOptions,

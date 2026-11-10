@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -577,7 +577,7 @@ const structured = (r: { structuredContent?: unknown }) =>
   r.structuredContent as Record<string, unknown>;
 
 describe('@formfeed/mcp', () => {
-  it('lists the eleven tools with schemas', async () => {
+  it('lists the twelve tools with schemas', async () => {
     const { client, close } = await connectedClient(fakeApi().fetchImpl);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -588,6 +588,7 @@ describe('@formfeed/mcp', () => {
       'get_template_source',
       'get_workspace',
       'list_templates',
+      'markdown_to_pdf',
       'render',
       'save_template',
       'validate_einvoice',
@@ -636,7 +637,7 @@ describe('@formfeed/mcp', () => {
         .filter((t) => !t.annotations?.readOnlyHint)
         .map((t) => t.name)
         .sort(),
-    ).toEqual(['convert_to_pdf', 'render', 'save_template']);
+    ).toEqual(['convert_to_pdf', 'markdown_to_pdf', 'render', 'save_template']);
     await close();
   });
 
@@ -815,6 +816,108 @@ describe('@formfeed/mcp', () => {
       expect(
         ((api.calls.at(-1)?.body as FormData).get('file') as File).name,
       ).toBe('slides.pptx');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await local.close();
+    }
+  });
+
+  it('turns Markdown into a PDF, and on the user machine a file with its pictures (plan 29)', async () => {
+    const api = fakeApi();
+    const { client, close } = await connectedClient(api.fetchImpl);
+    const { tools } = await client.listTools();
+    const hosted = tools.find((t) => t.name === 'markdown_to_pdf')
+      ?.inputSchema as { properties: object; required?: string[] };
+    // the hosted server reads no files: the text is required and there is no path
+    expect(Object.keys(hosted.properties)).not.toContain('path');
+    expect(hosted.required).toContain('markdown');
+
+    const made = structured(
+      await client.callTool({
+        name: 'markdown_to_pdf',
+        arguments: {
+          markdown: '# Quarterly report\n\nRevenue rose.',
+          title: 'Q3 report',
+          theme: 'none',
+          css: 'h1 { color: teal }',
+          paper: 'Letter',
+          landscape: true,
+          pdf_ua: true,
+        },
+      }),
+    );
+    expect(made).toMatchObject({
+      id: 'rnd_1',
+      download_url: 'https://cdn.test/o/x.pdf',
+    });
+    expect(api.calls.at(-1)).toMatchObject({
+      method: 'POST',
+      path: '/v1/renders',
+    });
+    expect(api.calls.at(-1)?.body).toEqual({
+      markdown: '# Quarterly report\n\nRevenue rose.',
+      output: 'pdf',
+      settings: {
+        markdown: { theme: 'none', css: 'h1 { color: teal }' },
+        paper: { format: 'Letter', landscape: true },
+        pdf: { outline: true, ua: true, metadata: { title: 'Q3 report' } },
+      },
+      filename: 'document.pdf',
+      meta: { source: 'mcp' },
+    });
+
+    // the defaults: bookmarks on, nothing else set
+    await client.callTool({
+      name: 'markdown_to_pdf',
+      arguments: { markdown: '# Notes', filename: 'notes.pdf' },
+    });
+    expect(api.calls.at(-1)?.body).toEqual({
+      markdown: '# Notes',
+      output: 'pdf',
+      settings: { pdf: { outline: true } },
+      filename: 'notes.pdf',
+      meta: { source: 'mcp' },
+    });
+    await close();
+
+    const local = await connectedClient(api.fetchImpl, true);
+    const dir = mkdtempSync(join(tmpdir(), 'formfeed-mcp-md-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(
+        join(dir, 'docs', 'logo.png'),
+        Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      );
+      writeFileSync(join(dir, 'secret.png'), Buffer.from([0x89]));
+      writeFileSync(
+        join(dir, 'docs', 'report.md'),
+        '# Report\n\n![Logo](logo.png) ![Seal](seal.png)\n',
+      );
+      writeFileSync(join(dir, 'docs', 'escape.md'), '![x](../secret.png)');
+      await local.client.callTool({
+        name: 'markdown_to_pdf',
+        arguments: { path: join(dir, 'docs', 'report.md') },
+      });
+      expect(api.calls.at(-1)?.body).toMatchObject({
+        markdown:
+          '# Report\n\n![Logo](data:image/png;base64,iVBORw==) ![Seal](seal.png)\n',
+        filename: 'report.pdf',
+      });
+      const calls = api.calls.length;
+      const escaped = await local.client.callTool({
+        name: 'markdown_to_pdf',
+        arguments: { path: join(dir, 'docs', 'escape.md') },
+      });
+      expect(escaped.isError).toBe(true);
+      expect(JSON.stringify(escaped.content)).toMatch(
+        /outside the document's folder/,
+      );
+      const both = await local.client.callTool({
+        name: 'markdown_to_pdf',
+        arguments: { path: join(dir, 'docs', 'report.md'), markdown: '# A' },
+      });
+      expect(both.isError).toBe(true);
+      expect(api.calls.length).toBe(calls);
     } finally {
       rmSync(dir, { recursive: true, force: true });
       await local.close();

@@ -31,11 +31,37 @@ export interface FormfeedOptions {
   headers?: Record<string, string>;
 }
 
+/**
+ * `settings.markdown` of a Markdown render: its look and what raw HTML in its text does. Refused
+ * beside any other source, and strict: an unknown key or value answers 400 `invalid_request`.
+ */
+export interface MarkdownSettings {
+  /** `document` (the default) is styled, by the brand kit where there is one; `none` is the print reset only. */
+  theme?: 'document' | 'none';
+  /** `safe` (the default) shows raw HTML as text but for a few bare formatting tags; `allow` writes it as it stands. */
+  html?: 'safe' | 'allow';
+  /** A single line break becomes a line break, as in a chat; off by default. */
+  breaks?: boolean;
+  /** A stylesheet after the theme, at most 256 kB. */
+  css?: string;
+}
+
+/** A render's settings: free keys (see the settings reference), `markdown` typed. */
+export type RenderSettings = Record<string, unknown> & {
+  markdown?: MarkdownSettings | null;
+};
+
 export interface RenderRequest {
   template?: string;
   version?: string;
   html?: string;
   url?: string;
+  /**
+   * A Markdown document, at most 1 MB of UTF-8: GitHub Flavored Markdown and footnotes, a front
+   * matter block for the PDF's title and metadata, `\newpage` for a page break. With an `engine` it
+   * is a template over `data` first. `settings.markdown` sets its look.
+   */
+  markdown?: string;
   engine?: Engine;
   data?: Record<string, unknown>;
   /** Left out, the template decides: PDF, or an image template's `settings.image.format`. */
@@ -45,8 +71,9 @@ export interface RenderRequest {
    * and the render carry the validator's verdict as `accessibility`; see `PdfUaOptions`.
    * `{ pdf: { pdfa: '2b' } }` (or `'3b'`, or `true` for `'3b'`) makes it a PDF/A file for
    * archiving, checked before it is delivered; the render carries the verdict as `pdfa`.
+   * `markdown` applies to a Markdown render only; see `MarkdownSettings`.
    */
-  settings?: Record<string, unknown>;
+  settings?: RenderSettings;
   filename?: string;
   expires_in?: number | null;
   access?: 'public' | 'signed';
@@ -667,7 +694,7 @@ export interface WebhookResend {
 
 /**
  * The stored request of a render (`GET /renders/{id}/input`). Template renders carry `template` and
- * `data`, ad-hoc renders `html` or `url`. Passwords of `post` are never included.
+ * `data`, ad-hoc renders `html`, `url` or `markdown`. Passwords of `post` are never included.
  */
 export interface RenderInput {
   render_id: string;
@@ -678,6 +705,7 @@ export interface RenderInput {
     channel?: string | null;
   };
   html?: string;
+  markdown?: string;
   engine?: Engine;
   url?: string;
   data?: Record<string, unknown>;

@@ -381,11 +381,12 @@ class RenderInputTemplate(_Model):
 
 class RenderInput(_Model):
     """The stored request of a render (``GET /renders/{id}/input``). Template renders carry ``template`` and
-    ``data``, ad-hoc renders ``html`` or ``url``. Passwords of ``post`` are never included."""
+    ``data``, ad-hoc renders ``html``, ``url`` or ``markdown``. Passwords of ``post`` are never included."""
 
     render_id: str
     template: RenderInputTemplate | None = None
     html: str | None = None
+    markdown: str | None = None
     engine: Engine | None = None
     url: str | None = None
     data: dict[str, Any] | None = None

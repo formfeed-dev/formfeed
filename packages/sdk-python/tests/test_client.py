@@ -677,6 +677,28 @@ def test_async_office_calls_mirror_the_sync_client():
     assert rec.calls[2].headers["idempotency-key"]
 
 
+def test_markdown_renders_in_both_clients_and_reads_back():
+    client, rec = sync_client(lambda req, n: _json(RENDER))
+    settings = {"markdown": {"theme": "none", "css": "h1 { color: teal }"}, "pdf": {"ua": True}}
+    client.renders.create(markdown="# Report\n\n{{ total }}", engine="jinja2", data={"total": 12}, settings=settings)
+    assert json.loads(rec.calls[0].content) == {
+        "markdown": "# Report\n\n{{ total }}",
+        "engine": "jinja2",
+        "data": {"total": 12},
+        "settings": settings,
+    }
+
+    async def run():
+        async with AsyncFormfeed("ff_test_k", transport=httpx.MockTransport(rec.handler)) as client_async:
+            await client_async.renders.create(markdown="# Notes")
+
+    asyncio.run(run())
+    assert json.loads(rec.calls[1].content) == {"markdown": "# Notes"}
+
+    stored = RenderInput.model_validate({"render_id": "rnd_1", "markdown": "# Notes", "environment": "live"})
+    assert stored.markdown == "# Notes" and stored.html is None
+
+
 def test_storage_option_travels_and_the_delivery_comes_back():
     delivery = {"status": "pending", "bucket": "fennlor-docs", "key": "formfeed/invoices/RE-1001.pdf", "url": None, "reason": None, "error": None}
     client, rec = sync_client(lambda req, n: _json({**RENDER, "storage": delivery}))

@@ -25,6 +25,7 @@ const expected = [
   'get_template_source',
   'get_workspace',
   'list_templates',
+  'markdown_to_pdf',
   'render',
   'save_template',
   'validate_einvoice',
@@ -42,6 +43,12 @@ if (
     ?.path
 )
   throw new Error('validate_einvoice over stdio has no path parameter');
+// and its Markdown tool, with the pictures beside the file (plan 29)
+if (
+  !tools.find((t) => t.name === 'markdown_to_pdf')?.inputSchema?.properties
+    ?.path
+)
+  throw new Error('markdown_to_pdf over stdio has no path parameter');
 const result = await client.callTool({
   name: 'validate_template',
   arguments: {

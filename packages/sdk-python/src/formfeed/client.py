@@ -276,7 +276,14 @@ class AsyncFormfeed(_Base[Any]):
 # --- sync namespaces --------------------------------------------------------------------------
 
 
-def _render_body(template: str | None, html: str | None, url: str | None, data: dict[str, Any] | None, options: dict[str, Any]) -> dict[str, Any]:
+def _render_body(
+    template: str | None,
+    html: str | None,
+    url: str | None,
+    markdown: str | None,
+    data: dict[str, Any] | None,
+    options: dict[str, Any],
+) -> dict[str, Any]:
     body: dict[str, Any] = {k: v for k, v in options.items() if v is not None}
     if template is not None:
         body["template"] = template
@@ -284,6 +291,8 @@ def _render_body(template: str | None, html: str | None, url: str | None, data: 
         body["html"] = html
     if url is not None:
         body["url"] = url
+    if markdown is not None:
+        body["markdown"] = markdown
     if data is not None:
         body["data"] = data
     return body
@@ -353,15 +362,21 @@ class _Renders:
         template: str | None = None,
         html: str | None = None,
         url: str | None = None,
+        markdown: str | None = None,
         data: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
         **options: Any,
     ) -> Render:
-        """Renders a template, HTML or URL. Sync by default; ``mode="async"`` returns a queued render.
+        """Renders a template, HTML, a URL or a Markdown document. Sync by default; ``mode="async"`` returns a
+        queued render.
+
+        ``markdown`` is a document of at most 1 MB (with an ``engine``, a template over ``data`` first);
+        ``settings={"markdown": {"theme": "none", "css": "…"}}`` sets its look, and ``"html": "allow"`` lets
+        raw HTML in it through, which it otherwise shows as text.
 
         ``storage`` controls the copy for the workspace's own bucket: ``False`` leaves this document out,
         ``{"key": "invoices/RE-1001.pdf"}`` names its object below the connection's prefix."""
-        body = _render_body(template, html, url, data, options)
+        body = _render_body(template, html, url, markdown, data, options)
         return Render.model_validate(self._c.request("POST", "/renders", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
     def get(self, render_id: str) -> Render:
@@ -830,11 +845,12 @@ class _AsyncRenders:
         template: str | None = None,
         html: str | None = None,
         url: str | None = None,
+        markdown: str | None = None,
         data: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
         **options: Any,
     ) -> Render:
-        body = _render_body(template, html, url, data, options)
+        body = _render_body(template, html, url, markdown, data, options)
         return Render.model_validate(await self._c.request("POST", "/renders", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
     async def get(self, render_id: str) -> Render:

@@ -1212,6 +1212,38 @@ describe('bring your own storage', () => {
     expect((calls[1]!.body as FormData).get('storage')).toBe('false');
   });
 
+  it('sends a Markdown render with its settings as written', async () => {
+    const { calls, fetchImpl } = stub(() => json(render));
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    await client.renders.create({
+      markdown: '# Report\n\n{{ total }}',
+      engine: 'jinja2',
+      data: { total: 12 },
+      settings: {
+        markdown: { theme: 'none', html: 'safe', css: 'h1 { color: teal }' },
+        pdf: { ua: true },
+      },
+    });
+    expect(calls[0]!.url).toBe('https://api-eu.formfeed.dev/v1/renders');
+    expect(calls[0]!.body).toEqual({
+      markdown: '# Report\n\n{{ total }}',
+      engine: 'jinja2',
+      data: { total: 12 },
+      settings: {
+        markdown: { theme: 'none', html: 'safe', css: 'h1 { color: teal }' },
+        pdf: { ua: true },
+      },
+    });
+    // the block is typed: a theme the API does not have does not compile
+    const typed = (): Promise<unknown> =>
+      client.renders.create({
+        markdown: '# A',
+        // @ts-expect-error -- `dark` is no theme
+        settings: { markdown: { theme: 'dark' } },
+      });
+    void typed;
+  });
+
   it('surfaces a key without a connection as a typed error', async () => {
     const { fetchImpl } = stub(() =>
       json(

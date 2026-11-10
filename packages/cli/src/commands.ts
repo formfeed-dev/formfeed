@@ -75,6 +75,7 @@ import {
   strictFailure,
   strictVerdict,
 } from './lib/accessibility';
+import { isMarkdownFile, markdownConvertRequest } from './lib/markdown';
 import { pdfaFailure, pdfaLines, pdfaVerdict } from './lib/pdfa';
 import { deviceLogin } from './lib/device-login';
 import { startDevServer } from './lib/dev-server';
@@ -2047,7 +2048,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
   pdfCmd
     .command('convert <source>')
     .description(
-      'Convert a Word, Excel, PowerPoint, OpenDocument, RTF or HTML file to PDF (Starter plan and above); a render id (rnd_…) of a Word or PowerPoint template converts its output',
+      'Convert a Word, Excel, PowerPoint, OpenDocument, RTF or HTML file to PDF (Starter plan and above); a render id (rnd_…) of a Word or PowerPoint template converts its output. A Markdown file (.md) is rendered as a Markdown document on every plan, its pictures inside its folder sent along',
     )
     .option(
       '--out <file>',
@@ -2056,9 +2057,19 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     .option('--page-ranges <ranges>', 'pages to convert, e.g. 1-3,5')
     .option(
       '--landscape',
-      'landscape for spreadsheets and documents without their own page setup',
+      'landscape for spreadsheets, Markdown and documents without their own page setup',
     )
     .option('--single-page-sheets', 'each spreadsheet sheet on one page')
+    .option('--theme <theme>', 'Markdown: document (default) or none')
+    .option('--css <file>', 'Markdown: a stylesheet after the theme')
+    .option(
+      '--settings <file>',
+      'Markdown: a JSON file of render settings, which the other options go over',
+    )
+    .option(
+      '--raw-html',
+      'Markdown: write raw HTML in the text as it stands instead of showing it as text',
+    )
     .option('--no-download', 'create the PDF render without downloading it')
     .action(
       async (
@@ -2068,6 +2079,10 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           pageRanges?: string;
           landscape?: boolean;
           singlePageSheets?: boolean;
+          theme?: string;
+          css?: string;
+          settings?: string;
+          rawHtml?: boolean;
           download: boolean;
         },
       ) => {
@@ -2086,6 +2101,100 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         )
           throw new CliError('--page-ranges looks like 1-3,5', exitCodes.usage);
         const stem = isFile ? basename(path, extname(path)) : source;
+        const markdown = isFile && isMarkdownFile(path);
+        const markdownOnly = (
+          [
+            ['--theme', opts.theme],
+            ['--css', opts.css],
+            ['--settings', opts.settings],
+            ['--raw-html', opts.rawHtml],
+          ] as const
+        ).find(([, value]) => value !== undefined);
+        if (!markdown && markdownOnly)
+          throw new CliError(
+            `${markdownOnly[0]} applies to a Markdown file (.md)`,
+            exitCodes.usage,
+          );
+        if (markdown && opts.singlePageSheets)
+          throw new CliError(
+            '--single-page-sheets applies to spreadsheets',
+            exitCodes.usage,
+          );
+        if (markdown) {
+          const request = await markdownConvertRequest(path, opts, cwd);
+          const c = client(s);
+          const label = basename(path);
+          let finished: Render;
+          try {
+            const created = await c.renders.create({
+              markdown: request.markdown,
+              ...(Object.keys(request.settings).length
+                ? { settings: request.settings }
+                : {}),
+              output: 'pdf',
+              filename: `${stem}.pdf`,
+              meta: { source: 'formfeed pdf convert' },
+            });
+            finished =
+              created.status === 'succeeded' || created.status === 'failed'
+                ? created
+                : await c.renders.waitFor(created.id);
+          } catch (e) {
+            // a strict pdf.ua or a PDF/A level the file failed is a finding about the document
+            const verdict = strictVerdict(e);
+            if (verdict)
+              throw strictFailure(label, verdict, (e as FormfeedError).problem);
+            const archive = pdfaVerdict(e);
+            if (archive)
+              throw pdfaFailure(label, archive, (e as FormfeedError).problem);
+            throw e;
+          }
+          if (finished.status !== 'succeeded') {
+            if (
+              finished.error?.code === 'pdfua_validation_failed' &&
+              finished.accessibility
+            )
+              throw strictFailure(label, finished.accessibility, finished);
+            if (
+              finished.error?.code === 'pdfa_validation_failed' &&
+              finished.pdfa
+            )
+              throw pdfaFailure(label, finished.pdfa, finished);
+            throw new CliError(
+              `render ${finished.id} failed: ${JSON.stringify(finished.error)}`,
+              exitCodes.network,
+              finished,
+            );
+          }
+          const notes = [
+            ...request.inlined.map((p) => `picture ${p} sent along`),
+            ...request.library.map(
+              (p) => `picture ${p} named in the file library`,
+            ),
+            ...accessibilityLines(finished.accessibility),
+            ...pdfaLines(finished.pdfa),
+          ];
+          const summary = `${finished.id}: ${finished.page_count ?? '?'} page(s), ${finished.units} unit(s)`;
+          const pictures = {
+            inlined: request.inlined,
+            library: request.library,
+          };
+          if (!opts.download) {
+            emit(p(), { ...finished, pictures }, () => [
+              ...notes,
+              `${summary}, ${finished.download_url ?? 'no URL'}`,
+            ]);
+            return;
+          }
+          const file = resolve(cwd, opts.out ?? `${stem}.pdf`);
+          mkdirSync(dirname(file), { recursive: true });
+          writeFileSync(file, await c.renders.download(finished));
+          emit(p(), { ...finished, file, pictures }, () => [
+            ...notes,
+            `${summary} -> ${shown(file)}`,
+          ]);
+          return;
+        }
         if (isFile && statSync(path).size > OFFICE_UPLOAD_LIMIT)
           throw new CliError(
             `${path} is larger than ${OFFICE_UPLOAD_LIMIT / 1024 / 1024} MB, the limit for conversions`,
