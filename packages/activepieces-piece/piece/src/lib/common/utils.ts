@@ -29,24 +29,30 @@ export function renderBody(input: RenderInput): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (input.template) {
     body['template'] = input.template;
-    if (input.version && input.version !== 'published') body['version'] = input.version;
+    if (input.version && input.version !== 'published')
+      body['version'] = input.version;
   }
   if (input.html) {
     body['html'] = input.html;
     body['engine'] = input.engine || 'jinja2';
   }
   if (input.url) body['url'] = input.url;
-  if (input.data && Object.keys(input.data).length > 0) body['data'] = input.data;
+  if (input.data && Object.keys(input.data).length > 0)
+    body['data'] = input.data;
   if (input.output) body['output'] = input.output;
   if (input.filename) body['filename'] = input.filename;
   if (input.locale) body['locale'] = input.locale;
-  if (input.settings && Object.keys(input.settings).length > 0) body['settings'] = input.settings;
+  if (input.settings && Object.keys(input.settings).length > 0)
+    body['settings'] = input.settings;
   body['meta'] = { source: 'activepieces' };
   return body;
 }
 
 /** A JSON prop arrives as an object, or as text when it was typed or mapped as text. */
-export function parseObject(value: unknown, label = 'Data'): Record<string, unknown> {
+export function parseObject(
+  value: unknown,
+  label = 'Data',
+): Record<string, unknown> {
   if (value === undefined || value === null || value === '') return {};
   if (isPlainObject(value)) return value;
   if (typeof value === 'string') {
@@ -56,18 +62,25 @@ export function parseObject(value: unknown, label = 'Data'): Record<string, unkn
     } catch {
       throw new Error(`${label} is not valid JSON`);
     }
-    if (!isPlainObject(parsed)) throw new Error(`${label} must be a JSON object`);
+    if (!isPlainObject(parsed))
+      throw new Error(`${label} must be a JSON object`);
     return parsed;
   }
   throw new Error(`${label} must be a JSON object`);
 }
 
 /** Deep merge for the data object: the JSON value wins per leaf, not per branch. Arrays replace. */
-export function mergeData(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
+export function mergeData(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
   for (const [key, value] of Object.entries(override)) {
     const current = out[key];
-    out[key] = isPlainObject(current) && isPlainObject(value) ? mergeData(current, value) : value;
+    out[key] =
+      isPlainObject(current) && isPlainObject(value)
+        ? mergeData(current, value)
+        : value;
   }
   return out;
 }
@@ -93,7 +106,10 @@ interface JsonSchema {
  * The fields a template's JSON Schema turns into, so a flow maps named fields instead of writing
  * JSON (spec 10 §2). Nested objects become `__`-joined keys; lists stay in the Data prop.
  */
-export function schemaFields(schema: unknown, prefix: string[] = []): SchemaField[] {
+export function schemaFields(
+  schema: unknown,
+  prefix: string[] = [],
+): SchemaField[] {
   if (!isPlainObject(schema) || !isPlainObject(schema['properties'])) return [];
   const node = schema as JsonSchema;
   const required = new Set(Array.isArray(node.required) ? node.required : []);
@@ -102,7 +118,9 @@ export function schemaFields(schema: unknown, prefix: string[] = []): SchemaFiel
     if (!isPlainObject(value)) continue;
     const property = value as JsonSchema;
     const path = [...prefix, name];
-    const type = Array.isArray(property.type) ? property.type.find((t) => t !== 'null') : property.type;
+    const type = Array.isArray(property.type)
+      ? property.type.find((t) => t !== 'null')
+      : property.type;
     if (type === 'object' && isPlainObject(property.properties)) {
       fields.push(...schemaFields(property, path));
       continue;
@@ -111,8 +129,14 @@ export function schemaFields(schema: unknown, prefix: string[] = []): SchemaFiel
     fields.push({
       key: path.join('__'),
       label: property.title ?? path.join('.'),
-      type: type === 'number' || type === 'integer' ? 'number' : type === 'boolean' ? 'boolean' : 'text',
-      description: property.description ?? `\`${path.join('.')}\` in the template data.`,
+      type:
+        type === 'number' || type === 'integer'
+          ? 'number'
+          : type === 'boolean'
+            ? 'boolean'
+            : 'text',
+      description:
+        property.description ?? `\`${path.join('.')}\` in the template data.`,
       required: required.has(name),
     });
   }
@@ -120,7 +144,9 @@ export function schemaFields(schema: unknown, prefix: string[] = []): SchemaFiel
 }
 
 /** Collects the dynamic fields of a run back into the nested data object. */
-export function dataFromFields(values: Record<string, unknown> | undefined): Record<string, unknown> {
+export function dataFromFields(
+  values: Record<string, unknown> | undefined,
+): Record<string, unknown> {
   const data: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(values ?? {})) {
     if (value === undefined || value === null || value === '') continue;
@@ -128,7 +154,9 @@ export function dataFromFields(values: Record<string, unknown> | undefined): Rec
     let target = data;
     for (const part of parts.slice(0, -1)) {
       const next = target[part];
-      target = isPlainObject(next) ? next : (target[part] = {}) as Record<string, unknown>;
+      target = isPlainObject(next)
+        ? next
+        : ((target[part] = {}) as Record<string, unknown>);
     }
     target[parts[parts.length - 1] as string] = value;
   }
@@ -146,12 +174,19 @@ export interface ChannelSummary {
  * The version choices of a template: `published` and its release channels with the version each
  * renders, or nothing while the template has no channel besides `published`.
  */
-export function versionOptions(channels: ChannelSummary[]): Array<{ label: string; value: string }> {
+export function versionOptions(
+  channels: ChannelSummary[],
+): Array<{ label: string; value: string }> {
   if (!channels.some((channel) => channel.name !== 'published')) return [];
   return channels.map((channel) => {
-    const canary = channel.canary ? `, canary v${channel.canary.version} at ${channel.canary.percent} %` : '';
+    const canary = channel.canary
+      ? `, canary v${channel.canary.version} at ${channel.canary.percent} %`
+      : '';
     return {
-      label: channel.version === null ? `${channel.name} (nothing published yet)` : `${channel.name} (v${channel.version}${canary})`,
+      label:
+        channel.version === null
+          ? `${channel.name} (nothing published yet)`
+          : `${channel.name} (v${channel.version}${canary})`,
       value: channel.name,
     };
   });
@@ -159,17 +194,39 @@ export function versionOptions(channels: ChannelSummary[]): Array<{ label: strin
 
 /** Whether a render or batch has stopped changing. */
 export const isFinished = (status: string | undefined): boolean =>
-  ['succeeded', 'failed', 'completed', 'partially_failed'].includes(status ?? '');
+  ['succeeded', 'failed', 'completed', 'partially_failed'].includes(
+    status ?? '',
+  );
 
 /**
  * The name of a saved document: the one chosen, with the extension of what was rendered (a Word
- * template renders `docx` or `pdf`), else `<render id>.<output>`.
+ * template renders `docx` or `pdf`, a split a `zip`), else `<render id>.<output>`.
  */
-export function downloadName(chosen: string | undefined, renderId: string, output: string | undefined): string {
+export function downloadName(
+  chosen: string | undefined,
+  renderId: string,
+  output: string | undefined,
+): string {
   const extension = output || 'pdf';
   const name = (chosen ?? '').trim().replace(/[/\\]/g, '-');
   if (!name) return `${renderId}.${extension}`;
-  return `${name.replace(/\.(pdf|png|jpe?g|webp|docx|pptx)$/i, '')}.${extension}`;
+  return `${name.replace(/\.(pdf|png|jpe?g|webp|docx|pptx|zip)$/i, '')}.${extension}`;
+}
+
+/**
+ * The name the API gave a stored file, the last part of its link (`contract.zip`, `contract-3.png`),
+ * or undefined for a link that names none.
+ */
+export function linkName(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const last = new URL(url).pathname.split('/').pop();
+    const name = last ? decodeURIComponent(last) : '';
+    return name && !/[\\/]/.test(name) ? name : undefined;
+  } catch {
+    // no URL, so no name in it
+    return undefined;
+  }
 }
 
 /** The PDF's name for a converted file: `report.xlsx` becomes `report.pdf`. */
@@ -199,7 +256,8 @@ export function convertFields(input: ConvertInput): Record<string, unknown> {
 }
 
 /** A form field value of a multipart request: text as is, everything else as JSON text. */
-export const formValue = (value: unknown): string => (typeof value === 'string' ? value : JSON.stringify(value));
+export const formValue = (value: unknown): string =>
+  typeof value === 'string' ? value : JSON.stringify(value);
 
 /** Webhook signatures older than this are refused, as the SDKs do. */
 const TOLERANCE_SECONDS = 300;
@@ -214,7 +272,8 @@ export function verifySignature(
   rawBody: unknown,
   now = Math.floor(Date.now() / 1000),
 ): boolean {
-  if (!secret || typeof header !== 'string' || typeof rawBody !== 'string') return false;
+  if (!secret || typeof header !== 'string' || typeof rawBody !== 'string')
+    return false;
   const parts = new Map(
     header.split(',').map((pair) => {
       const at = pair.indexOf('=');
@@ -225,12 +284,17 @@ export function verifySignature(
   const v1 = (parts.get('v1') ?? '').toLowerCase();
   if (!Number.isFinite(t) || !/^[0-9a-f]{64}$/.test(v1)) return false;
   if (Math.abs(now - t) > TOLERANCE_SECONDS) return false;
-  const expected = createHmac('sha256', secret).update(`${t}.${rawBody}`).digest();
+  const expected = createHmac('sha256', secret)
+    .update(`${t}.${rawBody}`)
+    .digest();
   return timingSafeEqual(expected, Buffer.from(v1, 'hex'));
 }
 
 /** A header of a webhook delivery, whichever case the server kept. */
-export function headerValue(headers: Record<string, unknown> | undefined, name: string): unknown {
+export function headerValue(
+  headers: Record<string, unknown> | undefined,
+  name: string,
+): unknown {
   if (!headers) return undefined;
   const wanted = name.toLowerCase();
   const key = Object.keys(headers).find((k) => k.toLowerCase() === wanted);

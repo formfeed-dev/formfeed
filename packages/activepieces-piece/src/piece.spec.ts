@@ -8,6 +8,7 @@ import {
   dataFromFields,
   downloadName,
   headerValue,
+  linkName,
   mergeData,
   parseObject,
   renderBody,
@@ -15,10 +16,28 @@ import {
   verifySignature,
   versionOptions,
 } from '../piece/src/lib/common/utils';
+import {
+  compressFields,
+  fillFields,
+  fillValues,
+  infoFields,
+  PDF_TOOLS,
+  pdfSourceOf,
+  redactFields,
+  splitFields,
+  toImageFields,
+} from '../piece/src/lib/common/pdf-tools';
 
 const workspace = join(import.meta.dirname, '..', '..', '..');
 // Both live outside the package, so the public repository, which exports only the packages, has neither.
-const logoFile = join(workspace, 'apps', 'landing', 'public', 'brand', 'formfeed-512.png');
+const logoFile = join(
+  workspace,
+  'apps',
+  'landing',
+  'public',
+  'brand',
+  'formfeed-512.png',
+);
 const openapiFile = join(workspace, 'packages', 'api-types', 'openapi.json');
 const auth = { type: 'SECRET_TEXT', secret_text: 'ff_test_x' };
 const sign = (secret: string, t: number, body: string) =>
@@ -37,10 +56,16 @@ interface Recorded {
 /** Answers every request the piece sends, and records it. */
 function stubApi(answer: (request: Recorded) => unknown = () => ({})) {
   const requests: Recorded[] = [];
-  vi.spyOn(httpClient, 'sendRequest').mockImplementation((async (request: HttpRequest) => {
+  vi.spyOn(httpClient, 'sendRequest').mockImplementation((async (
+    request: HttpRequest,
+  ) => {
     const recorded = {
       method: String(request.method),
-      url: request.url + (request.queryParams ? `?${new URLSearchParams(request.queryParams as Record<string, string>)}` : ''),
+      url:
+        request.url +
+        (request.queryParams
+          ? `?${new URLSearchParams(request.queryParams as Record<string, string>)}`
+          : ''),
       body: request.body,
       headers: (request.headers ?? {}) as Json,
     };
@@ -78,13 +103,25 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('request shapes', () => {
   it('builds render bodies and leaves out what is empty', () => {
-    expect(renderBody({ template: 'invoice-de', version: 'published', data: {}, locale: 'de-DE' })).toEqual({
+    expect(
+      renderBody({
+        template: 'invoice-de',
+        version: 'published',
+        data: {},
+        locale: 'de-DE',
+      }),
+    ).toEqual({
       template: 'invoice-de',
       locale: 'de-DE',
       meta: { source: 'activepieces' },
     });
-    expect(renderBody({ html: '<p/>' })).toMatchObject({ html: '<p/>', engine: 'jinja2' });
-    expect(renderBody({ url: 'https://example.com', output: 'png' })).toMatchObject({ url: 'https://example.com', output: 'png' });
+    expect(renderBody({ html: '<p/>' })).toMatchObject({
+      html: '<p/>',
+      engine: 'jinja2',
+    });
+    expect(
+      renderBody({ url: 'https://example.com', output: 'png' }),
+    ).toMatchObject({ url: 'https://example.com', output: 'png' });
   });
 
   it('turns a schema into fields and the fields back into nested data', () => {
@@ -95,7 +132,11 @@ describe('request shapes', () => {
         invoice: {
           type: 'object',
           required: ['number'],
-          properties: { number: { type: 'string', title: 'Invoice number' }, total: { type: 'number' }, paid: { type: 'boolean' } },
+          properties: {
+            number: { type: 'string', title: 'Invoice number' },
+            total: { type: 'number' },
+            paid: { type: 'boolean' },
+          },
         },
         lines: { type: 'array', items: { type: 'object' } },
       },
@@ -106,10 +147,22 @@ describe('request shapes', () => {
       ['invoice__paid', 'boolean', false],
     ]);
     expect(fields[0]?.label).toBe('Invoice number');
-    expect(dataFromFields({ invoice__number: '2026-0042', invoice__total: 19.5, invoice__paid: false, empty: '' })).toEqual({
+    expect(
+      dataFromFields({
+        invoice__number: '2026-0042',
+        invoice__total: 19.5,
+        invoice__paid: false,
+        empty: '',
+      }),
+    ).toEqual({
       invoice: { number: '2026-0042', total: 19.5, paid: false },
     });
-    expect(mergeData({ invoice: { number: '1' } }, { invoice: { total: 2 }, lines: [] })).toEqual({
+    expect(
+      mergeData(
+        { invoice: { number: '1' } },
+        { invoice: { total: 2 }, lines: [] },
+      ),
+    ).toEqual({
       invoice: { number: '1', total: 2 },
       lines: [],
     });
@@ -118,13 +171,20 @@ describe('request shapes', () => {
   it('reads JSON props given as objects or text', () => {
     expect(parseObject('{"a":1}')).toEqual({ a: 1 });
     expect(parseObject(undefined)).toEqual({});
-    expect(() => parseObject('nope', 'Settings')).toThrow('Settings is not valid JSON');
+    expect(() => parseObject('nope', 'Settings')).toThrow(
+      'Settings is not valid JSON',
+    );
     expect(() => parseObject([1])).toThrow('Data must be a JSON object');
   });
 
   it('offers release channels only when there is one besides published', () => {
     expect(versionOptions([{ name: 'published', version: 2 }])).toEqual([]);
-    expect(versionOptions([{ name: 'published', version: 2 }, { name: 'beta', version: null }])).toEqual([
+    expect(
+      versionOptions([
+        { name: 'published', version: 2 },
+        { name: 'beta', version: null },
+      ]),
+    ).toEqual([
       { label: 'published (v2)', value: 'published' },
       { label: 'beta (nothing published yet)', value: 'beta' },
     ]);
@@ -145,9 +205,15 @@ describe('request shapes', () => {
     const now = 1_757_584_800;
     expect(verifySignature('s', sign('s', now, body), body, now)).toBe(true);
     expect(verifySignature('s', sign('t', now, body), body, now)).toBe(false);
-    expect(verifySignature('s', sign('s', now - 600, body), body, now)).toBe(false);
-    expect(verifySignature('s', sign('s', now, body), undefined, now)).toBe(false);
-    expect(headerValue({ 'Webhook-Signature': 'x' }, 'webhook-signature')).toBe('x');
+    expect(verifySignature('s', sign('s', now - 600, body), body, now)).toBe(
+      false,
+    );
+    expect(verifySignature('s', sign('s', now, body), undefined, now)).toBe(
+      false,
+    );
+    expect(headerValue({ 'Webhook-Signature': 'x' }, 'webhook-signature')).toBe(
+      'x',
+    );
   });
 });
 
@@ -159,67 +225,150 @@ describe('the piece', () => {
       'create_document_from_url',
       'get_render',
       'convert_to_pdf',
+      'get_pdf_info',
+      'fill_pdf_form',
+      'redact_pdf',
+      'split_pdf',
+      'compress_pdf',
+      'pdf_to_image',
       'upload_file',
       'custom_api_call',
     ]);
-    expect(Object.keys(formfeed.triggers())).toEqual(['render_completed', 'render_failed', 'batch_finished']);
-    expect(formfeed.logoUrl).toBe('https://formfeed.dev/brand/formfeed-512.png');
-  });
-
-  it.skipIf(!existsSync(logoFile))('serves its logo from the landing site', () => {
-    expect(readFileSync(logoFile).subarray(1, 4).toString()).toBe('PNG');
-  });
-
-  it.skipIf(!existsSync(openapiFile))('calls only documented operations, with the key as a bearer token', async () => {
-    const openapi = JSON.parse(readFileSync(openapiFile, 'utf8')) as {
-      paths: Record<string, Record<string, unknown>>;
-    };
-    const documented = Object.entries(openapi.paths).map(([path, operations]) => ({
-      pattern: new RegExp(`^https://api\\.formfeed\\.dev/v1${path.replace(/\{[^}]+\}/g, '[^/?]+')}(\\?.*)?$`),
-      methods: new Set(Object.keys(operations).map((m) => m.toUpperCase())),
-    }));
-    const requests = stubApi((request) =>
-      request.url.includes('/webhooks') ? { id: 'hook-1', secret: 'whsec_x' } : { id: 'rnd_1', status: 'succeeded', output: 'pdf', data: [] },
+    expect(Object.keys(formfeed.triggers())).toEqual([
+      'render_completed',
+      'render_failed',
+      'batch_finished',
+    ]);
+    expect(formfeed.logoUrl).toBe(
+      'https://formfeed.dev/brand/formfeed-512.png',
     );
-    const actions = formfeed.actions();
-    const file = { filename: 'report.docx', extension: 'docx', data: Buffer.from('x'), base64: 'eA==' };
-    const runs: Array<[string, Json]> = [
-      ['create_document', { template: 'invoice-de', fields: {}, saveFile: false }],
-      ['create_document_from_html', { html: '<p/>', saveFile: false }],
-      ['create_document_from_url', { url: 'https://example.com', saveFile: false }],
-      ['get_render', { renderId: 'rnd_1' }],
-      ['convert_to_pdf', { renderId: 'rnd_1', saveFile: false }],
-      ['convert_to_pdf', { file, saveFile: false }],
-      ['upload_file', { file }],
-    ];
-    for (const [name, props] of runs) await actions[name]!.run(context(props) as never);
-    for (const trigger of Object.values(formfeed.triggers())) {
-      const ctx = context({ environment: 'both' });
-      await trigger.onEnable(ctx as never);
-      await trigger.onDisable(ctx as never);
-    }
-    const props = formfeed.getAction('create_document')!.props as Record<string, { options?: Loader; props?: Loader }>;
-    await props['template']!.options!({ auth }, {});
-    await props['version']!.options!({ auth, template: 'invoice-de' }, {});
-    await props['fields']!.props!({ auth, template: 'invoice-de' }, {});
-    await (formfeed.auth as unknown as { validate: (params: Json) => Promise<unknown> }).validate({ auth: 'ff_test_x' });
-
-    expect(requests.length).toBeGreaterThan(15);
-    for (const request of requests) expect(request.headers['Authorization']).toBe('Bearer ff_test_x');
-    const undocumented = requests.filter(({ method, url }) => !documented.some((d) => d.pattern.test(url) && d.methods.has(method)));
-    expect(undocumented).toEqual([]);
   });
+
+  it.skipIf(!existsSync(logoFile))(
+    'serves its logo from the landing site',
+    () => {
+      expect(readFileSync(logoFile).subarray(1, 4).toString()).toBe('PNG');
+    },
+  );
+
+  it.skipIf(!existsSync(openapiFile))(
+    'calls only documented operations, with the key as a bearer token',
+    async () => {
+      const openapi = JSON.parse(readFileSync(openapiFile, 'utf8')) as {
+        paths: Record<string, Record<string, unknown>>;
+      };
+      const documented = Object.entries(openapi.paths).map(
+        ([path, operations]) => ({
+          pattern: new RegExp(
+            `^https://api\\.formfeed\\.dev/v1${path.replace(/\{[^}]+\}/g, '[^/?]+')}(\\?.*)?$`,
+          ),
+          methods: new Set(Object.keys(operations).map((m) => m.toUpperCase())),
+        }),
+      );
+      const requests = stubApi((request) =>
+        request.url.includes('/webhooks')
+          ? { id: 'hook-1', secret: 'whsec_x' }
+          : { id: 'rnd_1', status: 'succeeded', output: 'pdf', data: [] },
+      );
+      const actions = formfeed.actions();
+      const file = {
+        filename: 'report.docx',
+        extension: 'docx',
+        data: Buffer.from('x'),
+        base64: 'eA==',
+      };
+      const runs: Array<[string, Json]> = [
+        [
+          'create_document',
+          { template: 'invoice-de', fields: {}, saveFile: false },
+        ],
+        ['create_document_from_html', { html: '<p/>', saveFile: false }],
+        [
+          'create_document_from_url',
+          { url: 'https://example.com', saveFile: false },
+        ],
+        ['get_render', { renderId: 'rnd_1' }],
+        ['convert_to_pdf', { renderId: 'rnd_1', saveFile: false }],
+        ['convert_to_pdf', { file, saveFile: false }],
+        ['upload_file', { file }],
+        // the PDF tools, each with an upload and with a stored PDF
+        ...(
+          [
+            ['get_pdf_info', {}],
+            ['fill_pdf_form', { flatten: true }],
+            ['redact_pdf', { texts: ['Max Mustermann'] }],
+            ['split_pdf', {}],
+            ['compress_pdf', {}],
+            ['pdf_to_image', {}],
+          ] as Array<[string, Json]>
+        ).flatMap(([name, props]): Array<[string, Json]> => [
+          [name, { ...props, file, saveFile: false }],
+          [name, { ...props, source: 'rnd_1', saveFile: false }],
+        ]),
+      ];
+      for (const [name, props] of runs)
+        await actions[name]!.run(context(props) as never);
+      for (const trigger of Object.values(formfeed.triggers())) {
+        const ctx = context({ environment: 'both' });
+        await trigger.onEnable(ctx as never);
+        await trigger.onDisable(ctx as never);
+      }
+      const props = formfeed.getAction('create_document')!.props as Record<
+        string,
+        { options?: Loader; props?: Loader }
+      >;
+      await props['template']!.options!({ auth }, {});
+      await props['version']!.options!({ auth, template: 'invoice-de' }, {});
+      await props['fields']!.props!({ auth, template: 'invoice-de' }, {});
+      await (
+        formfeed.auth as unknown as {
+          validate: (params: Json) => Promise<unknown>;
+        }
+      ).validate({ auth: 'ff_test_x' });
+
+      expect(requests.length).toBeGreaterThan(27);
+      for (const request of requests)
+        expect(request.headers['Authorization']).toBe('Bearer ff_test_x');
+      const undocumented = requests.filter(
+        ({ method, url }) =>
+          !documented.some((d) => d.pattern.test(url) && d.methods.has(method)),
+      );
+      expect(undocumented).toEqual([]);
+    },
+  );
 
   it('offers one field per schema value and sends them as nested data', async () => {
     const requests = stubApi((request) => {
       if (request.url.endsWith('/schema'))
-        return { type: 'object', properties: { invoice: { type: 'object', properties: { number: { type: 'string' }, total: { type: 'number' } } } } };
-      if (request.url.startsWith('https://cdn.formfeed.dev/')) return new TextEncoder().encode('%PDF-1.7').buffer;
-      return { id: 'rnd_1', status: 'succeeded', output: 'pdf', download_url: 'https://cdn.formfeed.dev/o/x.pdf?sig=0' };
+        return {
+          type: 'object',
+          properties: {
+            invoice: {
+              type: 'object',
+              properties: {
+                number: { type: 'string' },
+                total: { type: 'number' },
+              },
+            },
+          },
+        };
+      if (request.url.startsWith('https://cdn.formfeed.dev/'))
+        return new TextEncoder().encode('%PDF-1.7').buffer;
+      return {
+        id: 'rnd_1',
+        status: 'succeeded',
+        output: 'pdf',
+        download_url: 'https://cdn.formfeed.dev/o/x.pdf?sig=0',
+      };
     });
     const action = formfeed.getAction('create_document')!;
-    const fields = await (action.props['fields'] as unknown as { props: Loader }).props({ auth, template: 'invoice-de' }, {});
-    expect(Object.keys(fields as Json)).toEqual(['invoice__number', 'invoice__total']);
+    const fields = await (
+      action.props['fields'] as unknown as { props: Loader }
+    ).props({ auth, template: 'invoice-de' }, {});
+    expect(Object.keys(fields as Json)).toEqual([
+      'invoice__number',
+      'invoice__total',
+    ]);
 
     const ctx = context({
       template: 'invoice-de',
@@ -231,12 +380,17 @@ describe('the piece', () => {
     const render = requests.find((r) => r.method === 'POST')!;
     expect(render.body).toEqual({
       template: 'invoice-de',
-      data: { invoice: { number: '2026-0042', total: 12 }, lines: [{ qty: 1 }] },
+      data: {
+        invoice: { number: '2026-0042', total: 12 },
+        lines: [{ qty: 1 }],
+      },
       filename: 'invoice.pdf',
       meta: { source: 'activepieces' },
     });
     // the file comes from the signed URL, which never sees the key
-    const download = requests.find((r) => r.url.startsWith('https://cdn.formfeed.dev/'))!;
+    const download = requests.find((r) =>
+      r.url.startsWith('https://cdn.formfeed.dev/'),
+    )!;
     expect(download.headers['Authorization']).toBeUndefined();
     expect(ctx.written[0]?.fileName).toBe('invoice.pdf');
     expect(ctx.written[0]?.data.toString()).toBe('%PDF-1.7');
@@ -245,14 +399,256 @@ describe('the piece', () => {
 
   it('turns a problem answer into a readable error', async () => {
     const { HttpError } = await import('@activepieces/pieces-common');
-    const error = Object.create(HttpError.prototype) as InstanceType<typeof HttpError>;
+    const error = Object.create(HttpError.prototype) as InstanceType<
+      typeof HttpError
+    >;
     Object.defineProperty(error, 'response', {
-      get: () => ({ status: 404, body: { detail: 'No published template "x"', code: 'template_not_found' } }),
+      get: () => ({
+        status: 404,
+        body: {
+          detail: 'No published template "x"',
+          code: 'template_not_found',
+        },
+      }),
     });
     vi.spyOn(httpClient, 'sendRequest').mockRejectedValue(error);
-    await expect(formfeed.getAction('get_render')!.run(context({ renderId: 'rnd_1' }) as never)).rejects.toThrow(
-      '[404] No published template "x" (template_not_found)',
+    await expect(
+      formfeed
+        .getAction('get_render')!
+        .run(context({ renderId: 'rnd_1' }) as never),
+    ).rejects.toThrow('[404] No published template "x" (template_not_found)');
+  });
+});
+
+describe('PDF tools', () => {
+  it('builds what each tool sends and refuses what the API would', () => {
+    expect(
+      splitFields({ source: 'rnd_1', ranges: ['1-3,5', ' 4- ', ''] }),
+    ).toEqual({
+      source: 'rnd_1',
+      ranges: ['1-3,5', '4-'],
+      meta: { source: 'activepieces' },
+    });
+    expect(splitFields({ every: 2 })).toMatchObject({ every: 2 });
+    expect(splitFields({})).toMatchObject({ every: 1 });
+    expect(() => splitFields({ ranges: ['1 to 3'] })).toThrow(
+      'no page selection',
     );
+    expect(() => splitFields({ every: 0 })).toThrow('Pages per part');
+    expect(
+      toImageFields({ pages: '2-', format: 'png', dpi: 72, quality: 80 }),
+    ).toEqual({
+      pages: '2-',
+      format: 'png',
+      dpi: 72,
+      meta: { source: 'activepieces' },
+    });
+    expect(toImageFields({ format: 'jpg', quality: 80 })).toMatchObject({
+      quality: 80,
+    });
+    expect(() => toImageFields({ dpi: 600 })).toThrow('The resolution');
+    expect(
+      redactFields({
+        texts: ['DE36 0000 0000 0000 0000 00'],
+        rectangles: [{ page: 1, x: 10, y: 20, width: 100, height: 12 }, {}],
+        matchCase: true,
+        boxColor: '#FFFFFF',
+      }),
+    ).toEqual({
+      regions: [{ page: 1, x: 10, y: 20, width: 100, height: 12 }],
+      text: ['DE36 0000 0000 0000 0000 00'],
+      match_case: true,
+      fill: '#FFFFFF',
+      meta: { source: 'activepieces' },
+    });
+    // no box is null, which the API reads as "draw none"
+    expect(redactFields({ texts: ['x'], drawBox: false })).toMatchObject({
+      fill: null,
+    });
+    expect(() => redactFields({})).toThrow(
+      'at least one rectangle or one text',
+    );
+    expect(() =>
+      redactFields({
+        rectangles: [{ page: 1, x: 0, y: 0, width: 0, height: 5 }],
+      }),
+    ).toThrow('Rectangle 1: the width');
+    expect(() => redactFields({ texts: ['x'], boxColor: 'red' })).toThrow(
+      'hex color',
+    );
+    expect(
+      fillValues([
+        { name: 'customer.name', value: 'Max Mustermann' },
+        { name: 'agree', value: 'true' },
+        { name: 'tags', value: '["a","b"]' },
+        { name: 'untouched', value: '' },
+        { name: ' ', value: 'x' },
+      ]),
+    ).toEqual({
+      'customer.name': 'Max Mustermann',
+      agree: true,
+      tags: ['a', 'b'],
+    });
+    expect(fillFields({ values: {}, flatten: true, lenient: true })).toEqual({
+      flatten: true,
+      strict: false,
+      meta: { source: 'activepieces' },
+    });
+    expect(() => fillFields({ values: {} })).toThrow('at least one field');
+    expect(infoFields({ source: ' terms.pdf ' })).toEqual({
+      source: 'terms.pdf',
+    });
+    expect(() => pdfSourceOf(undefined, '')).toThrow(
+      'either a PDF file or a stored PDF',
+    );
+    expect(() =>
+      pdfSourceOf({ filename: 'a.pdf', data: Buffer.from('x') }, 'rnd_1'),
+    ).toThrow('either a PDF file or a stored PDF');
+  });
+
+  it.skipIf(!existsSync(openapiFile))(
+    'sends only fields the contract names, as JSON and as a form',
+    () => {
+      const openapi = JSON.parse(readFileSync(openapiFile, 'utf8')) as {
+        paths: Record<
+          string,
+          {
+            post: {
+              requestBody: { content: Record<string, { schema: Json }> };
+            };
+          }
+        >;
+      };
+      const every: Array<[keyof typeof PDF_TOOLS, Json]> = [
+        [
+          'split',
+          splitFields({ source: 'rnd_1', filename: 'a.zip', ranges: ['1'] }),
+        ],
+        ['split', splitFields({ every: 3 })],
+        [
+          'toImage',
+          toImageFields({
+            source: 'rnd_1',
+            filename: 'a',
+            pages: '1',
+            format: 'jpg',
+            dpi: 150,
+            quality: 80,
+          }),
+        ],
+        [
+          'redact',
+          redactFields({
+            source: 'rnd_1',
+            filename: 'a.pdf',
+            texts: ['x'],
+            rectangles: [{ page: 1, x: 0, y: 0, width: 1, height: 1 }],
+            matchCase: true,
+            wholeWords: true,
+            drawBox: false,
+          }),
+        ],
+        [
+          'fill',
+          fillFields({
+            source: 'rnd_1',
+            filename: 'a.pdf',
+            values: { a: 'b' },
+            flatten: true,
+            lenient: true,
+          }),
+        ],
+        ['compress', compressFields({ source: 'rnd_1', filename: 'a.pdf' })],
+        ['info', infoFields({ source: 'rnd_1' })],
+      ];
+      for (const [tool, fields] of every) {
+        const content =
+          openapi.paths[PDF_TOOLS[tool]]!.post.requestBody.content;
+        for (const type of ['application/json', 'multipart/form-data']) {
+          const properties = (content[type]!.schema['properties'] ??
+            {}) as Json;
+          // an upload sends the file in place of the stored source
+          const sent = Object.keys(fields).filter(
+            (key) => type === 'application/json' || key !== 'source',
+          );
+          expect(
+            sent.filter((key) => !(key in properties)),
+            `${tool} ${type}`,
+          ).toEqual([]);
+        }
+      }
+    },
+  );
+
+  it('uploads a file as a form whose fields are text, and keeps the name the API gave the result', async () => {
+    const requests = stubApi((request) =>
+      request.url.startsWith('https://cdn.formfeed.dev/')
+        ? new TextEncoder().encode('PK').buffer
+        : {
+            id: 'rnd_2',
+            status: 'succeeded',
+            output: 'zip',
+            download_url:
+              'https://cdn.formfeed.dev/o/eu/ws/rnd_2/contract.zip?sig=0',
+          },
+    );
+    const file = {
+      filename: 'contract.pdf',
+      extension: 'pdf',
+      data: Buffer.from('%PDF-1.7'),
+      base64: '',
+    };
+    const ctx = context({ file, ranges: ['1-2', '3-'] });
+    const result = (await formfeed
+      .getAction('split_pdf')!
+      .run(ctx as never)) as Json;
+    const sent = requests[0]!;
+    expect(sent.url).toBe('https://api.formfeed.dev/v1/pdf/split');
+    const form = (sent.body as { getBuffer(): Buffer }).getBuffer().toString();
+    expect(form).toContain('name="file"; filename="contract.pdf"');
+    expect(form).toMatch(/name="ranges"\r\n\r\n\["1-2","3-"\]\r\n/);
+    expect(form).toMatch(/name="meta"\r\n\r\n\{"source":"activepieces"\}\r\n/);
+    expect(ctx.written[0]?.fileName).toBe('contract.zip');
+    expect(result['fileName']).toBe('contract.zip');
+
+    // redact without a box: `null` in a form field, null in JSON
+    requests.length = 0;
+    await formfeed.getAction('redact_pdf')!.run(
+      context({
+        file,
+        texts: ['x'],
+        drawBox: false,
+        saveFile: false,
+      }) as never,
+    );
+    expect(
+      (requests[0]!.body as { getBuffer(): Buffer }).getBuffer().toString(),
+    ).toMatch(/name="fill"\r\n\r\nnull\r\n/);
+    requests.length = 0;
+    await formfeed.getAction('redact_pdf')!.run(
+      context({
+        source: 'rnd_1',
+        texts: ['x'],
+        drawBox: false,
+        saveFile: false,
+      }) as never,
+    );
+    expect(requests[0]!.body).toMatchObject({
+      source: 'rnd_1',
+      text: ['x'],
+      fill: null,
+    });
+  });
+
+  it('names a result after its link only where it names one', () => {
+    expect(
+      linkName('https://cdn.formfeed.dev/o/eu/ws/rnd_2/contract-3.png?sig=0'),
+    ).toBe('contract-3.png');
+    expect(
+      linkName('https://cdn.formfeed.dev/o/eu/ws/rnd_2/Antrag%20Max.pdf'),
+    ).toBe('Antrag Max.pdf');
+    expect(linkName('not a link')).toBeUndefined();
+    expect(downloadName('parts.pdf', 'rnd_2', 'zip')).toBe('parts.zip');
   });
 });
 
@@ -274,20 +670,44 @@ describe('webhook triggers', () => {
     const rawBody = JSON.stringify(event);
     const t = Math.floor(Date.now() / 1000);
     const deliver = (signature: string, body: Json = event) =>
-      trigger.run({ ...ctx, payload: { body, rawBody, headers: { 'webhook-signature': signature } } } as never);
+      trigger.run({
+        ...ctx,
+        payload: { body, rawBody, headers: { 'webhook-signature': signature } },
+      } as never);
     expect(await deliver(sign('whsec_x', t, rawBody))).toEqual([event]);
     expect(await deliver(sign('whsec_other', t, rawBody))).toEqual([]);
-    expect(await deliver(sign('whsec_x', t, rawBody), { ...event, type: 'job.completed' })).toEqual([]);
+    expect(
+      await deliver(sign('whsec_x', t, rawBody), {
+        ...event,
+        type: 'job.completed',
+      }),
+    ).toEqual([]);
 
     await trigger.onDisable(ctx as never);
-    expect(requests.at(-1)).toMatchObject({ method: 'DELETE', url: 'https://api.formfeed.dev/v1/webhooks/hook-1' });
+    expect(requests.at(-1)).toMatchObject({
+      method: 'DELETE',
+      url: 'https://api.formfeed.dev/v1/webhooks/hook-1',
+    });
     expect(ctx.stored.size).toBe(0);
   });
 
   it('test with recent renders, else with the sample', async () => {
-    stubApi(() => ({ data: [{ id: 'rnd_9', status: 'succeeded', created_at: '2026-09-11T10:00:00Z' }] }));
+    stubApi(() => ({
+      data: [
+        {
+          id: 'rnd_9',
+          status: 'succeeded',
+          created_at: '2026-09-11T10:00:00Z',
+        },
+      ],
+    }));
     const trigger = formfeed.getTrigger('render_completed')!;
-    expect(await trigger.test!(context({}) as never)).toEqual([expect.objectContaining({ type: 'render.completed', data: expect.objectContaining({ id: 'rnd_9' }) })]);
+    expect(await trigger.test!(context({}) as never)).toEqual([
+      expect.objectContaining({
+        type: 'render.completed',
+        data: expect.objectContaining({ id: 'rnd_9' }),
+      }),
+    ]);
     const batch = formfeed.getTrigger('batch_finished')!;
     expect(await batch.test!(context({}) as never)).toEqual([batch.sampleData]);
   });

@@ -2,13 +2,22 @@ import { checkInvoice } from '@formfeed/engine/einvoice';
 import {
   baseUrl,
   channelOptions,
+  compressFields,
   convertFields,
   downloadName,
   einvoiceOptions,
+  fillFields,
+  fillValues,
   formValue,
+  infoFields,
   invoiceBlock,
   isoDay,
   libraryName,
+  linkName,
+  PDF_TOOLS,
+  redactFields,
+  splitFields,
+  toImageFields,
   mergeData,
   nestData,
   pdfNameFor,
@@ -505,5 +514,131 @@ describe('einvoiceOptions', () => {
       post: { einvoice: {} },
       meta: { source: 'n8n' },
     });
+  });
+});
+
+describe('the PDF tools (plan 30)', () => {
+  it('names a stored source, the result and the caller, and info only the source', () => {
+    expect(
+      compressFields({ source: ' rnd_1 ', filename: 'small.pdf' }),
+    ).toEqual({
+      source: 'rnd_1',
+      filename: 'small.pdf',
+      meta: { source: 'n8n' },
+    });
+    // an upload carries no source; the item's binary goes as the file
+    expect(compressFields({})).toEqual({ meta: { source: 'n8n' } });
+    expect(infoFields({ source: 'terms.pdf' })).toEqual({
+      source: 'terms.pdf',
+    });
+    expect(infoFields({})).toEqual({});
+    expect(PDF_TOOLS.toImage).toBe('/pdf/to-image');
+  });
+
+  it('splits every N pages, or by one page selection per line', () => {
+    expect(splitFields({ every: 2 })).toMatchObject({ every: 2 });
+    expect(
+      splitFields({ ranges: ['1-3,5', '', ' 6- '].join('\n') }),
+    ).toMatchObject({
+      ranges: ['1-3,5', '6-'],
+    });
+    expect(() => splitFields({ ranges: '' })).toThrow(/at least one/);
+    expect(() => splitFields({ ranges: 'first page' })).toThrow(
+      /no page selection/,
+    );
+  });
+
+  it('draws pages in a format, and sends the JPEG quality only for JPEG', () => {
+    expect(
+      toImageFields({ pages: '1', format: 'jpg', dpi: 72, quality: 80 }),
+    ).toMatchObject({
+      pages: '1',
+      format: 'jpg',
+      dpi: 72,
+      quality: 80,
+    });
+    expect(toImageFields({ format: 'png', quality: 80 })).not.toHaveProperty(
+      'quality',
+    );
+    expect(() => toImageFields({ pages: 'all' })).toThrow(/no page selection/);
+  });
+
+  it('redacts rectangles and texts, black by default, in a colour or with no box', () => {
+    const rectangle = { page: 1, x: 52, y: 88, width: 200, height: 16 };
+    expect(
+      redactFields({
+        rectangles: [rectangle],
+        texts: ['Max Mustermann', 'DE36 0000 0000 0000 0000 00'].join('\n'),
+        wholeWords: true,
+      }),
+    ).toEqual({
+      regions: [rectangle],
+      text: ['Max Mustermann', 'DE36 0000 0000 0000 0000 00'],
+      whole_words: true,
+      meta: { source: 'n8n' },
+    });
+    // n8n's colour field holds black until someone picks another
+    expect(
+      redactFields({ texts: 'x', boxColour: '#000000' }),
+    ).not.toHaveProperty('fill');
+    expect(redactFields({ texts: 'x', boxColour: '#ff0000' })).toMatchObject({
+      fill: '#ff0000',
+    });
+    expect(
+      redactFields({ texts: 'x', drawBox: false, boxColour: '#ff0000' }),
+    ).toMatchObject({ fill: null });
+    expect(() => redactFields({ texts: '  ' })).toThrow(
+      /rectangle or one text/,
+    );
+  });
+
+  it('fills by name: true and false for check boxes, a JSON list for a list box, else text', () => {
+    const values = fillValues([
+      { name: 'customer.name', value: 'Max Mustermann' },
+      { name: 'newsletter', value: 'true' },
+      { name: 'tags', value: '["a", "b"]' },
+      // text that only looks like a list stays text
+      { name: 'note', value: '[draft' },
+      { name: 'customer.name', value: 'Erika Mustermann' },
+      { name: '', value: 'ignored' },
+    ]);
+    expect(values).toEqual({
+      'customer.name': 'Erika Mustermann',
+      newsletter: true,
+      tags: ['a', 'b'],
+      note: '[draft',
+    });
+    expect(fillFields({ values, flatten: true, lenient: true })).toMatchObject({
+      fields: values,
+      flatten: true,
+      strict: false,
+    });
+    // flatten alone takes no values
+    expect(fillFields({ values: {}, flatten: true })).not.toHaveProperty(
+      'fields',
+    );
+    expect(() => fillFields({ values: {} })).toThrow(/at least one field/);
+  });
+
+  it('goes as form fields in a multipart request, a box of none as null', () => {
+    expect(formValue(['1', '2-'])).toBe('["1","2-"]');
+    expect(formValue(null)).toBe('null');
+    expect(formValue(true)).toBe('true');
+  });
+
+  it("names a result after its link, and a chosen name keeps the result's extension", () => {
+    expect(
+      linkName(
+        'https://cdn.test/o/eu/ws/2026/11/rnd_1/contract-3.png?exp=1&sig=2',
+      ),
+    ).toBe('contract-3.png');
+    expect(
+      linkName(
+        'https://cdn.test/o/eu/ws/2026/11/rnd_1/Antrag%20Mustermann.pdf',
+      ),
+    ).toBe('Antrag Mustermann.pdf');
+    expect(linkName(undefined)).toBeUndefined();
+    expect(downloadName('parts.zip', 'rnd_1', 'zip')).toBe('parts.zip');
+    expect(downloadName('parts', 'rnd_1', 'zip')).toBe('parts.zip');
   });
 });

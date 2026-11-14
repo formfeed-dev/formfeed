@@ -14,11 +14,17 @@ const MAX_PAGES = 10;
 export const templateDropdown = Property.Dropdown({
   auth: formfeedAuth,
   displayName: 'Template',
-  description: 'A template of the workspace. It renders its published version unless you choose another.',
+  description:
+    'A template of the workspace. It renders its published version unless you choose another.',
   required: true,
   refreshers: [],
   options: async ({ auth }) => {
-    if (!auth) return { disabled: true, options: [], placeholder: 'Connect your Formfeed account first' };
+    if (!auth)
+      return {
+        disabled: true,
+        options: [],
+        placeholder: 'Connect your Formfeed account first',
+      };
     const options: Array<{ label: string; value: string }> = [];
     let cursor: string | null | undefined;
     for (let page = 0; page < MAX_PAGES; page++) {
@@ -27,28 +33,50 @@ export const templateDropdown = Property.Dropdown({
         path: '/templates',
         queryParams: { limit: '100', ...(cursor ? { cursor } : {}) },
       });
-      for (const template of result.data ?? []) options.push({ label: `${template.name} (${template.kind})`, value: template.slug });
+      for (const template of result.data ?? [])
+        options.push({
+          label: `${template.name} (${template.kind})`,
+          value: template.slug,
+        });
       cursor = result.next_cursor;
       if (!cursor) break;
     }
-    return { disabled: false, options, placeholder: options.length === 0 ? 'No templates in this workspace yet' : undefined };
+    return {
+      disabled: false,
+      options,
+      placeholder:
+        options.length === 0 ? 'No templates in this workspace yet' : undefined,
+    };
   },
 });
 
 export const versionDropdown = Property.Dropdown({
   auth: formfeedAuth,
   displayName: 'Version',
-  description: 'The release channel to render. `published` unless you choose another.',
+  description:
+    'The release channel to render. `published` unless you choose another.',
   required: false,
   refreshers: ['template'],
   options: async ({ auth, template }) => {
-    if (!auth || !template) return { disabled: true, options: [], placeholder: 'Choose a template first' };
+    if (!auth || !template)
+      return {
+        disabled: true,
+        options: [],
+        placeholder: 'Choose a template first',
+      };
     const channels = await formfeedRequest<{ data?: ChannelSummary[] }>({
       auth,
       path: `/templates/${encodeURIComponent(String(template))}/channels`,
     }).catch(() => ({ data: [] }));
     const options = versionOptions(channels.data ?? []);
-    return { disabled: options.length === 0, options, placeholder: options.length === 0 ? 'published (the template has no other channel)' : undefined };
+    return {
+      disabled: options.length === 0,
+      options,
+      placeholder:
+        options.length === 0
+          ? 'published (the template has no other channel)'
+          : undefined,
+    };
   },
 });
 
@@ -56,7 +84,8 @@ export const versionDropdown = Property.Dropdown({
 export const templateFields = Property.DynamicProperties({
   auth: formfeedAuth,
   displayName: 'Template fields',
-  description: "The fields of the template's data schema, or of its sample data when it has none.",
+  description:
+    "The fields of the template's data schema, or of its sample data when it has none.",
   required: false,
   refreshers: ['template'],
   props: async ({ auth, template }) => {
@@ -67,7 +96,11 @@ export const templateFields = Property.DynamicProperties({
     }).catch(() => null);
     const props: DynamicPropsValue = {};
     for (const field of schemaFields(schema)) {
-      const common = { displayName: field.label, description: field.description, required: field.required };
+      const common = {
+        displayName: field.label,
+        description: field.description,
+        required: field.required,
+      };
       props[field.key] =
         field.type === 'number'
           ? Property.Number(common)
@@ -81,7 +114,8 @@ export const templateFields = Property.DynamicProperties({
 
 export const dataJson = Property.Json({
   displayName: 'Data (JSON)',
-  description: 'Template data as JSON, merged over the fields above. Use it for line items and other lists.',
+  description:
+    'Template data as JSON, merged over the fields above. Use it for line items and other lists.',
   required: false,
 });
 
@@ -119,19 +153,37 @@ export const pageOutput = Property.StaticDropdown({
 
 export const filename = Property.ShortText({
   displayName: 'File name',
-  description: 'The document\'s name, for example `invoice-2026-0042.pdf`. May contain template expressions such as `invoice-{{ invoice.number }}.pdf`.',
+  description:
+    "The document's name, for example `invoice-2026-0042.pdf`. May contain template expressions such as `invoice-{{ invoice.number }}.pdf`.",
   required: false,
 });
 
 export const settings = Property.Json({
   displayName: 'Settings (JSON)',
-  description: 'Paper size, margins, header and footer. See [the documentation](https://docs.formfeed.dev/api/rendering#override-settings-per-request).',
+  description:
+    'Paper size, margins, header and footer. See [the documentation](https://docs.formfeed.dev/api/rendering#override-settings-per-request).',
   required: false,
 });
 
 export const saveFile = Property.Checkbox({
   displayName: 'Return the file',
-  description: 'Download the document so the next step can attach or upload it. When off, the step returns the download URL only.',
+  description:
+    'Download the document so the next step can attach or upload it. When off, the step returns the download URL only.',
   required: false,
   defaultValue: true,
+});
+
+/** The PDF a tool works on, a file of an earlier step: exactly one of this and `storedPdf`. */
+export const pdfFile = Property.File({
+  displayName: 'PDF file',
+  description:
+    "A PDF from an earlier step, as large as your plan's output size and 100 MB at most. It is processed and not kept. Leave empty to use a stored PDF instead.",
+  required: false,
+});
+
+export const storedPdf = Property.ShortText({
+  displayName: 'Stored PDF',
+  description:
+    'Instead of a file: the ID of a PDF render (`rnd_…`, for example from **Create Document**) or a PDF of the file library by its name (`terms.pdf`) or ID (`fil_…`).',
+  required: false,
 });

@@ -17,13 +17,22 @@ import {
 import {
   baseUrl,
   channelOptions,
+  compressFields,
   convertFields,
   downloadName,
   einvoiceOptions,
+  fillFields,
+  fillValues,
   formValue,
+  infoFields,
   invoiceBlock,
   libraryName,
+  linkName,
   pdfNameFor,
+  PDF_TOOLS,
+  redactFields,
+  splitFields,
+  toImageFields,
   mergeData,
   nestData,
   problemOf,
@@ -36,7 +45,26 @@ import {
   type InvoiceLineFields,
   type InvoicePartyFields,
   type OutputFormat,
+  type PdfTool,
+  type RedactRectangle,
 } from '../../lib/api';
+
+/** The PDF tools of plan 30, by their operation names: all take the same PDF, and all but info make a render. */
+const PDF_TOOL_OPS: PdfTool[] = [
+  'compress',
+  'fill',
+  'info',
+  'redact',
+  'split',
+  'toImage',
+];
+const PDF_RESULT_OPS: PdfTool[] = [
+  'compress',
+  'fill',
+  'redact',
+  'split',
+  'toImage',
+];
 
 /** Shows a field for the Create E-Invoice operation only. */
 const EINVOICE = {
@@ -201,13 +229,56 @@ export class Formfeed implements INodeType {
         noDataExpression: true,
         displayOptions: { show: { resource: ['pdf'] } },
         default: 'convert',
+        // five options and more are checked for alphabetical order by n8n's scan
         options: [
+          {
+            name: 'Compress',
+            value: 'compress',
+            description:
+              'Make a PDF smaller without lowering its image quality (Starter plan and above)',
+            action: 'Compress a PDF',
+          },
           {
             name: 'Convert Office Document',
             value: 'convert',
             description:
               'Turn a Word, Excel, PowerPoint, OpenDocument or RTF file into a PDF (Starter plan and above)',
             action: 'Convert an office document to PDF',
+          },
+          {
+            name: 'Fill Form',
+            value: 'fill',
+            description:
+              'Fill the fields of a PDF form by their names, kept fillable or drawn into the pages (Starter plan and above)',
+            action: 'Fill a PDF form',
+          },
+          {
+            name: 'Get Info',
+            value: 'info',
+            description:
+              'Get the page count, page sizes, document properties and form fields of a PDF',
+            action: 'Get information about a PDF',
+          },
+          {
+            name: 'Redact',
+            value: 'redact',
+            description:
+              'Remove rectangles of the pages and every place a text stands from the PDF itself, checked before it is delivered (Starter plan and above)',
+            action: 'Redact a PDF',
+          },
+          {
+            name: 'Split',
+            value: 'split',
+            description:
+              'Cut a PDF into parts, delivered as one ZIP (Starter plan and above)',
+            action: 'Split a PDF',
+          },
+          {
+            name: 'To Image',
+            value: 'toImage',
+            description:
+              'Draw pages of a PDF as PNG or JPEG pictures (Starter plan and above)',
+            action: 'Convert PDF pages to images',
           },
         ],
       },
@@ -465,6 +536,330 @@ export class Formfeed implements INodeType {
             type: 'boolean',
             default: false,
             description: 'Whether each spreadsheet sheet is put on one page',
+          },
+        ],
+      },
+
+      // --- pdf: compress, fill, info, redact, split, to image (plan 30) ----------------------
+      {
+        displayName: 'PDF',
+        name: 'pdfSource',
+        type: 'options',
+        displayOptions: {
+          show: { resource: ['pdf'], operation: PDF_TOOL_OPS },
+        },
+        default: 'binary',
+        options: [
+          {
+            name: 'Binary Field of the Item',
+            value: 'binary',
+            description: 'A PDF of up to 100 MB; it is processed and not kept',
+          },
+          {
+            name: 'Stored PDF',
+            value: 'stored',
+            description: 'A render, or a PDF of the file library',
+          },
+        ],
+      },
+      {
+        displayName: 'Input Binary Field',
+        name: 'pdfBinaryPropertyName',
+        type: 'string',
+        displayOptions: {
+          show: {
+            resource: ['pdf'],
+            operation: PDF_TOOL_OPS,
+            pdfSource: ['binary'],
+          },
+        },
+        default: 'data',
+        required: true,
+        description: 'The binary field of the incoming item that holds the PDF',
+      },
+      {
+        displayName: 'Render or File',
+        name: 'pdfSourceId',
+        type: 'string',
+        displayOptions: {
+          show: {
+            resource: ['pdf'],
+            operation: PDF_TOOL_OPS,
+            pdfSource: ['stored'],
+          },
+        },
+        default: '',
+        required: true,
+        placeholder: 'rnd_… or terms.pdf',
+        description:
+          'The ID of a PDF render, or a PDF of the file library by its name or ID',
+      },
+      {
+        displayName: 'Split By',
+        name: 'splitBy',
+        type: 'options',
+        displayOptions: { show: { resource: ['pdf'], operation: ['split'] } },
+        default: 'every',
+        options: [
+          {
+            name: 'Every N Pages',
+            value: 'every',
+            description: 'Parts of the same length',
+          },
+          {
+            name: 'Page Ranges',
+            value: 'ranges',
+            description: 'One part per page selection',
+          },
+        ],
+      },
+      {
+        displayName: 'Pages per Part',
+        name: 'splitEvery',
+        type: 'number',
+        typeOptions: { minValue: 1, maxValue: 1000 },
+        displayOptions: {
+          show: { resource: ['pdf'], operation: ['split'], splitBy: ['every'] },
+        },
+        default: 1,
+      },
+      {
+        displayName: 'Page Ranges',
+        name: 'splitRanges',
+        type: 'string',
+        typeOptions: { rows: 3 },
+        displayOptions: {
+          show: {
+            resource: ['pdf'],
+            operation: ['split'],
+            splitBy: ['ranges'],
+          },
+        },
+        default: '',
+        required: true,
+        placeholder: '1-3\n4-',
+        description:
+          'One part per line, each a page selection such as 1-3,5, or 4- for page 4 to the last',
+      },
+      {
+        displayName: 'Pages',
+        name: 'imagePages',
+        type: 'string',
+        displayOptions: { show: { resource: ['pdf'], operation: ['toImage'] } },
+        default: '',
+        placeholder: '1-3,5',
+        description:
+          'The pages to draw, such as 1, 1-3,5 or 2- for page 2 to the last; every page when empty. One page gives a picture, several a ZIP.',
+      },
+      {
+        displayName: 'Texts',
+        name: 'redactTexts',
+        type: 'string',
+        typeOptions: { rows: 3 },
+        displayOptions: { show: { resource: ['pdf'], operation: ['redact'] } },
+        default: '',
+        placeholder: 'Max Mustermann',
+        description:
+          'One text per line, such as a name or an IBAN, removed wherever it stands, whatever its spacing; never stored',
+      },
+      {
+        displayName: 'Rectangles',
+        name: 'redactRectangles',
+        type: 'fixedCollection',
+        typeOptions: { multipleValues: true },
+        displayOptions: { show: { resource: ['pdf'], operation: ['redact'] } },
+        default: {},
+        placeholder: 'Add rectangle',
+        description:
+          'Areas to remove, in points from the top-left corner of the page as a viewer shows it (72 points are an inch)',
+        options: [
+          {
+            name: 'rectangle',
+            displayName: 'Rectangle',
+            // n8n's verification wants the values of a fixed collection in alphabetical order
+            values: [
+              {
+                displayName: 'Height',
+                name: 'height',
+                type: 'number',
+                typeOptions: { minValue: 0 },
+                default: 20,
+              },
+              {
+                displayName: 'Page',
+                name: 'page',
+                type: 'number',
+                typeOptions: { minValue: 1 },
+                default: 1,
+              },
+              {
+                displayName: 'Width',
+                name: 'width',
+                type: 'number',
+                typeOptions: { minValue: 0 },
+                default: 200,
+              },
+              {
+                displayName: 'X',
+                name: 'x',
+                type: 'number',
+                typeOptions: { minValue: 0 },
+                default: 0,
+                description: 'Points from the left edge of the page',
+              },
+              {
+                displayName: 'Y',
+                name: 'y',
+                type: 'number',
+                typeOptions: { minValue: 0 },
+                default: 0,
+                description: 'Points from the top edge of the page',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        displayName: 'Fields',
+        name: 'fillFields',
+        type: 'fixedCollection',
+        typeOptions: { multipleValues: true },
+        displayOptions: { show: { resource: ['pdf'], operation: ['fill'] } },
+        default: {},
+        placeholder: 'Add field',
+        options: [
+          {
+            name: 'field',
+            displayName: 'Field',
+            values: [
+              {
+                displayName: 'Name',
+                name: 'name',
+                type: 'string',
+                default: '',
+                placeholder: 'customer.name',
+                description: 'The full name of the field, as Get Info lists it',
+              },
+              {
+                displayName: 'Value',
+                name: 'value',
+                type: 'string',
+                default: '',
+                description:
+                  'Text, or one of the options of a choice or a radio group; true or false sets a check box, and a list box that takes several takes them as ["a","b"]',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        displayName: 'Flatten',
+        name: 'fillFlatten',
+        type: 'boolean',
+        displayOptions: { show: { resource: ['pdf'], operation: ['fill'] } },
+        default: false,
+        description:
+          'Whether to draw the values into the pages and remove the fields, so they can no longer be changed',
+      },
+      {
+        displayName: 'Download File',
+        name: 'pdfDownload',
+        type: 'boolean',
+        displayOptions: {
+          show: { resource: ['pdf'], operation: PDF_RESULT_OPS },
+        },
+        default: true,
+        description:
+          'Whether to attach the result as binary data instead of returning only the URL',
+      },
+      {
+        displayName: 'Options',
+        name: 'pdfToolOptions',
+        type: 'collection',
+        placeholder: 'Add option',
+        displayOptions: {
+          show: { resource: ['pdf'], operation: PDF_RESULT_OPS },
+        },
+        default: {},
+        options: [
+          {
+            displayName: 'Box Colour',
+            name: 'boxColour',
+            type: 'color',
+            default: '#000000',
+            displayOptions: { show: { '/operation': ['redact'] } },
+            description: 'The colour of the box drawn over each removed place',
+          },
+          {
+            displayName: 'Draw Box',
+            name: 'drawBox',
+            type: 'boolean',
+            default: true,
+            displayOptions: { show: { '/operation': ['redact'] } },
+            description:
+              'Whether to draw a box over each removed place; without it the place is left blank',
+          },
+          {
+            displayName: 'Filename',
+            name: 'filename',
+            type: 'string',
+            default: '',
+            description: "Name of the result; the source's name when empty",
+          },
+          {
+            displayName: 'Format',
+            name: 'format',
+            type: 'options',
+            default: 'png',
+            displayOptions: { show: { '/operation': ['toImage'] } },
+            options: [
+              { name: 'JPEG', value: 'jpg' },
+              { name: 'PNG', value: 'png' },
+            ],
+          },
+          {
+            displayName: 'Lenient',
+            name: 'lenient',
+            type: 'boolean',
+            default: false,
+            displayOptions: { show: { '/operation': ['fill'] } },
+            description:
+              'Whether a name the form lacks or a value its field does not take is left out and listed instead of failing',
+          },
+          {
+            displayName: 'Match Case',
+            name: 'matchCase',
+            type: 'boolean',
+            default: false,
+            displayOptions: { show: { '/operation': ['redact'] } },
+            description:
+              'Whether a text is found only in the case it is written in',
+          },
+          {
+            displayName: 'Quality',
+            name: 'quality',
+            type: 'number',
+            typeOptions: { minValue: 1, maxValue: 100 },
+            default: 90,
+            displayOptions: { show: { '/operation': ['toImage'] } },
+            description: 'JPEG quality; ignored for PNG',
+          },
+          {
+            displayName: 'Resolution (DPI)',
+            name: 'dpi',
+            type: 'number',
+            typeOptions: { minValue: 36, maxValue: 300 },
+            default: 150,
+            displayOptions: { show: { '/operation': ['toImage'] } },
+            description: 'At 72, a pixel stands for a point',
+          },
+          {
+            displayName: 'Whole Words',
+            name: 'wholeWords',
+            type: 'boolean',
+            default: false,
+            displayOptions: { show: { '/operation': ['redact'] } },
+            description: 'Whether a text is found only as a whole word',
           },
         ],
       },
@@ -1392,6 +1787,134 @@ export class Formfeed implements INodeType {
               `${render['id'] as string}.pdf`;
             item.binary = {
               data: await downloadBinary(this, render.download_url, name),
+            };
+          }
+          out.push(item);
+          continue;
+        }
+
+        if (
+          resource === 'pdf' &&
+          (PDF_TOOL_OPS as string[]).includes(operation)
+        ) {
+          const tool = operation as PdfTool;
+          const stored =
+            this.getNodeParameter('pdfSource', i, 'binary') === 'stored';
+          const options =
+            tool === 'info'
+              ? {}
+              : (this.getNodeParameter('pdfToolOptions', i, {}) as IDataObject);
+          const input = {
+            source: stored
+              ? (this.getNodeParameter('pdfSourceId', i) as string)
+              : undefined,
+            filename: options['filename'] as string | undefined,
+          };
+          let fields: Record<string, unknown>;
+          try {
+            if (tool === 'split')
+              fields = splitFields(
+                this.getNodeParameter('splitBy', i, 'every') === 'ranges'
+                  ? {
+                      ...input,
+                      ranges: this.getNodeParameter('splitRanges', i) as string,
+                    }
+                  : {
+                      ...input,
+                      every: this.getNodeParameter(
+                        'splitEvery',
+                        i,
+                        1,
+                      ) as number,
+                    },
+              );
+            else if (tool === 'toImage')
+              fields = toImageFields({
+                ...input,
+                pages: this.getNodeParameter('imagePages', i, '') as string,
+                format: options['format'] as string | undefined,
+                dpi: options['dpi'] as number | undefined,
+                quality: options['quality'] as number | undefined,
+              });
+            else if (tool === 'redact')
+              fields = redactFields({
+                ...input,
+                texts: this.getNodeParameter('redactTexts', i, '') as string,
+                rectangles: this.getNodeParameter(
+                  'redactRectangles.rectangle',
+                  i,
+                  [],
+                ) as RedactRectangle[],
+                matchCase: options['matchCase'] as boolean | undefined,
+                wholeWords: options['wholeWords'] as boolean | undefined,
+                drawBox: options['drawBox'] as boolean | undefined,
+                boxColour: options['boxColour'] as string | undefined,
+              });
+            else if (tool === 'fill')
+              fields = fillFields({
+                ...input,
+                values: fillValues(
+                  this.getNodeParameter('fillFields.field', i, []) as Array<{
+                    name?: string;
+                    value?: string;
+                  }>,
+                ),
+                flatten: this.getNodeParameter(
+                  'fillFlatten',
+                  i,
+                  false,
+                ) as boolean,
+                lenient: options['lenient'] as boolean | undefined,
+              });
+            else if (tool === 'compress') fields = compressFields(input);
+            else fields = infoFields(input);
+          } catch (e) {
+            // the fields' own checks throw plain errors that name the field; n8n wants its own type
+            throw new NodeOperationError(this.getNode(), (e as Error).message, {
+              itemIndex: i,
+            });
+          }
+          let body: unknown = fields;
+          if (!stored) {
+            const property = this.getNodeParameter(
+              'pdfBinaryPropertyName',
+              i,
+            ) as string;
+            const binary = this.helpers.assertBinaryData(i, property);
+            const bytes = await this.helpers.getBinaryDataBuffer(i, property);
+            const form = new FormData();
+            form.append(
+              'file',
+              new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }),
+              binary.fileName || 'document.pdf',
+            );
+            for (const [key, value] of Object.entries(fields))
+              form.append(key, formValue(value));
+            body = form;
+          }
+          const result = (await request(
+            this,
+            'POST',
+            PDF_TOOLS[tool],
+            body,
+          )) as IDataObject & { download_url?: string; output?: string };
+          const item: INodeExecutionData = {
+            json: result,
+            pairedItem: { item: i },
+          };
+          if (
+            tool !== 'info' &&
+            this.getNodeParameter('pdfDownload', i, true) &&
+            result.download_url
+          ) {
+            // a name the user chose with the result's own extension, else the one the API gave it
+            const chosen = input.filename?.trim();
+            const name = chosen
+              ? downloadName(chosen, result['id'] as string, result.output)
+              : (linkName(result.download_url) ??
+                downloadName(undefined, result['id'] as string, result.output));
+            item.binary = {
+              data: await downloadBinary(this, result.download_url, name),
             };
           }
           out.push(item);

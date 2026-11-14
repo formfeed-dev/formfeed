@@ -41,8 +41,208 @@ export function downloadName(
   const extension = output || 'pdf';
   const name = chosen?.trim();
   if (!name) return `${renderId}.${extension}`;
-  const stem = name.replace(/\.(pdf|png|jpe?g|webp|docx|pptx)$/i, '');
+  const stem = name.replace(/\.(pdf|png|jpe?g|webp|docx|pptx|zip)$/i, '');
   return `${stem}.${extension}`;
+}
+
+/**
+ * The name the API gave a stored file, the last part of its link (`contract.zip`, `contract-3.png`),
+ * or undefined for a link that names none.
+ */
+export function linkName(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const last = new URL(url).pathname.split('/').pop();
+    const name = last ? decodeURIComponent(last) : '';
+    return name && !/[\\/]/.test(name) ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The PDF tools of plan 30 as the node calls them, with the path of each. */
+export const PDF_TOOLS = {
+  compress: '/pdf/compress',
+  fill: '/pdf/fill',
+  info: '/pdf/info',
+  redact: '/pdf/redact',
+  split: '/pdf/split',
+  toImage: '/pdf/to-image',
+} as const;
+export type PdfTool = keyof typeof PDF_TOOLS;
+
+/** A page selection as the API takes it: `1-3,5`, or `4-` for page 4 to the last. */
+export const PAGE_SELECTION = /^\d+(-\d*)?(,\d+(-\d*)?)*$/;
+
+/** One entry per line, without the empty ones: page ranges, texts to redact. */
+export function lines(text: string | undefined): string[] {
+  return (text ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** What every PDF tool takes besides the file: the stored source, the result's name, where it came from. */
+export interface PdfToolInput {
+  /** A render (`rnd_…`) or a PDF of the file library (its name or `fil_…`); without it the item's binary is uploaded. */
+  source?: string;
+  filename?: string;
+}
+
+function toolFields(input: PdfToolInput): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (input.source?.trim()) fields['source'] = input.source.trim();
+  if (input.filename?.trim()) fields['filename'] = input.filename.trim();
+  fields['meta'] = { source: 'n8n' };
+  return fields;
+}
+
+/** `POST /pdf/split`: `every` pages each, or one part per line of `ranges`. */
+export function splitFields(
+  input: PdfToolInput & { every?: number; ranges?: string },
+): Record<string, unknown> {
+  const fields = toolFields(input);
+  const ranges = lines(input.ranges);
+  if (input.ranges !== undefined) {
+    if (!ranges.length) throw new Error('Give at least one page range');
+    const bad = ranges.find((range) => !PAGE_SELECTION.test(range));
+    if (bad)
+      throw new Error(
+        `"${bad}" is no page selection; write it like 1-3,5 or 4-`,
+      );
+    fields['ranges'] = ranges;
+  } else fields['every'] = input.every ?? 1;
+  return fields;
+}
+
+/** `POST /pdf/to-image`: the pages, the format, the resolution and the JPEG quality, where given. */
+export function toImageFields(
+  input: PdfToolInput & {
+    pages?: string;
+    format?: string;
+    dpi?: number;
+    quality?: number;
+  },
+): Record<string, unknown> {
+  const fields = toolFields(input);
+  const pages = input.pages?.trim();
+  if (pages) {
+    if (!PAGE_SELECTION.test(pages))
+      throw new Error(
+        `"${pages}" is no page selection; write it like 1-3,5 or 2-`,
+      );
+    fields['pages'] = pages;
+  }
+  if (input.format) fields['format'] = input.format;
+  if (input.dpi) fields['dpi'] = input.dpi;
+  if (input.format === 'jpg' && input.quality)
+    fields['quality'] = input.quality;
+  return fields;
+}
+
+/** A rectangle as a viewer shows the page: points from its top-left corner, y running down. */
+export interface RedactRectangle {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * `POST /pdf/redact`: the rectangles and the texts (one per line), how a text is found, and the box
+ * over each removed place: black by default, another colour, or none (`null`).
+ */
+export function redactFields(
+  input: PdfToolInput & {
+    rectangles?: RedactRectangle[];
+    texts?: string;
+    matchCase?: boolean;
+    wholeWords?: boolean;
+    drawBox?: boolean;
+    boxColour?: string;
+  },
+): Record<string, unknown> {
+  const fields = toolFields(input);
+  const rectangles = input.rectangles ?? [];
+  const texts = lines(input.texts);
+  if (!rectangles.length && !texts.length)
+    throw new Error('Give at least one rectangle or one text to remove');
+  if (rectangles.length) fields['regions'] = rectangles;
+  if (texts.length) fields['text'] = texts;
+  if (input.matchCase) fields['match_case'] = true;
+  if (input.wholeWords) fields['whole_words'] = true;
+  if (input.drawBox === false) fields['fill'] = null;
+  else if (input.boxColour && !/^#?0{6}$/.test(input.boxColour.trim()))
+    fields['fill'] = input.boxColour.trim();
+  return fields;
+}
+
+/** A form field's value as `/pdf/fill` takes it. */
+export type FormValue = string | number | boolean | string[];
+
+/** A list box's several options written as a JSON list, `["a","b"]`, or nothing. */
+function optionList(value: string): string[] | undefined {
+  if (!/^\s*\[/.test(value)) return undefined;
+  try {
+    const list: unknown = JSON.parse(value);
+    return Array.isArray(list) && list.every((v) => typeof v === 'string')
+      ? list
+      : undefined;
+  } catch {
+    // not JSON, so it is the text it reads
+    return undefined;
+  }
+}
+
+/**
+ * The values of a fill, from the name and value pairs of the node's fields: `true` and `false` set a
+ * check box, a JSON list such as `["a","b"]` chooses several options of a list box, anything else is
+ * the text it reads. A name given twice keeps its last value.
+ */
+export function fillValues(
+  pairs: Array<{ name?: string; value?: string }>,
+): Record<string, FormValue> {
+  const values: Record<string, FormValue> = {};
+  for (const pair of pairs) {
+    const name = pair.name?.trim();
+    if (!name) continue;
+    const value = pair.value ?? '';
+    values[name] =
+      value === 'true'
+        ? true
+        : value === 'false'
+          ? false
+          : (optionList(value) ?? value);
+  }
+  return values;
+}
+
+/** `POST /pdf/fill`: the values, `flatten`, and `strict: false` for a lenient fill. */
+export function fillFields(
+  input: PdfToolInput & {
+    values: Record<string, FormValue>;
+    flatten?: boolean;
+    lenient?: boolean;
+  },
+): Record<string, unknown> {
+  const fields = toolFields(input);
+  if (!Object.keys(input.values).length && !input.flatten)
+    throw new Error('Give at least one field, or flatten the form');
+  if (Object.keys(input.values).length) fields['fields'] = input.values;
+  if (input.flatten) fields['flatten'] = true;
+  if (input.lenient) fields['strict'] = false;
+  return fields;
+}
+
+/** `POST /pdf/compress` takes the source and the result's name only. */
+export function compressFields(input: PdfToolInput): Record<string, unknown> {
+  return toolFields(input);
+}
+
+/** `POST /pdf/info` takes the source only; it makes no render. */
+export function infoFields(input: PdfToolInput): Record<string, unknown> {
+  return input.source?.trim() ? { source: input.source.trim() } : {};
 }
 
 /** The PDF's name for a converted file: `report.xlsx` becomes `report.pdf`. */

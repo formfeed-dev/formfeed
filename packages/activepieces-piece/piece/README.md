@@ -1,6 +1,6 @@
 # Formfeed for Activepieces
 
-[Formfeed](https://formfeed.dev/?utm_source=activepieces) turns HTML templates into PDFs, images, Word and PowerPoint documents through one API. This piece renders a document from a template in any Activepieces flow, hands the file to the next step, and starts flows when a render or a batch finishes.
+[Formfeed](https://formfeed.dev/?utm_source=activepieces) turns HTML templates into PDFs, images, Word and PowerPoint documents through one API. This piece renders a document from a template in any Activepieces flow, hands the file to the next step, fills, redacts, splits and compresses the PDFs you already have, and starts flows when a render or a batch finishes.
 
 ## Install
 
@@ -12,17 +12,25 @@ Create an API key at [app.formfeed.dev](https://app.formfeed.dev/keys?utm_source
 
 ## Actions
 
-| Action | What it does |
-|---|---|
-| **Create Document** | Renders a template to PDF, PNG, JPG or WebP, and a Word or PowerPoint template to DOCX, PPTX or PDF. Picking the template loads its fields. |
-| **Create Document from HTML** | Renders HTML built earlier in the flow, in Jinja2, Liquid or Handlebars. |
-| **Create Document from URL** | Renders a public page. |
-| **Get Render** | Returns a render by its ID, with a fresh download URL. |
-| **Convert Document to PDF** | Turns a Word, Excel, PowerPoint, OpenDocument or RTF file, or the render of a Word or PowerPoint template, into a PDF. Starter plan and above. |
-| **Upload File** | Adds an image or PDF to the file library, where templates use it with `asset()`. |
-| **Custom API Call** | Calls any other endpoint with the connection's key, for example `/pdf/merge`. |
+| Action                        | What it does                                                                                                                                   |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Create Document**           | Renders a template to PDF, PNG, JPG or WebP, and a Word or PowerPoint template to DOCX, PPTX or PDF. Picking the template loads its fields.    |
+| **Create Document from HTML** | Renders HTML built earlier in the flow, in Jinja2, Liquid or Handlebars.                                                                       |
+| **Create Document from URL**  | Renders a public page.                                                                                                                         |
+| **Get Render**                | Returns a render by its ID, with a fresh download URL.                                                                                         |
+| **Convert Document to PDF**   | Turns a Word, Excel, PowerPoint, OpenDocument or RTF file, or the render of a Word or PowerPoint template, into a PDF. Starter plan and above. |
+| **Get PDF Info**              | The page count, page sizes, document properties and form fields of a PDF, with the names **Fill PDF Form** takes. Free on every plan.          |
+| **Fill PDF Form**             | Fills the fields of a PDF form by their names, kept fillable or drawn into the pages. Starter plan and above.                                  |
+| **Redact PDF**                | Removes texts and areas from the PDF itself, not just from view, and checks the result before it is delivered. Starter plan and above.         |
+| **Split PDF**                 | Cuts a PDF into parts, every N pages or by page ranges, delivered as one ZIP. Starter plan and above.                                          |
+| **Compress PDF**              | Makes a PDF smaller without lowering its image quality. Starter plan and above.                                                                |
+| **Convert PDF to Image**      | Draws pages of a PDF as PNG or JPEG pictures: one page as the picture, several as a ZIP. Starter plan and above.                               |
+| **Upload File**               | Adds an image or PDF to the file library, where templates use it with `asset()`.                                                               |
+| **Custom API Call**           | Calls any other endpoint with the connection's key, for example `/pdf/merge`.                                                                  |
 
 The document actions return the render and, unless **Return the file** is off, the document as a file for the next step. A render that takes longer than a minute continues in the background; the action waits up to five minutes for it.
+
+The PDF tools take a **PDF file** from an earlier step (processed and not kept) or a **Stored PDF**, the ID of a render (`rnd_…`) or a PDF of the file library by its name or ID. To fill a form, run **Get PDF Info** on it first: its `form.fields` name every field the way **Fill PDF Form** takes them. **Redact PDF** reads its result again before it delivers it, and fails with `redaction_incomplete` while a text can still be found.
 
 ## Triggers
 
@@ -31,6 +39,6 @@ The document actions return the render and, unless **Return the file** is off, t
 ## Documentation
 
 - [Integrations overview](https://docs.formfeed.dev/integrations/overview)
-- [Rendering](https://docs.formfeed.dev/api/rendering) and [errors](https://docs.formfeed.dev/api/errors)
+- [Rendering](https://docs.formfeed.dev/api/rendering), [PDF tools](https://docs.formfeed.dev/api/pdf-tools) and [errors](https://docs.formfeed.dev/api/errors)
 
 MIT licensed.

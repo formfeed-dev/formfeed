@@ -1,7 +1,8 @@
 # n8n-nodes-formfeed
 
 n8n community node for [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=n8n-node): render PDFs and images from templates,
-read template schemas, and start workflows when a render or batch finishes.
+read template schemas, fill, redact, split, compress and draw the pages of PDFs you already have, and start
+workflows when a render or batch finishes.
 
 ## Install
 
@@ -21,13 +22,13 @@ self-hosted gateway.
 
 **Formfeed**
 
-| Resource | Operations                                                                                                                 |
-| -------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Render   | Create (template, HTML or URL), Create E-Invoice, Get, Get Many, Delete Outputs                                            |
-| Template | Get Many, Get, Get Schema                                                                                                  |
-| Job      | Get                                                                                                                        |
-| File     | Upload, Get Many, Delete                                                                                                   |
-| PDF      | Convert Office Document (Word, Excel, PowerPoint, OpenDocument or RTF from a binary field, or a Word or PowerPoint render) |
+| Resource | Operations                                                                                                                                                                         |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Render   | Create (template, HTML or URL), Create E-Invoice, Get, Get Many, Delete Outputs                                                                                                    |
+| Template | Get Many, Get, Get Schema                                                                                                                                                          |
+| Job      | Get                                                                                                                                                                                |
+| File     | Upload, Get Many, Delete                                                                                                                                                           |
+| PDF      | Convert Office Document (Word, Excel, PowerPoint, OpenDocument or RTF from a binary field, or a Word or PowerPoint render), Compress, Fill Form, Get Info, Redact, Split, To Image |
 
 Choosing a template loads its fields from its data schema (or its sample data), so you map named fields
 (`invoice.number`) instead of pasting JSON; the JSON field covers lists and nested objects. With
@@ -39,6 +40,13 @@ Free). It asks for the invoice itself (seller, buyer, lines, VAT breakdown, tota
 sends it as the `_invoice` block, which the template prints as well; the E-invoice example in the
 Formfeed app is such a template. What the fields do not offer goes into _Invoice (JSON)_, with the
 names of the [field reference](https://docs.formfeed.dev/templates/e-invoices#invoice-block).
+
+The PDF tools work on a PDF from a binary field or a stored one (a render, or a file of the library). _Get
+Info_ lists a form's fields by name, which _Fill Form_ takes, a name and a value each (`true` or `false`
+for a check box), kept fillable or flattened into the pages. _Redact_ removes texts (one per line, found
+whatever their spacing) and rectangles from the file itself, and the result is read again before it is
+delivered. _Split_ answers one ZIP, _To Image_ a picture or a ZIP of them. All but _Get Info_ need the
+Starter plan and above.
 
 When the API refuses a request, the node stops with the API's own sentence, which names the field and
 the rule (`… (BR-S-05)`). With **On Error → Continue (using error output)**, the item leaves by the
