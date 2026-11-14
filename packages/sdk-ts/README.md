@@ -87,6 +87,18 @@ const pdf = await client.pdf.convert(
   { file: { data: await readFile('report.xlsx'), name: 'report.xlsx' } },
   { single_page_sheets: true },
 );
+
+// fill a PDF form by the field names info lists, and redact a name wherever it stands
+const { form } = await client.pdf.info('antrag.pdf');
+const filled = await client.pdf.fill('antrag.pdf', {
+  fields: { 'customer.name': 'Erika Mustermann' },
+  flatten: true,
+});
+const redacted = await client.pdf.redact(
+  { file: { data: await readFile('invoice.pdf'), name: 'invoice.pdf' } },
+  { text: ['Max Mustermann'] },
+);
+// and split, compress or draw pages: client.pdf.split, .compress, .toImage
 ```
 
 ## Webhooks

@@ -19,15 +19,21 @@ const { tools } = await client.listTools();
 const names = tools.map((t) => t.name).sort();
 const expected = [
   'check_invoice',
+  'compress_pdf',
   'convert_to_pdf',
+  'fill_pdf_form',
+  'get_pdf_info',
   'get_render',
   'get_template_schema',
   'get_template_source',
   'get_workspace',
   'list_templates',
   'markdown_to_pdf',
+  'pdf_to_image',
+  'redact_pdf',
   'render',
   'save_template',
+  'split_pdf',
   'validate_einvoice',
   'validate_template',
 ];
@@ -43,6 +49,17 @@ if (
     ?.path
 )
   throw new Error('validate_einvoice over stdio has no path parameter');
+// and so do the PDF tools of plan 30
+for (const name of [
+  'get_pdf_info',
+  'split_pdf',
+  'compress_pdf',
+  'pdf_to_image',
+  'redact_pdf',
+  'fill_pdf_form',
+])
+  if (!tools.find((t) => t.name === name)?.inputSchema?.properties?.path)
+    throw new Error(`${name} over stdio has no path parameter`);
 // and its Markdown tool, with the pictures beside the file (plan 29)
 if (
   !tools.find((t) => t.name === 'markdown_to_pdf')?.inputSchema?.properties

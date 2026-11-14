@@ -33,6 +33,10 @@ More commands:
 
 ```bash
 npx formfeed pdf convert report.xlsx        # any Word, Excel, PowerPoint, OpenDocument or RTF file to PDF
+npx formfeed pdf info antrag.pdf            # pages, properties and the form's field names
+npx formfeed pdf fill antrag.pdf --data values.json --flatten
+npx formfeed pdf redact invoice.pdf --text "Max Mustermann"
+npx formfeed pdf split contract.pdf --every 1   # also compress and to-image
 npx formfeed import apitemplate --all --key "$APITEMPLATE_API_KEY" --source-region de
 npx formfeed files push                     # the files/ folder into the workspace file library
 npx formfeed brand pull                     # the brand kit for local previews

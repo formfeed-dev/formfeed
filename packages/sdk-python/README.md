@@ -42,6 +42,13 @@ docx = client.templates.version_file("offer", "latest")   # the document's bytes
 # any office document to PDF (Word, Excel, PowerPoint, OpenDocument, RTF)
 with open("report.xlsx", "rb") as f:
     pdf = client.pdf.convert(file=f, single_page_sheets=True)
+
+# fill a PDF form by the field names info lists, and redact a name wherever it stands
+form = client.pdf.info("antrag.pdf").form
+filled = client.pdf.fill("antrag.pdf", fields={"customer.name": "Erika Mustermann"}, flatten=True)
+with open("invoice.pdf", "rb") as f:
+    redacted = client.pdf.redact(file=f, text=["Max Mustermann"])
+# and split, compress or draw pages: client.pdf.split, .compress, .to_image
 ```
 
 Webhooks:

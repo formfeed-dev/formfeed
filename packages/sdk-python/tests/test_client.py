@@ -7,7 +7,7 @@ import time
 import httpx
 import pytest
 
-from formfeed import AsyncFormfeed, Formfeed, FormfeedError, Render, RenderInput, parse_webhook_event, verify_webhook_signature
+from formfeed import AsyncFormfeed, Formfeed, FormfeedError, LibraryFile, Render, RenderInput, parse_webhook_event, verify_webhook_signature
 
 RENDER = {"id": "rnd_1", "status": "succeeded", "download_url": "https://cdn.test/o/x.pdf?exp=1&sig=2", "page_count": 1, "units": 1}
 
@@ -270,6 +270,111 @@ def test_async_pdf_tools_mirror_the_sync_client():
 
     assert asyncio.run(run()).id == "rnd_9"
     assert json.loads(rec.calls[0].content) == {"sources": ["rnd_1", "rnd_2"]}
+
+
+def test_page_tools_send_a_stored_source_as_json_and_an_upload_as_multipart():
+    client, rec = sync_client(lambda req, n: _json({**RENDER, "id": "rnd_zip", "output": "zip", "units": 0.5}))
+    parts = client.pdf.split("rnd_1", ranges=["1", "2-"])
+    assert parts.output == "zip"
+    assert rec.calls[0].url.path == "/v1/pdf/split"
+    assert json.loads(rec.calls[0].content) == {"ranges": ["1", "2-"], "source": "rnd_1"}
+    assert len(rec.calls[0].headers["idempotency-key"]) > 10
+
+    client.pdf.compress(LibraryFile.model_validate(FILE_PDF))
+    assert rec.calls[1].url.path == "/v1/pdf/compress"
+    assert json.loads(rec.calls[1].content) == {"source": "fil_2"}
+    client.pdf.to_image("terms.pdf", pages="1", dpi=72)
+    assert rec.calls[2].url.path == "/v1/pdf/to-image"
+    assert json.loads(rec.calls[2].content) == {"pages": "1", "dpi": 72, "source": "terms.pdf"}
+    client.pdf.redact("rnd_1", regions=[{"page": 1, "x": 52, "y": 88, "width": 200, "height": 16}], text=["Max Mustermann"], fill=None)
+    assert rec.calls[3].url.path == "/v1/pdf/redact"
+    assert json.loads(rec.calls[3].content) == {
+        "regions": [{"page": 1, "x": 52, "y": 88, "width": 200, "height": 16}],
+        "text": ["Max Mustermann"],
+        "fill": None,
+        "source": "rnd_1",
+    }
+    client.pdf.redact("rnd_1", text="Erika Mustermann")
+    assert json.loads(rec.calls[4].content) == {"text": "Erika Mustermann", "fill": "#000000", "source": "rnd_1"}
+
+    # an upload: the PDF as `file`, lists and objects as JSON text, None left out but for fill
+    client.pdf.split(file=b"%PDF-1.7", file_name="contract.pdf", every=2, expires_in=None, meta={"order": 7})
+    body = _form_fields(rec.calls[5])
+    assert b'filename="contract.pdf"' in body and b'name="every"\r\n\r\n2' in body
+    assert b'name="meta"\r\n\r\n{"order":7}' in body
+    assert b'name="expires_in"' not in body and b'name="source"' not in body
+    client.pdf.redact(file=b"%PDF-1.7", text="DE36 0000 0000 0000 0000 00", whole_words=True, fill=None)
+    body = _form_fields(rec.calls[6])
+    assert b'filename="document.pdf"' in body and b'name="fill"\r\n\r\nnull' in body
+    assert b'name="text"\r\n\r\nDE36 0000 0000 0000 0000 00' in body and b'name="whole_words"\r\n\r\ntrue' in body
+    assert rec.calls[6].headers["idempotency-key"]
+    with pytest.raises(FormfeedError):
+        client.pdf.compress()
+    with pytest.raises(FormfeedError):
+        client.pdf.compress("rnd_1", file=b"%PDF-1.7")
+
+
+def test_a_form_is_read_with_info_and_filled_by_its_names():
+    form = {
+        "type": "acroform",
+        "signed": False,
+        "fields": [
+            {
+                "name": "customer.name",
+                "label": "Name",
+                "type": "text",
+                "value": None,
+                "options": None,
+                "required": True,
+                "readonly": False,
+                "calculated": False,
+                "format": None,
+                "pages": [1],
+            },
+            {"name": "newsletter", "label": None, "type": "checkbox", "value": True, "options": None, "required": False, "readonly": False, "calculated": False, "format": None, "pages": [1]},
+        ],
+    }
+
+    def respond(req, n):
+        if req.url.path.endswith("/pdf/info"):
+            return _json({"source": "antrag.pdf", "page_count": 1, "pages": [], "encrypted": False, "metadata": {}, "form": form})
+        return _json({**RENDER, "id": "rnd_filled", "units": 0.5, "form": {"filled": 2, "skipped": [], "warnings": [{"field": "total", "code": "calculation_not_run"}], "xfa_removed": False}})
+
+    client, rec = sync_client(respond)
+    info = client.pdf.info(file=b"%PDF-1.7", file_name="antrag.pdf")
+    assert info.form is not None and info.form.fields[0].name == "customer.name"
+    assert info.form.fields[1].value is True
+    assert b'filename="antrag.pdf"' in _form_fields(rec.calls[0])
+    assert "idempotency-key" not in rec.calls[0].headers
+
+    filled = client.pdf.fill("antrag.pdf", fields={"customer.name": "Erika Mustermann", "newsletter": True}, flatten=True)
+    assert filled.form is not None and filled.form.filled == 2 and filled.form.warnings[0].code == "calculation_not_run"
+    assert rec.calls[1].url.path == "/v1/pdf/fill"
+    assert json.loads(rec.calls[1].content) == {"fields": {"customer.name": "Erika Mustermann", "newsletter": True}, "flatten": True, "source": "antrag.pdf"}
+    assert rec.calls[1].headers["idempotency-key"]
+
+    with open(__file__, "rb") as handle:  # a binary file object is read once, so a retry sends the same bytes
+        client.pdf.fill(file=handle, fields={"size": "M", "tags": ["a", "b"]}, strict=False)
+    body = _form_fields(rec.calls[2])
+    assert b'filename="test_client.py"' in body
+    assert b'name="fields"\r\n\r\n{"size":"M","tags":["a","b"]}' in body and b'name="strict"\r\n\r\nfalse' in body
+
+
+def test_async_page_tools_mirror_the_sync_client():
+    rec = Recorder(lambda req, n: _json({**RENDER, "id": "rnd_png", "output": "png", "units": 1}))
+
+    async def run():
+        async with AsyncFormfeed("ff_test_k", transport=httpx.MockTransport(rec.handler)) as client:
+            picture = await client.pdf.to_image(file=b"%PDF-1.7", file_name="contract.pdf", pages="1")
+            await client.pdf.fill("rnd_1", fields={"size": "M"})
+            return picture
+
+    assert asyncio.run(run()).output == "png"
+    assert rec.calls[0].url.path == "/v1/pdf/to-image" and b'name="pages"\r\n\r\n1' in _form_fields(rec.calls[0])
+    assert json.loads(rec.calls[1].content) == {"fields": {"size": "M"}, "source": "rnd_1"}
+
+
+FILE_PDF = {"id": "fil_2", "name": "terms.pdf", "content_type": "application/pdf", "bytes": 3, "sha256": "aa", "url": "https://cdn.test/a/ws/terms.pdf"}
 
 
 FILE = {"id": "fil_1", "name": "brand/logo.png", "content_type": "image/png", "bytes": 3, "sha256": "aa", "url": "https://cdn.test/a/ws/brand/logo.png"}

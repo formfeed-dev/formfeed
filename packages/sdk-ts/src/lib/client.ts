@@ -11,6 +11,11 @@ export type Engine = 'jinja2' | 'liquid' | 'handlebars';
  * or `pdf`, a PowerPoint template `pptx` or `pdf`.
  */
 export type OutputFormat = 'pdf' | 'png' | 'jpg' | 'webp' | 'docx' | 'pptx';
+/**
+ * What a render made: one of the output formats, or `zip`, which holds the files of a PDF tool that
+ * made several (`pdf.split`, `pdf.toImage`). Never something a render asks for.
+ */
+export type RenderOutput = OutputFormat | 'zip';
 export type RenderStatus = 'queued' | 'rendering' | 'succeeded' | 'failed';
 
 export interface FormfeedOptions {
@@ -452,12 +457,140 @@ export interface PdfInfo {
   }>;
   encrypted: boolean;
   metadata: Record<string, unknown>;
+  /**
+   * The form, whose fields `pdf.fill` takes by these names; null when the file needs a password to
+   * open. Absent from answers of an API before the form tools.
+   */
+  form?: PdfForm | null;
+}
+
+/** A PDF sent with the request instead of a stored one; it is read and never stored. */
+export interface PdfUpload {
+  /** The bytes: a Blob or File, a Uint8Array (Node's Buffer is one) or an ArrayBuffer. */
+  data: Blob | Uint8Array | ArrayBuffer;
+  /** The file name, e.g. `contract.pdf`, which the results are named after; a File's own name when omitted. */
+  name?: string;
+}
+
+/**
+ * The PDF a tool works on: a render (or its id), a PDF of the file library (a `LibraryFile`, its id
+ * or its name), or an upload, `{ file }`, of up to the plan's output size and at most 100 MB.
+ */
+export type PdfSource = Render | LibraryFile | string | { file: PdfUpload };
+
+export interface SplitOptions extends PdfOutputOptions {
+  /** Pages per part. Give `every` or `ranges`. */
+  every?: number;
+  /** One part per entry, each a page selection such as `1-3,5` or `4-` (page 4 to the last). */
+  ranges?: string[];
+}
+
+export interface ToImageOptions extends PdfOutputOptions {
+  /** The pages to draw, such as `1`, `1-3,5` or `2-`; every page when omitted. */
+  pages?: string;
+  /** `png` when omitted. */
+  format?: 'png' | 'jpg';
+  /** 36 to 300, 150 when omitted; at 72 a pixel stands for a point. */
+  dpi?: number;
+  /** JPEG quality, 1 to 100; ignored for PNG. */
+  quality?: number;
+}
+
+/** A rectangle as a viewer shows the page: points from its top-left corner, y running down. */
+export interface RedactRegion {
+  /** Page number, from 1. */
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What `pdf.redact` removes: give `regions`, `text` or both. */
+export interface RedactOptions extends PdfOutputOptions {
+  regions?: RedactRegion[];
+  /** Texts to remove wherever they stand, found whatever their whitespace; never stored. */
+  text?: string | string[];
+  /** Find a text only in the case it is written in. */
+  match_case?: boolean;
+  /** Find a text only where a word boundary stands on each side of it. */
+  whole_words?: boolean;
+  /** The colour of the box drawn over each rectangle and found text, `#000000` when omitted; `null` draws none. */
+  fill?: string | null;
+}
+
+/**
+ * A form field's value: text (a number too) for a text field, a boolean for a check box, an option
+ * for a dropdown, a radio group or a check box with several on-values, a list for a list box.
+ */
+export type FormValue = string | number | boolean | string[];
+
+/** What `pdf.fill` does: give `fields`, or `flatten` alone. */
+export interface FillOptions extends PdfOutputOptions {
+  /** Values by the fields' full names, as `pdf.info` lists them; never stored. */
+  fields?: Record<string, FormValue>;
+  /** Draw the values into the pages and remove the fields. */
+  flatten?: boolean;
+  /**
+   * `true` (the default) fails on a name the form lacks (`form_field_unknown`) or a value its field
+   * does not take (`form_value_invalid`); `false` leaves both out and lists them in `form.skipped`.
+   */
+  strict?: boolean;
+}
+
+/** What a fill did (`Render.form`). Entries name fields, never their values. */
+export interface FormFill {
+  filled: number;
+  skipped: Array<{ field: string; reason: 'unknown' | 'invalid' }>;
+  /** Calculations and display formats of the form that no viewer has run. */
+  warnings: Array<{
+    field: string;
+    code: 'calculation_not_run' | 'format_not_applied' | (string & {});
+  }>;
+  /** The form was a hybrid of an AcroForm and XFA; its XFA part was removed. */
+  xfa_removed: boolean;
+}
+
+export type PdfFormFieldType =
+  | 'text'
+  | 'checkbox'
+  | 'radio'
+  | 'dropdown'
+  | 'listbox'
+  | 'signature'
+  | 'button';
+
+export interface PdfFormField {
+  /** The full name, parts joined by dots, which `pdf.fill` takes. */
+  name: string;
+  /** What the field is for, from its tooltip. */
+  label: string | null;
+  type: PdfFormFieldType;
+  value: string | boolean | string[] | null;
+  /** What `pdf.fill` takes for a choice, a radio group, or a check box with several on-values. */
+  options: string[] | null;
+  required: boolean;
+  readonly: boolean;
+  /** Its value comes from a calculation a viewer runs, which filling does not. */
+  calculated: boolean;
+  /** The display format a viewer applies, which filling does not. */
+  format: string | null;
+  /** Every page with a widget of the field. */
+  pages: number[];
+}
+
+export interface PdfForm {
+  /** `acroform`, `hybrid` (with an XFA part), `xfa` (which `pdf.fill` refuses), null without a form. */
+  type: 'acroform' | 'hybrid' | 'xfa' | null;
+  /** The form holds a signature; `pdf.fill` refuses such a file. */
+  signed: boolean;
+  fields: PdfFormField[];
 }
 
 export interface Render {
   id: string;
   status: RenderStatus;
-  output: string;
+  output: RenderOutput | (string & {});
   download_url: string | null;
   expires_at: string | null;
   bytes: number | null;
@@ -496,6 +629,8 @@ export interface Render {
    * made before the feature.
    */
   pdfa?: Pdfa | null;
+  /** What a fill did (`pdf.fill`); null for every other render. Absent from renders made before the feature. */
+  form?: FormFill | null;
   timings: Record<string, number> | null;
   error: { code?: string; message?: string; [key: string]: unknown } | null;
   meta: Record<string, unknown>;
@@ -903,29 +1038,35 @@ const isOfficeInput = (input: object): input is { file?: OfficeFileUpload } =>
   'file' in input;
 
 /** The bytes of an upload as a Blob, named for the multipart part. */
-function blobOf(file: OfficeFileUpload): { blob: Blob; name: string } {
+function blobOf(
+  file: OfficeFileUpload,
+  fallback = 'document',
+): { blob: Blob; name: string } {
   const blob =
     file.data instanceof Blob ? file.data : new Blob([file.data as BlobPart]);
   const own =
     typeof File !== 'undefined' && file.data instanceof File
       ? file.data.name
       : undefined;
-  return { blob, name: file.name ?? own ?? 'document' };
+  return { blob, name: file.name ?? own ?? fallback };
 }
 
 /**
  * A multipart body the way the API reads it: the file as `file`, strings as they are, booleans
- * and numbers as text, objects and arrays as JSON text; `undefined` fields are left out.
+ * and numbers as text, objects and arrays as JSON text. `undefined` fields are left out, and so is
+ * `null`, which a form field cannot say, but for redact's `fill`, whose `null` draws no box and goes
+ * as the JSON text `null`.
  */
 function multipart(
   fields: Record<string, unknown>,
   file: OfficeFileUpload,
+  fallbackName?: string,
 ): FormData {
   const form = new FormData();
-  const { blob, name } = blobOf(file);
+  const { blob, name } = blobOf(file, fallbackName);
   form.set('file', blob, name);
   for (const [key, value] of Object.entries(fields)) {
-    if (value === undefined) continue;
+    if (value === undefined || (value === null && key !== 'fill')) continue;
     form.set(
       key,
       typeof value === 'string'
@@ -1037,6 +1178,13 @@ const withKey = (options: RequestOptions): RequestOptions => ({
 });
 const idOf = (source: { id: string } | string) =>
   typeof source === 'string' ? source : source.id;
+const isPdfUpload = (source: PdfSource): source is { file: PdfUpload } =>
+  typeof source === 'object' && 'file' in source;
+/** A PDF tool's body: the stored source's id as JSON, or the upload as multipart beside the fields. */
+const pdfBody = (source: PdfSource, fields: object): unknown =>
+  isPdfUpload(source)
+    ? multipart({ ...fields }, source.file, 'document.pdf')
+    : { ...fields, source: idOf(source) };
 
 export class Formfeed {
   private readonly baseUrl: string;
@@ -1194,8 +1342,10 @@ export class Formfeed {
 
   /**
    * PDF tools on the outputs of earlier renders (a `Render` or its id) and on PDFs of the file library
-   * (a `LibraryFile`, its id or its name). merge, protect and watermark return a new render and cost
-   * 0.5 units each on live keys; info is free.
+   * (a `LibraryFile`, its id or its name); split, compress, toImage, redact, fill and info also take
+   * an upload, `{ file }`, which is never stored. Every tool but info returns a new render, on the
+   * Starter plan and above: merge, protect, watermark, split, compress, redact and fill cost 0.5
+   * units each on live keys, toImage one unit per picture. info is free.
    */
   readonly pdf = {
     merge: (
@@ -1231,15 +1381,85 @@ export class Formfeed {
         { ...watermark, source: idOf(source) },
         withKey(options),
       ),
-    info: (
-      source: Render | string,
+    /**
+     * Page count, page sizes, encryption, metadata and the form with every field's name, type, value
+     * and options, which is how a form's names are found for `fill`. Free; creates no render.
+     */
+    info: (source: PdfSource, options: RequestOptions = {}): Promise<PdfInfo> =>
+      this.request<PdfInfo>('POST', '/pdf/info', pdfBody(source, {}), options),
+    /**
+     * Cuts a PDF into parts, `every` pages each or one per entry of `ranges`. The render's output is a
+     * ZIP of the parts named after the source (`contract-1.pdf`, …), or the PDF itself for one part.
+     */
+    split: (
+      source: PdfSource,
+      split: SplitOptions,
       options: RequestOptions = {},
-    ): Promise<PdfInfo> =>
-      this.request<PdfInfo>(
+    ): Promise<Render> =>
+      this.request<Render>(
         'POST',
-        '/pdf/info',
-        { source: idOf(source) },
-        options,
+        '/pdf/split',
+        pdfBody(source, split),
+        withKey(options),
+      ),
+    /** Makes a PDF smaller; the render keeps the source when it cannot. */
+    compress: (
+      source: PdfSource,
+      compress: PdfOutputOptions = {},
+      options: RequestOptions = {},
+    ): Promise<Render> =>
+      this.request<Render>(
+        'POST',
+        '/pdf/compress',
+        pdfBody(source, compress),
+        withKey(options),
+      ),
+    /**
+     * Draws pages as PNG or JPEG pictures: one page answers the picture, several a ZIP of them named
+     * by page. At most 100 pages and 120 million pixels a call.
+     */
+    toImage: (
+      source: PdfSource,
+      image: ToImageOptions = {},
+      options: RequestOptions = {},
+    ): Promise<Render> =>
+      this.request<Render>(
+        'POST',
+        '/pdf/to-image',
+        pdfBody(source, image),
+        withKey(options),
+      ),
+    /**
+     * Removes what lies under the rectangles and every place where a text stands, from the file
+     * itself, and reads the result again: text that is still there fails the render with
+     * `redaction_incomplete`, which names rectangles and texts by number, never a text.
+     */
+    redact: (
+      source: PdfSource,
+      redact: RedactOptions,
+      options: RequestOptions = {},
+    ): Promise<Render> =>
+      this.request<Render>(
+        'POST',
+        '/pdf/redact',
+        pdfBody(source, redact),
+        withKey(options),
+      ),
+    /**
+     * Fills a PDF form's fields by their full names and keeps it fillable, or with `flatten` draws
+     * the values into the pages. No calculation or display format of the form runs; the render's
+     * `form` names the fields that have one, and the values are never stored.
+     */
+    fill: (
+      source: PdfSource,
+      fill: FillOptions,
+      options: RequestOptions = {},
+    ): Promise<Render> =>
+      this.request<Render>(
+        'POST',
+        '/pdf/fill',
+        pdfBody(source, fill),
+        withKey(options),
       ),
     /**
      * Converts an office document to a PDF render (Starter plan and above): an uploaded file (Word,

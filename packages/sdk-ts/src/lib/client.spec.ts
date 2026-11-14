@@ -1029,6 +1029,136 @@ describe('PDF tools', () => {
     expect(calls[3]!.headers['idempotency-key']).toBeUndefined();
   });
 
+  it('sends the page tools a stored source as JSON and an upload as multipart (plan 30)', async () => {
+    const { calls, fetchImpl } = stub(() =>
+      json({ ...render, id: 'rnd_zip', output: 'zip', units: 0.5 }),
+    );
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    const parts = await client.pdf.split('rnd_1', { ranges: ['1', '2-'] });
+    expect(parts.output).toBe('zip');
+    expect(calls[0]!.url).toBe('https://api-eu.formfeed.dev/v1/pdf/split');
+    expect(calls[0]!.body).toEqual({ source: 'rnd_1', ranges: ['1', '2-'] });
+    expect(calls[0]!.headers['idempotency-key']).toMatch(/\S+/);
+
+    // a library file by its record, every tool with its own path
+    await client.pdf.compress({ id: 'fil_1', name: 'terms.pdf' } as never);
+    expect(calls[1]!.url).toBe('https://api-eu.formfeed.dev/v1/pdf/compress');
+    expect(calls[1]!.body).toEqual({ source: 'fil_1' });
+    await client.pdf.toImage('terms.pdf', { pages: '1', dpi: 72 });
+    expect(calls[2]!.url).toBe('https://api-eu.formfeed.dev/v1/pdf/to-image');
+    expect(calls[2]!.body).toEqual({
+      source: 'terms.pdf',
+      pages: '1',
+      dpi: 72,
+    });
+    await client.pdf.redact('rnd_1', {
+      regions: [{ page: 1, x: 52, y: 88, width: 200, height: 16 }],
+      text: ['Max Mustermann'],
+      fill: null,
+    });
+    expect(calls[3]!.url).toBe('https://api-eu.formfeed.dev/v1/pdf/redact');
+    expect(calls[3]!.body).toEqual({
+      source: 'rnd_1',
+      regions: [{ page: 1, x: 52, y: 88, width: 200, height: 16 }],
+      text: ['Max Mustermann'],
+      fill: null,
+    });
+
+    // an upload: the PDF as `file`, lists and objects as JSON text, null only where it means something
+    await client.pdf.split(
+      {
+        file: { data: new Uint8Array([37, 80, 68, 70]), name: 'contract.pdf' },
+      },
+      { every: 2, expires_in: null, meta: { order: 7 } },
+    );
+    const split = calls[4]!.body as FormData;
+    expect((split.get('file') as File).name).toBe('contract.pdf');
+    expect(split.get('every')).toBe('2');
+    expect(split.get('expires_in')).toBeNull();
+    expect(split.get('meta')).toBe('{"order":7}');
+    expect(split.get('source')).toBeNull();
+    await client.pdf.redact(
+      { file: { data: new Uint8Array([37]) } },
+      { text: 'DE36 0000 0000 0000 0000 00', whole_words: true, fill: null },
+    );
+    const redact = calls[5]!.body as FormData;
+    expect((redact.get('file') as File).name).toBe('document.pdf');
+    expect(redact.get('text')).toBe('DE36 0000 0000 0000 0000 00');
+    expect(redact.get('whole_words')).toBe('true');
+    expect(redact.get('fill')).toBe('null');
+    expect(calls[5]!.headers['idempotency-key']).toMatch(/\S+/);
+  });
+
+  it('fills a form by its names and reads it with info, from a stored file or an upload', async () => {
+    const form = {
+      type: 'acroform',
+      signed: false,
+      fields: [
+        {
+          name: 'customer.name',
+          label: 'Name',
+          type: 'text',
+          value: null,
+          options: null,
+          required: true,
+          readonly: false,
+          calculated: false,
+          format: null,
+          pages: [1],
+        },
+      ],
+    };
+    const { calls, fetchImpl } = stub((call) =>
+      call.url.endsWith('/pdf/info')
+        ? json({
+            source: 'antrag.pdf',
+            page_count: 1,
+            pages: [],
+            encrypted: false,
+            metadata: {},
+            form,
+          })
+        : json({
+            ...render,
+            id: 'rnd_filled',
+            output: 'pdf',
+            units: 0.5,
+            form: { filled: 2, skipped: [], warnings: [], xfa_removed: false },
+          }),
+    );
+    const client = new Formfeed({ apiKey: 'ff_live_k', fetch: fetchImpl });
+    const info = await client.pdf.info({
+      file: { data: new Uint8Array([37]), name: 'antrag.pdf' },
+    });
+    expect(info.form?.fields[0]?.name).toBe('customer.name');
+    expect(calls[0]!.url).toBe('https://api-eu.formfeed.dev/v1/pdf/info');
+    expect(((calls[0]!.body as FormData).get('file') as File).name).toBe(
+      'antrag.pdf',
+    );
+    expect(calls[0]!.headers['idempotency-key']).toBeUndefined();
+
+    const filled = await client.pdf.fill('antrag.pdf', {
+      fields: { 'customer.name': 'Erika Mustermann', newsletter: true },
+      flatten: true,
+    });
+    expect(filled.form?.filled).toBe(2);
+    expect(calls[1]!.url).toBe('https://api-eu.formfeed.dev/v1/pdf/fill');
+    expect(calls[1]!.body).toEqual({
+      source: 'antrag.pdf',
+      fields: { 'customer.name': 'Erika Mustermann', newsletter: true },
+      flatten: true,
+    });
+    expect(calls[1]!.headers['idempotency-key']).toMatch(/\S+/);
+
+    await client.pdf.fill(
+      { file: { data: new Uint8Array([37]), name: 'antrag.pdf' } },
+      { fields: { size: 'M', tags: ['a', 'b'] }, strict: false },
+    );
+    const upload = calls[2]!.body as FormData;
+    expect(upload.get('fields')).toBe('{"size":"M","tags":["a","b"]}');
+    expect(upload.get('strict')).toBe('false');
+  });
+
   it('uploads to the file library as multipart, lists, reads and deletes', async () => {
     const file = {
       id: 'fil_1',

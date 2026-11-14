@@ -76,6 +76,20 @@ import {
   strictVerdict,
 } from './lib/accessibility';
 import { isMarkdownFile, markdownConvertRequest } from './lib/markdown';
+import {
+  collect,
+  fillValues,
+  formLines,
+  infoLines,
+  PAGE_SELECTION,
+  parseRegion,
+  PDF_SOURCE_HELP,
+  pdfSource,
+  resultFile,
+  resultLine,
+  wholeNumber,
+  type PageTool,
+} from './lib/pdf-tools';
 import { pdfaFailure, pdfaLines, pdfaVerdict } from './lib/pdfa';
 import { deviceLogin } from './lib/device-login';
 import { startDevServer } from './lib/dev-server';
@@ -2249,6 +2263,337 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
         ]);
       },
     );
+
+  // --- PDF tools on the office sidecar's PDF engine (plan 30) ----------------------------------
+  /**
+   * One page tool as a render: the source as an upload or by id, the result downloaded beside the
+   * working folder's other files unless `--no-download`. A redaction that left text behind is a
+   * finding about the document (exit code 1), like a strict PDF/UA check that failed.
+   */
+  const pageTool = async (
+    tool: PageTool,
+    source: string,
+    fields: Record<string, unknown>,
+    opts: { out?: string; download: boolean },
+  ): Promise<void> => {
+    const cwd = ctx.cwd ?? process.cwd();
+    const input = pdfSource(source, cwd);
+    const c = client(settings());
+    const request = { ...fields, meta: { source: `formfeed pdf ${tool}` } };
+    let render: Render;
+    try {
+      render = await (tool === 'split'
+        ? c.pdf.split(input, request)
+        : tool === 'compress'
+          ? c.pdf.compress(input, request)
+          : tool === 'to-image'
+            ? c.pdf.toImage(input, request)
+            : tool === 'redact'
+              ? c.pdf.redact(input, request)
+              : c.pdf.fill(input, request));
+    } catch (e) {
+      if ((e as FormfeedError).code === 'redaction_incomplete')
+        throw new CliError(
+          `${source}: ${(e as FormfeedError).message}`,
+          exitCodes.validation,
+          (e as FormfeedError).problem,
+        );
+      throw e;
+    }
+    if (render.status !== 'succeeded' && render.status !== 'failed')
+      render = await c.renders.waitFor(render.id);
+    if (render.status !== 'succeeded')
+      throw new CliError(
+        `${tool} ${render.id} failed: ${JSON.stringify(render.error)}`,
+        exitCodes.network,
+        render,
+      );
+    const finished = render;
+    const lines = formLines(finished.form);
+    if (!opts.download) {
+      emit(p(), finished, () => [
+        ...lines,
+        `${resultLine(finished)}, ${finished.download_url ?? 'no URL'}`,
+      ]);
+      return;
+    }
+    const file = opts.out
+      ? resolve(cwd, opts.out)
+      : resultFile(finished, tool, cwd);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, await c.renders.download(finished));
+    emit(p(), { ...finished, file }, () => [
+      ...lines,
+      `${resultLine(finished)} -> ${shown(file)}`,
+    ]);
+  };
+  const outHelp = (example: string) =>
+    `output file (default: the name the API gives it, e.g. ${example})`;
+  /** compress, redact and fill keep the source's name, which the CLI never writes over by default. */
+  const doneHelp = (done: string, example: string) =>
+    `output file (default: the source's name with -${done}, e.g. ${example})`;
+
+  pdfCmd
+    .command('split <source>')
+    .description(
+      `Cut a PDF into parts (Starter plan and above): --every N pages, or one part per --range. The result is a ZIP of the parts, or the PDF for one part. ${PDF_SOURCE_HELP}`,
+    )
+    .option(
+      '--every <pages>',
+      'pages per part',
+      wholeNumber('--every', 1, 1000),
+    )
+    .option(
+      '--range <pages>',
+      'one part per page selection, e.g. 1-3,5 or 4- for page 4 to the last (repeatable)',
+      collect,
+    )
+    .option('--out <file>', outHelp('contract.zip'))
+    .option('--no-download', 'create the render without downloading it')
+    .action(
+      async (
+        source: string,
+        opts: {
+          every?: number;
+          range?: string[];
+          out?: string;
+          download: boolean;
+        },
+      ) => {
+        if ((opts.every === undefined) === (opts.range === undefined))
+          throw new CliError('Give --every or --range', exitCodes.usage);
+        const bad = opts.range?.find((r) => !PAGE_SELECTION.test(r));
+        if (bad !== undefined)
+          throw new CliError(
+            `--range ${bad} is no page selection such as 1-3,5 or 4-`,
+            exitCodes.usage,
+          );
+        await pageTool(
+          'split',
+          source,
+          opts.every !== undefined
+            ? { every: opts.every }
+            : { ranges: opts.range },
+          opts,
+        );
+      },
+    );
+
+  pdfCmd
+    .command('compress <source>')
+    .description(
+      `Make a PDF smaller (Starter plan and above); the source comes back as it was when it cannot be made smaller. ${PDF_SOURCE_HELP}`,
+    )
+    .option('--out <file>', doneHelp('compressed', 'contract-compressed.pdf'))
+    .option('--no-download', 'create the render without downloading it')
+    .action(
+      async (source: string, opts: { out?: string; download: boolean }) => {
+        await pageTool('compress', source, {}, opts);
+      },
+    );
+
+  pdfCmd
+    .command('to-image <source>')
+    .description(
+      `Draw pages of a PDF as PNG or JPEG pictures (Starter plan and above, one unit per picture): one page gives the picture, several a ZIP of them. ${PDF_SOURCE_HELP}`,
+    )
+    .option(
+      '--pages <pages>',
+      'pages to draw, e.g. 1, 1-3,5 or 2- (default: every page)',
+    )
+    .option('--format <format>', 'png (default) or jpg')
+    .option(
+      '--dpi <dpi>',
+      'resolution, 36 to 300 (default 150)',
+      wholeNumber('--dpi', 36, 300),
+    )
+    .option(
+      '--quality <quality>',
+      'JPEG quality, 1 to 100',
+      wholeNumber('--quality', 1, 100),
+    )
+    .option('--out <file>', outHelp('contract-1.png'))
+    .option('--no-download', 'create the render without downloading it')
+    .action(
+      async (
+        source: string,
+        opts: {
+          pages?: string;
+          format?: string;
+          dpi?: number;
+          quality?: number;
+          out?: string;
+          download: boolean;
+        },
+      ) => {
+        if (opts.pages !== undefined && !PAGE_SELECTION.test(opts.pages))
+          throw new CliError(
+            '--pages looks like 1, 1-3,5 or 2-',
+            exitCodes.usage,
+          );
+        if (opts.format !== undefined && !['png', 'jpg'].includes(opts.format))
+          throw new CliError('--format is png or jpg', exitCodes.usage);
+        await pageTool(
+          'to-image',
+          source,
+          {
+            pages: opts.pages,
+            format: opts.format,
+            dpi: opts.dpi,
+            quality: opts.quality,
+          },
+          opts,
+        );
+      },
+    );
+
+  pdfCmd
+    .command('redact <source>')
+    .description(
+      `Remove what lies under rectangles and every place a text stands from a PDF, not just from view, and check the result (Starter plan and above). Text that is still there fails with exit code 1 and delivers nothing. ${PDF_SOURCE_HELP}`,
+    )
+    .option(
+      '--rect <page:x,y,width,height>',
+      'a rectangle in points from the top-left corner of the page as a viewer shows it, e.g. 1:52,88,200,16 (repeatable)',
+      collect,
+    )
+    .option(
+      '--text <text>',
+      'a text to remove wherever it stands, whatever its spacing (repeatable)',
+      collect,
+    )
+    .option('--match-case', 'find a text only in the case it is written in')
+    .option('--whole-words', 'find a text only as a whole word')
+    .option(
+      '--fill <colour>',
+      'colour of the box over each removed place (default #000000)',
+    )
+    .option('--no-fill', 'draw no box over the removed places')
+    .option('--out <file>', doneHelp('redacted', 'contract-redacted.pdf'))
+    .option('--no-download', 'create the render without downloading it')
+    .action(
+      async (
+        source: string,
+        opts: {
+          rect?: string[];
+          text?: string[];
+          matchCase?: boolean;
+          wholeWords?: boolean;
+          fill?: string | false;
+          out?: string;
+          download: boolean;
+        },
+      ) => {
+        if (!opts.rect && !opts.text)
+          throw new CliError('Give --rect or --text', exitCodes.usage);
+        if (
+          typeof opts.fill === 'string' &&
+          !/^#?[0-9a-fA-F]{6}$/.test(opts.fill)
+        )
+          throw new CliError(
+            '--fill is a colour such as #000000',
+            exitCodes.usage,
+          );
+        let regions: ReturnType<typeof parseRegion>[] | undefined;
+        try {
+          regions = opts.rect?.map(parseRegion);
+        } catch (e) {
+          throw new CliError((e as Error).message, exitCodes.usage);
+        }
+        await pageTool(
+          'redact',
+          source,
+          {
+            regions,
+            text: opts.text,
+            ...(opts.matchCase ? { match_case: true } : {}),
+            ...(opts.wholeWords ? { whole_words: true } : {}),
+            ...(opts.fill === false
+              ? { fill: null }
+              : opts.fill !== undefined
+                ? { fill: opts.fill }
+                : {}),
+          },
+          opts,
+        );
+      },
+    );
+
+  pdfCmd
+    .command('fill <source>')
+    .description(
+      `Fill a PDF form by its fields' full names, as pdf info lists them, and keep it fillable, or draw the values into the pages with --flatten (Starter plan and above). The values are never stored. ${PDF_SOURCE_HELP}`,
+    )
+    .option(
+      '--data <file>',
+      'a JSON file of values by field name: text, a number, true or false for a check box, a list for a list box',
+    )
+    .option(
+      '--field <name=value>',
+      'one value over --data; true and false set a check box (repeatable)',
+      collect,
+    )
+    .option('--flatten', 'draw the values into the pages and remove the fields')
+    .option(
+      '--lenient',
+      'leave out a name the form lacks or a value its field does not take, and list them, instead of failing',
+    )
+    .option('--out <file>', doneHelp('filled', 'form-filled.pdf'))
+    .option('--no-download', 'create the render without downloading it')
+    .action(
+      async (
+        source: string,
+        opts: {
+          data?: string;
+          field?: string[];
+          flatten?: boolean;
+          lenient?: boolean;
+          out?: string;
+          download: boolean;
+        },
+      ) => {
+        const cwd = ctx.cwd ?? process.cwd();
+        let data: unknown;
+        if (opts.data !== undefined) {
+          const path = resolve(cwd, opts.data);
+          if (!existsSync(path))
+            throw new CliError(`No file ${path}`, exitCodes.usage);
+          try {
+            data = JSON.parse(readFileSync(path, 'utf8'));
+          } catch {
+            throw new CliError(`${path} is no JSON`, exitCodes.usage);
+          }
+        }
+        const fields = fillValues(data, opts.field ?? []);
+        if (!Object.keys(fields).length && !opts.flatten)
+          throw new CliError(
+            'Give values with --data or --field, or --flatten',
+            exitCodes.usage,
+          );
+        await pageTool(
+          'fill',
+          source,
+          {
+            ...(Object.keys(fields).length ? { fields } : {}),
+            ...(opts.flatten ? { flatten: true } : {}),
+            ...(opts.lenient ? { strict: false } : {}),
+          },
+          opts,
+        );
+      },
+    );
+
+  pdfCmd
+    .command('info <source>')
+    .description(
+      `Pages, sizes, encryption, metadata and the form of a PDF, with each field's name, type, value and options: the names pdf fill takes. Free, and makes no render. ${PDF_SOURCE_HELP}`,
+    )
+    .action(async (source: string) => {
+      const info = await client(settings()).pdf.info(
+        pdfSource(source, ctx.cwd ?? process.cwd()),
+      );
+      emit(p(), info, () => infoLines(info));
+    });
 
   const rendersCmd = program.command('renders').description('Inspect renders');
   rendersCmd

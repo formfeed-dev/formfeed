@@ -12,6 +12,7 @@ import {
   FormfeedError,
   type Diagnostic as SdkDiagnostic,
   type EinvoiceValidationReport,
+  type PdfSource,
   type Render,
   type TemplateVersion,
 } from '@formfeed/sdk-ts';
@@ -44,6 +45,9 @@ export interface ServerOptions {
 
 /** The converter's upload limit; larger files are refused before they are read or sent. */
 const CONVERT_LIMIT_BYTES = 20 * 1024 * 1024;
+/** The PDF tools take up to 100 MB from a path; a PDF handed over as base64 goes up to 20 MB. */
+const PDF_PATH_LIMIT_BYTES = 100 * 1024 * 1024;
+const PDF_BASE64_LIMIT_BYTES = 20 * 1024 * 1024;
 /** The most an e-invoice validation reads (plan 25 §9); a larger XML is refused before it is sent. */
 const VALIDATE_LIMIT_BYTES = 4 * 1024 * 1024;
 
@@ -133,6 +137,12 @@ const kindSchema = z.enum(['pdf', 'image', 'docx', 'pptx']);
 const renderOutput = {
   id: z.string().describe('rnd_ id of the render'),
   status: z.enum(['queued', 'rendering', 'succeeded', 'failed']),
+  output: z
+    .string()
+    .optional()
+    .describe(
+      'The format of the file: pdf, png, jpg, webp, docx or pptx, or zip for the several files of split_pdf and pdf_to_image',
+    ),
   download_url: z
     .string()
     .nullable()
@@ -174,6 +184,17 @@ const renderOutput = {
     .record(z.string(), z.unknown())
     .optional()
     .describe('The e-invoice report, when the render made one'),
+  form: z
+    .object({
+      filled: z.number(),
+      skipped: z.array(z.object({ field: z.string(), reason: z.string() })),
+      warnings: z.array(z.object({ field: z.string(), code: z.string() })),
+      xfa_removed: z.boolean(),
+    })
+    .optional()
+    .describe(
+      'What fill_pdf_form did: the fields filled, those left out (unknown name or invalid value) and those whose calculation or display format no viewer ran',
+    ),
 };
 
 const diagnosticOutput = z.object({
@@ -215,6 +236,7 @@ const templateSummary = (t: {
 const renderSummary = (r: Render) => ({
   id: r.id,
   status: r.status,
+  ...(r.output ? { output: r.output } : {}),
   download_url: r.download_url,
   expires_at: r.expires_at,
   page_count: r.page_count,
@@ -229,6 +251,8 @@ const renderSummary = (r: Render) => ({
   ...(r.pdfa ? { pdfa: r.pdfa } : {}),
   // the report of an e-invoice (spec 17): valid, the findings, the XML's link, the hashes it checked
   ...(r.einvoice ? { einvoice: r.einvoice } : {}),
+  // what a fill did (plan 30): the field names it filled, left out or could not compute, never a value
+  ...(r.form ? { form: r.form } : {}),
 });
 
 /** A finding of the API's check as the tools hand it on: the location flattened to line and column. */
@@ -339,6 +363,28 @@ const EINVOICE_PROBLEMS = new Set([
   'einvoice_validator_error',
 ]);
 
+/** The problems of the PDF tools whose extra fields an agent needs, and those fields. */
+const PDF_TOOL_PROBLEMS = new Set([
+  'redaction_incomplete',
+  'form_field_unknown',
+  'form_value_invalid',
+  'invalid_request',
+  'page_limit_exceeded',
+]);
+const PDF_TOOL_KEYS = [
+  'page',
+  'region',
+  'regions',
+  'text',
+  'places',
+  'copies',
+  'unread',
+  'unread_pages',
+  'revisions',
+  'field',
+  'rule',
+] as const;
+
 function text(data: unknown) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
@@ -377,10 +423,23 @@ function failure(e: unknown) {
             .map((key) => [key, e.problem?.[key]]),
         )
       : {};
+  // A PDF tool's refusal (plan 30) says what it is about by number and name, never by a value or a
+  // text: the regions and texts a redaction left behind and the places that still hold one, the page
+  // or region refused, a form field and the rule its value broke. With them an agent can correct
+  // the call instead of guessing.
+  const tool =
+    e instanceof FormfeedError && PDF_TOOL_PROBLEMS.has(e.code)
+      ? Object.fromEntries(
+          PDF_TOOL_KEYS.filter((key) => e.problem?.[key] !== undefined).map(
+            (key) => [key, e.problem?.[key]],
+          ),
+        )
+      : {};
   const details = {
     ...(verdict ? { accessibility: verdict } : {}),
     ...(pdfa ? { pdfa } : {}),
     ...invoice,
+    ...tool,
   };
   return {
     content: [
@@ -422,7 +481,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
   const server = new McpServer(SERVER_INFO, {
     instructions:
       (client ? '' : `${NO_KEY_INSTRUCTION} `) +
-      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. validate_einvoice says which rules an e-invoice XML passed, by which validator, also one Formfeed did not make. markdown_to_pdf turns a Markdown document, such as a report you wrote, into a PDF without a template. convert_to_pdf turns office documents into PDFs. To change a template or write a new one, read it with get_template_source and save it with save_template: it stays a draft until a person publishes it in Formfeed. get_workspace says which workspace this server works in and what the period has left.',
+      'Formfeed renders PDFs and images from HTML templates, and fills Word and PowerPoint templates (as DOCX, PPTX or PDF). Start with list_templates, read the data shape with get_template_schema, check data with validate_template, then call render and hand the download_url to the user. An image render also returns the picture itself, so look at it before handing it on. For an e-invoice (ZUGFeRD / Factur-X), put the invoice into data._invoice, check it with check_invoice, and call render with einvoice set; the template prints the same block. validate_einvoice says which rules an e-invoice XML passed, by which validator, also one Formfeed did not make. markdown_to_pdf turns a Markdown document, such as a report you wrote, into a PDF without a template. convert_to_pdf turns office documents into PDFs. For a PDF that already exists, a render or one you are given: get_pdf_info reads its pages and form fields, fill_pdf_form fills the form by those names, redact_pdf removes text for good and checks that it is gone, split_pdf and compress_pdf cut and shrink it, and pdf_to_image draws a page and hands the picture back so you can look at it. To change a template or write a new one, read it with get_template_source and save it with save_template: it stays a draft until a person publishes it in Formfeed. get_workspace says which workspace this server works in and what the period has left.',
   });
 
   /**
@@ -1630,12 +1689,454 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
     },
   );
 
+  // --- the PDF tools of plan 30: on a PDF of the workspace or one the call hands over ---------------
+  const pdfInput = {
+    source: z
+      .string()
+      .optional()
+      .describe(
+        'A PDF of the workspace: the rnd_ id of a PDF render, or a PDF of the file library by name (such as terms.pdf) or fil_ id',
+      ),
+    ...(options.localFiles
+      ? {
+          path: z
+            .string()
+            .optional()
+            .describe(
+              'Absolute path of a PDF on this machine, up to 100 MB; sent with the request and not kept',
+            ),
+        }
+      : {}),
+    file_base64: z
+      .string()
+      .optional()
+      .describe(
+        'The PDF itself, base64 encoded, up to 20 MB; sent with the request and not kept',
+      ),
+    file_name: z
+      .string()
+      .optional()
+      .describe(
+        'Name of the PDF given as file_base64 or path, e.g. contract.pdf; the results are named after it',
+      ),
+  };
+  const pdfSourceLine = options.localFiles
+    ? 'Pass exactly one PDF: source, a render or library file of the workspace; path, a file on this machine; or file_base64.'
+    : 'Pass exactly one PDF: source, a render or library file of the workspace, or file_base64, the PDF itself.';
+  const resultName = z
+    .string()
+    .optional()
+    .describe(
+      "Name of the file behind download_url; the source's name when left out",
+    );
+  const pageSelection = z.string().regex(/^\d+(-\d*)?(,\d+(-\d*)?)*$/);
+  type PdfArgs = {
+    source?: string;
+    path?: string;
+    file_base64?: string;
+    file_name?: string;
+    filename?: string;
+  };
+
+  /** The PDF a call names, as the SDK takes it, or why it names none, several or one too large. */
+  const pdfOf = async (args: PdfArgs): Promise<PdfSource | Error> => {
+    const given = [args.source, args.path, args.file_base64].filter(
+      (s) => s !== undefined && s !== '',
+    );
+    if (given.length !== 1)
+      return new Error(
+        'Pass exactly one of source, file_base64' +
+          (options.localFiles ? ' or path' : ''),
+      );
+    if (args.source) return args.source;
+    if (args.path) {
+      const { readFile, stat } = await import('node:fs/promises');
+      const { basename } = await import('node:path');
+      if ((await stat(args.path)).size > PDF_PATH_LIMIT_BYTES)
+        return new Error(
+          `${args.path} is larger than 100 MB, the limit for the PDF tools`,
+        );
+      return {
+        file: {
+          data: new Uint8Array(await readFile(args.path)),
+          name: args.file_name ?? basename(args.path),
+        },
+      };
+    }
+    const data = Uint8Array.from(Buffer.from(args.file_base64!, 'base64'));
+    if (data.length === 0)
+      return new Error('file_base64 is empty or not base64');
+    if (data.length > PDF_BASE64_LIMIT_BYTES)
+      return new Error(
+        'The PDF is larger than 20 MB, the limit for file_base64',
+      );
+    return { file: { data, name: args.file_name ?? 'document.pdf' } };
+  };
+
+  /** One PDF tool as a render: the PDF the call names, the result with the picture of an image. */
+  const pdfTool = async (
+    args: PdfArgs,
+    run: (
+      client: Formfeed,
+      input: PdfSource,
+      output: { meta: Record<string, unknown>; filename?: string },
+    ) => Promise<Render>,
+  ) => {
+    try {
+      const client = api();
+      const input = await pdfOf(args);
+      if (input instanceof Error) return failure(input);
+      let render = await run(client, input, {
+        meta: { source: 'mcp' },
+        ...(args.filename ? { filename: args.filename } : {}),
+      });
+      if (render.status !== 'succeeded' && render.status !== 'failed')
+        render = await client.renders.waitFor(render.id);
+      return await renderResult(render);
+    } catch (e) {
+      return failure(e);
+    }
+  };
+
+  server.registerTool(
+    'get_pdf_info',
+    {
+      title: "Read a PDF's pages, properties and form",
+      description: [
+        'Reads a PDF without changing it: the page count and the size of every page, whether it is password-protected, its document properties, and its form, with every field by its full name, label, type, value and the options it takes.',
+        'Read it before fill_pdf_form, which takes the fields by these names, and before redact_pdf or split_pdf, which work on these pages.',
+        pdfSourceLine,
+        'Free on every plan; it creates no render, and an uploaded PDF is read and not kept.',
+      ].join(' '),
+      inputSchema: pdfInput,
+      outputSchema: {
+        source: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('The render id or library file name the PDF came from'),
+        page_count: z.number(),
+        pages: z
+          .array(
+            z.object({
+              width_pt: z.number(),
+              height_pt: z.number(),
+              width_mm: z.number(),
+              height_mm: z.number(),
+            }),
+          )
+          .describe(
+            'The size of every page, in points (72 an inch) and millimetres',
+          ),
+        encrypted: z
+          .boolean()
+          .describe('Whether the file is password-protected'),
+        metadata: z
+          .record(z.string(), z.unknown())
+          .describe(
+            'Title, author, subject, producer and creator; null when unset',
+          ),
+        form: z
+          .object({
+            type: z
+              .string()
+              .nullable()
+              .describe(
+                'acroform, hybrid or xfa (which fill_pdf_form refuses); null for a PDF without a form',
+              ),
+            signed: z.boolean(),
+            fields: z.array(
+              z.object({
+                name: z.string(),
+                label: z.string().nullable(),
+                type: z.string(),
+                value: z.unknown(),
+                options: z.array(z.string()).nullable(),
+                required: z.boolean(),
+                readonly: z.boolean(),
+                calculated: z.boolean(),
+                format: z.string().nullable(),
+                pages: z.array(z.number()),
+              }),
+            ),
+          })
+          .nullable()
+          .optional()
+          .describe('The form; null when the file needs a password to open'),
+      },
+      annotations: READS,
+    },
+    async (args) => {
+      try {
+        const client = api();
+        const input = await pdfOf(args as PdfArgs);
+        if (input instanceof Error) return failure(input);
+        return text(await client.pdf.info(input));
+      } catch (e) {
+        return failure(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'split_pdf',
+    {
+      title: 'Split a PDF',
+      description: [
+        'Cuts a PDF into parts, every N pages each or one part per entry of ranges, and returns the render with download_url: a ZIP of the parts, named after the source (contract-1.pdf, contract-2.pdf and so on), or the PDF itself when there is one part.',
+        'get_pdf_info gives the page count first.',
+        pdfSourceLine,
+        'Starter plan and above; 0.5 units on a live key. A PDF/A or a password-protected PDF is refused.',
+      ].join(' '),
+      inputSchema: {
+        ...pdfInput,
+        every: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe('Pages per part; give every or ranges'),
+        ranges: z
+          .array(pageSelection)
+          .min(1)
+          .max(100)
+          .optional()
+          .describe(
+            'One part per entry, each a page selection such as 1-3,5, or 4- for page 4 to the last; give every or ranges',
+          ),
+        filename: resultName,
+      },
+      outputSchema: renderOutput,
+      annotations: CREATES,
+    },
+    async (args) => {
+      if ((args.every === undefined) === (args.ranges === undefined))
+        return failure(new Error('Pass every or ranges'));
+      return pdfTool(args as PdfArgs, (client, input, output) =>
+        client.pdf.split(input, {
+          ...output,
+          ...(args.every !== undefined
+            ? { every: args.every }
+            : { ranges: args.ranges }),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'compress_pdf',
+    {
+      title: 'Compress a PDF',
+      description: [
+        'Makes a PDF smaller and returns the render with download_url; a PDF that cannot be made smaller comes back as it was.',
+        'For a preview picture of a page instead, use pdf_to_image.',
+        pdfSourceLine,
+        'Starter plan and above; 0.5 units on a live key. A PDF/A or a password-protected PDF is refused.',
+      ].join(' '),
+      inputSchema: { ...pdfInput, filename: resultName },
+      outputSchema: renderOutput,
+      annotations: CREATES,
+    },
+    async (args) =>
+      pdfTool(args as PdfArgs, (client, input, output) =>
+        client.pdf.compress(input, output),
+      ),
+  );
+
+  server.registerTool(
+    'pdf_to_image',
+    {
+      title: 'Turn PDF pages into pictures',
+      description: [
+        'Draws pages of a PDF as PNG or JPEG pictures and returns the render with download_url: one page gives the picture, which this tool also hands back so you can look at it (up to 2 MB), several pages a ZIP of pictures named by page.',
+        'At most 100 pages and 120 million pixels a call, about 13 A4 pages at 300 dpi. Use it to see a page before redact_pdf, or for thumbnails.',
+        pdfSourceLine,
+        'Starter plan and above; one unit per picture on a live key.',
+      ].join(' '),
+      inputSchema: {
+        ...pdfInput,
+        pages: pageSelection
+          .optional()
+          .describe(
+            'The pages to draw, such as 1, 1-3,5 or 2- (page 2 to the last); every page when left out',
+          ),
+        format: z
+          .enum(['png', 'jpg'])
+          .optional()
+          .describe('png (the default) or jpg'),
+        dpi: z
+          .number()
+          .int()
+          .min(36)
+          .max(300)
+          .optional()
+          .describe(
+            'Resolution, 36 to 300, 150 when left out; at 72 a pixel stands for a point',
+          ),
+        quality: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('JPEG quality, 1 to 100; ignored for PNG'),
+        filename: resultName,
+      },
+      outputSchema: renderOutput,
+      annotations: CREATES,
+    },
+    async (args) =>
+      pdfTool(args as PdfArgs, (client, input, output) =>
+        client.pdf.toImage(input, {
+          ...output,
+          ...(args.pages ? { pages: args.pages } : {}),
+          ...(args.format ? { format: args.format } : {}),
+          ...(args.dpi !== undefined ? { dpi: args.dpi } : {}),
+          ...(args.quality !== undefined ? { quality: args.quality } : {}),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'redact_pdf',
+    {
+      title: 'Redact a PDF',
+      description: [
+        'Removes what lies under rectangles of the pages, and every place where a text stands, from the file itself and not just from view: text, the pixels of images under a rectangle, and links and comments it touches.',
+        'The result is read again: a text that can still be found fails the call with redaction_incomplete, which names rectangles and texts by their number, and nothing is delivered.',
+        'Rectangles are points from the top-left corner of the page as a viewer shows it, 72 to an inch; get_pdf_info gives the page sizes and pdf_to_image a picture of the page. A text is found whatever its spacing, ignoring case unless match_case is true.',
+        'A black box is drawn over each removed place, another colour with fill, none with fill null.',
+        pdfSourceLine,
+        'Starter plan and above; 0.5 units on a live key. The texts are never stored.',
+      ].join(' '),
+      inputSchema: {
+        ...pdfInput,
+        regions: z
+          .array(
+            z.object({
+              page: z.number().int().min(1).describe('Page number, from 1'),
+              x: z.number().min(0).describe('Points from the left edge'),
+              y: z.number().min(0).describe('Points from the top edge'),
+              width: z.number().positive().describe('Width in points'),
+              height: z.number().positive().describe('Height in points'),
+            }),
+          )
+          .min(1)
+          .max(500)
+          .optional()
+          .describe(
+            'The rectangles to remove, as a viewer shows the page; give regions, text or both',
+          ),
+        text: z
+          .array(z.string().min(1).max(500))
+          .min(1)
+          .max(100)
+          .optional()
+          .describe(
+            'Texts to remove wherever they stand, such as a name or an IBAN, found whatever their spacing',
+          ),
+        match_case: z
+          .boolean()
+          .optional()
+          .describe('Find a text only in the case it is written in'),
+        whole_words: z
+          .boolean()
+          .optional()
+          .describe(
+            'Find a text only where a word boundary stands on each side',
+          ),
+        fill: z
+          .string()
+          .regex(/^#?[0-9a-fA-F]{6}$/)
+          .nullable()
+          .optional()
+          .describe(
+            'Colour of the box drawn over each removed place, #000000 when left out; null draws none',
+          ),
+        filename: resultName,
+      },
+      outputSchema: renderOutput,
+      annotations: CREATES,
+    },
+    async (args) => {
+      if (!args.regions && !args.text)
+        return failure(new Error('Pass regions, text or both'));
+      return pdfTool(args as PdfArgs, (client, input, output) =>
+        client.pdf.redact(input, {
+          ...output,
+          ...(args.regions ? { regions: args.regions } : {}),
+          ...(args.text ? { text: args.text } : {}),
+          ...(args.match_case !== undefined
+            ? { match_case: args.match_case }
+            : {}),
+          ...(args.whole_words !== undefined
+            ? { whole_words: args.whole_words }
+            : {}),
+          ...(args.fill !== undefined ? { fill: args.fill } : {}),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'fill_pdf_form',
+    {
+      title: 'Fill a PDF form',
+      description: [
+        'Fills the fields of a PDF form by their full names, as get_pdf_info lists them, and returns the render with download_url and form: how many fields were filled, which were left out, and which hold a calculation or display format that no viewer ran.',
+        'The form stays fillable, or flatten draws the values into the pages. A name the form lacks or a value its field does not take fails the call with form_field_unknown or form_value_invalid, naming the field, unless strict is false.',
+        pdfSourceLine,
+        'Starter plan and above; 0.5 units on a live key. The values are never stored; a signed form and an XFA form are refused.',
+      ].join(' '),
+      inputSchema: {
+        ...pdfInput,
+        fields: z
+          .record(
+            z.string(),
+            z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
+          )
+          .optional()
+          .describe(
+            "Values by the fields' full names: text for a text field, true or false for a check box, one of the field's options for a dropdown, a radio group or a check box with several on-values, a list of options for a list box",
+          ),
+        flatten: z
+          .boolean()
+          .optional()
+          .describe(
+            'Draw the values into the pages and remove the fields, so the values can no longer be changed',
+          ),
+        strict: z
+          .boolean()
+          .optional()
+          .describe(
+            'true (the default) fails on a name the form lacks or a value its field does not take; false leaves both out and lists them in form.skipped',
+          ),
+        filename: resultName,
+      },
+      outputSchema: renderOutput,
+      annotations: CREATES,
+    },
+    async (args) => {
+      if (!args.fields && !args.flatten)
+        return failure(new Error('Pass fields, or flatten alone'));
+      return pdfTool(args as PdfArgs, (client, input, output) =>
+        client.pdf.fill(input, {
+          ...output,
+          ...(args.fields ? { fields: args.fields } : {}),
+          ...(args.flatten !== undefined ? { flatten: args.flatten } : {}),
+          ...(args.strict !== undefined ? { strict: args.strict } : {}),
+        }),
+      );
+    },
+  );
+
   server.registerTool(
     'get_render',
     {
       title: 'Get a render',
       description:
-        'Returns the current state of a render: status (queued, rendering, succeeded or failed), download_url with expires_at, page_count, units and error, and the picture of a finished image render up to 2 MB. Use it to follow a render started with wait false, or to get a fresh link once the old one has expired; render and convert_to_pdf already return this for the render they just made. Read-only and free; an unknown id returns an error.',
+        'Returns the current state of a render: status (queued, rendering, succeeded or failed), download_url with expires_at, page_count, units and error, and the picture of a finished image render up to 2 MB. Use it to follow a render started with wait false, or to get a fresh link once the old one has expired; render, convert_to_pdf and the PDF tools already return this for the render they just made. Read-only and free; an unknown id returns an error.',
       inputSchema: {
         id: z
           .string()

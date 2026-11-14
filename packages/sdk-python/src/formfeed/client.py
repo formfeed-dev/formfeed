@@ -343,6 +343,34 @@ def _split_file(fields: dict[str, Any]) -> tuple[Any, str | None, dict[str, Any]
     return file, file_name, rest
 
 
+def _tool_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    """A PDF tool's own fields without those left at their default (``None``), but redact's ``fill``, whose
+    ``None`` draws no box."""
+    return {key: value for key, value in fields.items() if value is not None or key == "fill"}
+
+
+def _pdf_parts(file: bytes | Any, file_name: str | None, fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    """An uploaded PDF under ``file`` (bytes, or a binary file object read once, so that a retry sends the same
+    bytes), the fields beside it as the API reads them; a ``None`` fill goes as the JSON text ``null``."""
+    own = getattr(file, "name", None)
+    name = file_name or (os.path.basename(own) if isinstance(own, str) else None) or "document.pdf"
+    data = file.read() if hasattr(file, "read") else file
+    form = {key: "null" if value is None else _form_value(value) for key, value in _tool_fields(fields).items()}
+    return {"file": (name, data, "application/pdf")}, form
+
+
+def _pdf_request(
+    source: Render | LibraryFile | str | None, file: bytes | Any, file_name: str | None, fields: dict[str, Any]
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, str] | None]:
+    """A PDF tool's request as body, files and form: the stored source's id as JSON, or the upload as multipart."""
+    if (source is None) == (file is None):
+        raise FormfeedError("invalid_request", "pass either source or file")
+    if file is not None:
+        files, form = _pdf_parts(file, file_name, fields)
+        return None, files, form
+    return {**_tool_fields(fields), "source": _source_id(source)}, None, None  # type: ignore[arg-type]
+
+
 def _files_query(prefix: str | None, limit: int | None, cursor: str | None) -> str:
     params = httpx.QueryParams(_query(prefix=prefix, limit=limit, cursor=cursor))
     return f"/files{'?' + str(params) if params else ''}"
@@ -650,8 +678,10 @@ class _Workspaces:
 
 
 class _Pdf:
-    """PDF tools on outputs of earlier renders. merge, protect and watermark return a new render
-    (0.5 units each on live keys) and send an idempotency key; info is free."""
+    """PDF tools on outputs of earlier renders and PDFs of the file library; split, compress, to_image, redact,
+    fill and info also take an uploaded ``file`` (bytes or a binary file object), which is never stored. Every
+    tool but info returns a new render and sends an idempotency key, on the Starter plan and above: 0.5 units
+    each on live keys, to_image one unit per picture. info is free."""
 
     def __init__(self, client: Formfeed) -> None:
         self._c = client
@@ -675,8 +705,97 @@ class _Pdf:
         body = {**_options(options), "source": _source_id(source), **_watermark_body(text, image)}
         return Render.model_validate(self._c.request("POST", "/pdf/watermark", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
-    def info(self, source: Render | str) -> PdfInfo:
-        return PdfInfo.model_validate(self._c.request("POST", "/pdf/info", {"source": _source_id(source)}))
+    def info(self, source: Render | LibraryFile | str | None = None, *, file: bytes | Any = None, file_name: str | None = None) -> PdfInfo:
+        """Page count, page sizes, encryption, metadata and the form, with every field's name, type, value and
+        options, which is how a form's names are found for ``fill``. Free; creates no render."""
+        body, files, form = _pdf_request(source, file, file_name, {})
+        return PdfInfo.model_validate(self._c.request("POST", "/pdf/info", body, files=files, form=form))
+
+    def _tool(
+        self, path: str, source: Render | LibraryFile | str | None, file: Any, file_name: str | None, fields: dict[str, Any], idempotency_key: str | None
+    ) -> Render:
+        body, files, form = _pdf_request(source, file, file_name, fields)
+        key = idempotency_key or str(uuid.uuid4())
+        return Render.model_validate(self._c.request("POST", path, body, files=files, form=form, idempotency_key=key))
+
+    def split(
+        self,
+        source: Render | LibraryFile | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        every: int | None = None,
+        ranges: list[str] | None = None,
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        """Cuts a PDF into parts, ``every`` pages each or one per entry of ``ranges`` (page selections such as
+        ``"1-3,5"`` or ``"4-"``). The render's output is a ZIP of the parts, or the PDF itself for one part."""
+        return self._tool("/pdf/split", source, file, file_name, {"every": every, "ranges": ranges, **options}, idempotency_key)
+
+    def compress(
+        self, source: Render | LibraryFile | str | None = None, *, file: bytes | Any = None, file_name: str | None = None, idempotency_key: str | None = None, **options: Any
+    ) -> Render:
+        """Makes a PDF smaller; the render keeps the source when it cannot."""
+        return self._tool("/pdf/compress", source, file, file_name, options, idempotency_key)
+
+    def to_image(
+        self,
+        source: Render | LibraryFile | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        pages: str | None = None,
+        format: str | None = None,
+        dpi: int | None = None,
+        quality: int | None = None,
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        """Draws ``pages`` (``"1"``, ``"1-3,5"``, ``"2-"``; every page when omitted) as ``png`` or ``jpg`` pictures at
+        ``dpi`` (36 to 300, 150 by default): one page answers the picture, several a ZIP of them named by page."""
+        fields = {"pages": pages, "format": format, "dpi": dpi, "quality": quality, **options}
+        return self._tool("/pdf/to-image", source, file, file_name, fields, idempotency_key)
+
+    def redact(
+        self,
+        source: Render | LibraryFile | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        regions: list[dict[str, float]] | None = None,
+        text: str | list[str] | None = None,
+        match_case: bool | None = None,
+        whole_words: bool | None = None,
+        fill: str | None = "#000000",
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        """Removes what lies under ``regions`` (``{"page", "x", "y", "width", "height"}`` in points from the page's
+        top-left corner, as a viewer shows it) and every place where a ``text`` stands, from the file itself; a box
+        in ``fill`` is drawn over each, none with ``fill=None``. The result is read again: text that is still there
+        fails with ``redaction_incomplete``, which names rectangles and texts by number, never a text."""
+        fields = {"regions": regions, "text": text, "match_case": match_case, "whole_words": whole_words, "fill": fill, **options}
+        return self._tool("/pdf/redact", source, file, file_name, fields, idempotency_key)
+
+    def fill(
+        self,
+        source: Render | LibraryFile | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        fields: dict[str, Any] | None = None,
+        flatten: bool | None = None,
+        strict: bool | None = None,
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        """Fills a form's ``fields`` by their full names, as ``info`` lists them: text (a number too), ``True`` or
+        ``False`` for a check box, an option, or a list box's options. ``flatten=True`` draws the values into the
+        pages; ``strict=False`` leaves unknown names and values a field does not take out and lists them in
+        ``form.skipped``. No calculation or display format of the form runs, and the values are never stored."""
+        body = {"fields": fields, "flatten": flatten, "strict": strict, **options}
+        return self._tool("/pdf/fill", source, file, file_name, body, idempotency_key)
 
     def convert(
         self,
@@ -1092,8 +1211,82 @@ class _AsyncPdf:
         body = {**_options(options), "source": _source_id(source), **_watermark_body(text, image)}
         return Render.model_validate(await self._c.request("POST", "/pdf/watermark", body, idempotency_key=idempotency_key or str(uuid.uuid4())))
 
-    async def info(self, source: Render | str) -> PdfInfo:
-        return PdfInfo.model_validate(await self._c.request("POST", "/pdf/info", {"source": _source_id(source)}))
+    async def info(self, source: Render | LibraryFile | str | None = None, *, file: bytes | Any = None, file_name: str | None = None) -> PdfInfo:
+        body, files, form = _pdf_request(source, file, file_name, {})
+        return PdfInfo.model_validate(await self._c.request("POST", "/pdf/info", body, files=files, form=form))
+
+    async def _tool(
+        self, path: str, source: Render | LibraryFile | str | None, file: Any, file_name: str | None, fields: dict[str, Any], idempotency_key: str | None
+    ) -> Render:
+        body, files, form = _pdf_request(source, file, file_name, fields)
+        key = idempotency_key or str(uuid.uuid4())
+        return Render.model_validate(await self._c.request("POST", path, body, files=files, form=form, idempotency_key=key))
+
+    async def split(
+        self,
+        source: Render | LibraryFile | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        every: int | None = None,
+        ranges: list[str] | None = None,
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        return await self._tool("/pdf/split", source, file, file_name, {"every": every, "ranges": ranges, **options}, idempotency_key)
+
+    async def compress(
+        self, source: Render | LibraryFile | str | None = None, *, file: bytes | Any = None, file_name: str | None = None, idempotency_key: str | None = None, **options: Any
+    ) -> Render:
+        return await self._tool("/pdf/compress", source, file, file_name, options, idempotency_key)
+
+    async def to_image(
+        self,
+        source: Render | LibraryFile | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        pages: str | None = None,
+        format: str | None = None,
+        dpi: int | None = None,
+        quality: int | None = None,
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        fields = {"pages": pages, "format": format, "dpi": dpi, "quality": quality, **options}
+        return await self._tool("/pdf/to-image", source, file, file_name, fields, idempotency_key)
+
+    async def redact(
+        self,
+        source: Render | LibraryFile | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        regions: list[dict[str, float]] | None = None,
+        text: str | list[str] | None = None,
+        match_case: bool | None = None,
+        whole_words: bool | None = None,
+        fill: str | None = "#000000",
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        fields = {"regions": regions, "text": text, "match_case": match_case, "whole_words": whole_words, "fill": fill, **options}
+        return await self._tool("/pdf/redact", source, file, file_name, fields, idempotency_key)
+
+    async def fill(
+        self,
+        source: Render | LibraryFile | str | None = None,
+        *,
+        file: bytes | Any = None,
+        file_name: str | None = None,
+        fields: dict[str, Any] | None = None,
+        flatten: bool | None = None,
+        strict: bool | None = None,
+        idempotency_key: str | None = None,
+        **options: Any,
+    ) -> Render:
+        body = {"fields": fields, "flatten": flatten, "strict": strict, **options}
+        return await self._tool("/pdf/fill", source, file, file_name, body, idempotency_key)
 
     async def convert(
         self,

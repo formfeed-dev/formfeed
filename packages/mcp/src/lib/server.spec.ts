@@ -142,6 +142,100 @@ function fakeApi(seenKeys: string[] = []) {
             ? { limit: 100, used: 1, resets_at: '2026-11-07T00:00:00Z' }
             : null,
       });
+    // the PDF tools of plan 30: a page drawn as a picture, a filled form, a redaction that left a
+    // text behind, and the info of a form
+    if (call.path === '/v1/pdf/info' && call.method === 'POST')
+      return json({
+        source: 'antrag.pdf',
+        page_count: 1,
+        pages: [
+          {
+            width_pt: 595.28,
+            height_pt: 841.89,
+            width_mm: 210,
+            height_mm: 297,
+          },
+        ],
+        encrypted: false,
+        metadata: {
+          title: 'Antrag',
+          author: null,
+          subject: null,
+          producer: null,
+          creator: null,
+        },
+        form: {
+          type: 'acroform',
+          signed: false,
+          fields: [
+            {
+              name: 'customer.name',
+              label: 'Name',
+              type: 'text',
+              value: null,
+              options: null,
+              required: true,
+              readonly: false,
+              calculated: false,
+              format: null,
+              pages: [1],
+            },
+          ],
+        },
+      });
+    if (
+      call.path === '/v1/pdf/redact' &&
+      JSON.stringify(
+        body instanceof FormData
+          ? body.get('text')
+          : (body as { text?: unknown })?.text,
+      ).includes('Sticky')
+    )
+      return new Response(
+        JSON.stringify({
+          type: 'https://docs.formfeed.dev/errors/redaction-incomplete',
+          title: 'Redaction incomplete',
+          status: 422,
+          code: 'redaction_incomplete',
+          detail:
+            'A named text could still be found on 1 page after redaction, so no file was delivered',
+          text: [{ text: 1, page: 2 }],
+        }),
+        {
+          status: 422,
+          headers: { 'content-type': 'application/problem+json' },
+        },
+      );
+    if (/^\/v1\/pdf\/(split|compress|to-image|redact|fill)$/.test(call.path))
+      return json({
+        id: `rnd_${call.path.slice('/v1/pdf/'.length).replace('-', '')}`,
+        status: 'succeeded',
+        output:
+          call.path === '/v1/pdf/to-image'
+            ? 'png'
+            : call.path === '/v1/pdf/split'
+              ? 'zip'
+              : 'pdf',
+        download_url:
+          call.path === '/v1/pdf/to-image'
+            ? 'https://cdn.test/o/card.png'
+            : 'https://cdn.test/o/parts.zip',
+        expires_at: '2026-10-21T00:00:00Z',
+        page_count: null,
+        units: 0.5,
+        environment: 'live',
+        template: null,
+        error: null,
+        form:
+          call.path === '/v1/pdf/fill'
+            ? {
+                filled: 1,
+                skipped: [],
+                warnings: [{ field: 'total', code: 'calculation_not_run' }],
+                xfa_removed: false,
+              }
+            : null,
+      });
     if (call.path === '/v1/pdf/convert' && call.method === 'POST')
       return json({
         id: 'rnd_pdf',
@@ -577,20 +671,26 @@ const structured = (r: { structuredContent?: unknown }) =>
   r.structuredContent as Record<string, unknown>;
 
 describe('@formfeed/mcp', () => {
-  it('lists the twelve tools with schemas', async () => {
+  it('lists the eighteen tools with schemas', async () => {
     const { client, close } = await connectedClient(fakeApi().fetchImpl);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       'check_invoice',
+      'compress_pdf',
       'convert_to_pdf',
+      'fill_pdf_form',
+      'get_pdf_info',
       'get_render',
       'get_template_schema',
       'get_template_source',
       'get_workspace',
       'list_templates',
       'markdown_to_pdf',
+      'pdf_to_image',
+      'redact_pdf',
       'render',
       'save_template',
+      'split_pdf',
       'validate_einvoice',
       'validate_template',
     ]);
@@ -617,6 +717,25 @@ describe('@formfeed/mcp', () => {
         ).properties,
       ),
     ).not.toContain('path');
+    // nor do the PDF tools of plan 30
+    for (const name of [
+      'get_pdf_info',
+      'split_pdf',
+      'compress_pdf',
+      'pdf_to_image',
+      'redact_pdf',
+      'fill_pdf_form',
+    ])
+      expect(
+        Object.keys(
+          (
+            tools.find((t) => t.name === name)?.inputSchema as {
+              properties: object;
+            }
+          ).properties,
+        ),
+        name,
+      ).not.toContain('path');
     // directories read the hints literally: ChatGPT's wants all three on every tool, Claude's a title too
     for (const tool of tools) {
       // every tool says what it returns, so a client can check structuredContent against it (Smithery
@@ -637,7 +756,17 @@ describe('@formfeed/mcp', () => {
         .filter((t) => !t.annotations?.readOnlyHint)
         .map((t) => t.name)
         .sort(),
-    ).toEqual(['convert_to_pdf', 'markdown_to_pdf', 'render', 'save_template']);
+    ).toEqual([
+      'compress_pdf',
+      'convert_to_pdf',
+      'fill_pdf_form',
+      'markdown_to_pdf',
+      'pdf_to_image',
+      'redact_pdf',
+      'render',
+      'save_template',
+      'split_pdf',
+    ]);
     await close();
   });
 
@@ -816,6 +945,158 @@ describe('@formfeed/mcp', () => {
       expect(
         ((api.calls.at(-1)?.body as FormData).get('file') as File).name,
       ).toBe('slides.pptx');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await local.close();
+    }
+  });
+
+  it('reads a form, fills it by its names, and hands a drawn page back as a picture (plan 30)', async () => {
+    const api = fakeApi();
+    const { client, close } = await connectedClient(api.fetchImpl);
+    const pdf = Buffer.from('%PDF-1.7 form').toString('base64');
+    const info = structured(
+      await client.callTool({
+        name: 'get_pdf_info',
+        arguments: { file_base64: pdf, file_name: 'antrag.pdf' },
+      }),
+    );
+    expect(info).toMatchObject({
+      page_count: 1,
+      form: { type: 'acroform', fields: [{ name: 'customer.name' }] },
+    });
+    expect(
+      ((api.calls.at(-1)?.body as FormData).get('file') as File).name,
+    ).toBe('antrag.pdf');
+
+    const filled = structured(
+      await client.callTool({
+        name: 'fill_pdf_form',
+        arguments: {
+          source: 'antrag.pdf',
+          fields: { 'customer.name': 'Erika Mustermann', newsletter: true },
+          flatten: true,
+        },
+      }),
+    );
+    expect(filled).toMatchObject({
+      id: 'rnd_fill',
+      output: 'pdf',
+      form: { filled: 1, warnings: [{ field: 'total' }] },
+    });
+    expect(api.calls.at(-1)?.body).toEqual({
+      source: 'antrag.pdf',
+      fields: { 'customer.name': 'Erika Mustermann', newsletter: true },
+      flatten: true,
+      meta: { source: 'mcp' },
+    });
+    expect(
+      (
+        await client.callTool({
+          name: 'fill_pdf_form',
+          arguments: { source: 'antrag.pdf' },
+        })
+      ).isError,
+    ).toBe(true);
+
+    // one page drawn: the agent gets the picture itself beside the link
+    const page = await client.callTool({
+      name: 'pdf_to_image',
+      arguments: { source: 'rnd_contract', pages: '2', dpi: 72 },
+    });
+    expect(structured(page)).toMatchObject({
+      id: 'rnd_toimage',
+      output: 'png',
+    });
+    expect(page.content).toContainEqual({
+      type: 'image',
+      data: PNG_BASE64,
+      mimeType: 'image/png',
+    });
+    expect(api.calls.find((c) => c.path === '/v1/pdf/to-image')?.body).toEqual({
+      source: 'rnd_contract',
+      pages: '2',
+      dpi: 72,
+      meta: { source: 'mcp' },
+    });
+
+    const parts = structured(
+      await client.callTool({
+        name: 'split_pdf',
+        arguments: { source: 'rnd_contract', ranges: ['1', '2-'] },
+      }),
+    );
+    expect(parts).toMatchObject({ id: 'rnd_split', output: 'zip' });
+    expect(
+      (
+        await client.callTool({
+          name: 'split_pdf',
+          arguments: { source: 'rnd_contract', every: 1, ranges: ['1'] },
+        })
+      ).isError,
+    ).toBe(true);
+    expect(
+      (await client.callTool({ name: 'compress_pdf', arguments: {} })).isError,
+    ).toBe(true);
+    await close();
+  });
+
+  it('redacts by rectangle and text, and names what a redaction left behind by number only (plan 30)', async () => {
+    const api = fakeApi();
+    const { client, close } = await connectedClient(api.fetchImpl);
+    const done = structured(
+      await client.callTool({
+        name: 'redact_pdf',
+        arguments: {
+          source: 'rnd_contract',
+          regions: [{ page: 1, x: 52, y: 88, width: 200, height: 16 }],
+          text: ['Max Mustermann'],
+          fill: null,
+        },
+      }),
+    );
+    expect(done).toMatchObject({ id: 'rnd_redact', status: 'succeeded' });
+    expect(api.calls.at(-1)?.body).toEqual({
+      source: 'rnd_contract',
+      regions: [{ page: 1, x: 52, y: 88, width: 200, height: 16 }],
+      text: ['Max Mustermann'],
+      fill: null,
+      meta: { source: 'mcp' },
+    });
+    const left = await client.callTool({
+      name: 'redact_pdf',
+      arguments: { source: 'rnd_contract', text: ['Sticky Name'] },
+    });
+    expect(left.isError).toBe(true);
+    const said = JSON.stringify(left.content);
+    expect(said).toContain('redaction_incomplete');
+    expect(said).toContain('\\"page\\": 2');
+    expect(said).not.toContain('Sticky');
+    expect(
+      (
+        await client.callTool({
+          name: 'redact_pdf',
+          arguments: { source: 'rnd_contract' },
+        })
+      ).isError,
+    ).toBe(true);
+    await close();
+
+    // on the user's machine a PDF can come by its path
+    const local = await connectedClient(api.fetchImpl, true);
+    const dir = mkdtempSync(join(tmpdir(), 'formfeed-mcp-pdf-'));
+    try {
+      writeFileSync(join(dir, 'contract.pdf'), Buffer.from('%PDF-1.7'));
+      const redacted = structured(
+        await local.client.callTool({
+          name: 'redact_pdf',
+          arguments: { path: join(dir, 'contract.pdf'), text: ['Erika'] },
+        }),
+      );
+      expect(redacted['id']).toBe('rnd_redact');
+      const form = api.calls.at(-1)?.body as FormData;
+      expect((form.get('file') as File).name).toBe('contract.pdf');
+      expect(form.get('text')).toBe('["Erika"]');
     } finally {
       rmSync(dir, { recursive: true, force: true });
       await local.close();

@@ -10,6 +10,9 @@ Region = Literal["eu", "us"]
 Engine = Literal["jinja2", "liquid", "handlebars"]
 #: A Word template produces ``docx`` or ``pdf``, a PowerPoint template ``pptx`` or ``pdf``.
 OutputFormat = Literal["pdf", "png", "jpg", "webp", "docx", "pptx"]
+#: What a render made: one of the output formats, or ``zip``, which holds the files of a PDF tool that made
+#: several (``pdf.split``, ``pdf.to_image``). Never something a render asks for.
+RenderOutput = Literal["pdf", "png", "jpg", "webp", "docx", "pptx", "zip"]
 TemplateKind = Literal["pdf", "image", "docx", "pptx"]
 RenderStatus = Literal["queued", "rendering", "succeeded", "failed"]
 
@@ -279,6 +282,30 @@ class Pdfa(_Model):
     truncated: bool = False
 
 
+class FormFillSkip(_Model):
+    field: str
+    #: ``unknown`` for a name the form does not have, ``invalid`` for a value its field does not take.
+    reason: str
+
+
+class FormFillWarning(_Model):
+    field: str
+    #: ``calculation_not_run`` or ``format_not_applied``.
+    code: str
+
+
+class FormFill(_Model):
+    """What a fill did (``pdf.fill``). Entries name fields, never their values."""
+
+    filled: int = 0
+    #: In lenient mode (``strict=False``), what was left out.
+    skipped: list[FormFillSkip] = []
+    #: Calculations and display formats of the form that no viewer has run.
+    warnings: list[FormFillWarning] = []
+    #: The form was a hybrid of an AcroForm and XFA; its XFA part was removed.
+    xfa_removed: bool = False
+
+
 class Render(_Model):
     id: str
     status: RenderStatus
@@ -303,6 +330,8 @@ class Render(_Model):
     accessibility: Accessibility | None = None
     #: The validator's verdict on the file as PDF/A (``settings={"pdf": {"pdfa": "2b"}}`` or the template's settings); ``None`` unless it was set.
     pdfa: Pdfa | None = None
+    #: What a fill did (``pdf.fill``); ``None`` for every other render.
+    form: FormFill | None = None
     timings: dict[str, float] | None = None
     error: dict[str, Any] | None = None
     meta: dict[str, Any] = {}
@@ -537,12 +566,42 @@ class PdfPage(_Model):
     height_mm: float | None = None
 
 
+class PdfFormField(_Model):
+    #: The full name, parts joined by dots, which ``pdf.fill`` takes.
+    name: str
+    #: What the field is for, from its tooltip.
+    label: str | None = None
+    #: ``text``, ``checkbox``, ``radio``, ``dropdown``, ``listbox``, ``signature`` or ``button``.
+    type: str
+    value: bool | str | list[str] | None = None
+    #: What ``pdf.fill`` takes for a choice, a radio group, or a check box with several on-values.
+    options: list[str] | None = None
+    required: bool = False
+    readonly: bool = False
+    #: Its value comes from a calculation a viewer runs, which filling does not.
+    calculated: bool = False
+    #: The display format a viewer applies, which filling does not.
+    format: str | None = None
+    #: Every page with a widget of the field.
+    pages: list[int] = []
+
+
+class PdfForm(_Model):
+    #: ``acroform``, ``hybrid`` (with an XFA part), ``xfa`` (which ``pdf.fill`` refuses), ``None`` without a form.
+    type: str | None = None
+    #: The form holds a signature; ``pdf.fill`` refuses such a file.
+    signed: bool = False
+    fields: list[PdfFormField] = []
+
+
 class PdfInfo(_Model):
     source: str | None = None
     page_count: int
     pages: list[PdfPage] = []
     encrypted: bool = False
     metadata: dict[str, Any] = {}
+    #: The form, whose fields ``pdf.fill`` takes by these names; ``None`` when the file needs a password to open.
+    form: PdfForm | None = None
 
 
 class LibraryFile(_Model):

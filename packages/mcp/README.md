@@ -3,13 +3,17 @@
 [![formfeed MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/formfeed-dev/formfeed/badges/score.svg)](https://glama.ai/mcp/servers/formfeed-dev/formfeed)
 
 Model Context Protocol server for [Formfeed](https://formfeed.dev/?utm_source=npm&utm_content=mcp).
-Gives Claude, Cursor and other agents twelve tools: `list_templates`, `get_template_schema`,
+Gives Claude, Cursor and other agents eighteen tools: `list_templates`, `get_template_schema`,
 `validate_template` (free: the data against the template's schema, ad-hoc HTML offline), `check_invoice` (free and offline: the
 `_invoice` block of a ZUGFeRD / Factur-X e-invoice against EN 16931), `render` (with `einvoice`, the PDF becomes that e-invoice; an
 image comes back as a picture the agent can look at),
 `validate_einvoice` (which rules an e-invoice XML passed, by which validator: a render's stored report for free, or an XML
 Formfeed did not make, counted per day), `markdown_to_pdf` (a Markdown document to PDF on every plan; over stdio a file
-with the pictures beside it), `convert_to_pdf` (Word, Excel, PowerPoint and OpenDocument to PDF), `get_render`, `get_workspace` (which workspace the
+with the pictures beside it), `convert_to_pdf` (Word, Excel, PowerPoint and OpenDocument to PDF), six PDF tools for a render, a
+library file or a PDF the agent hands over (over stdio a local file): `get_pdf_info` (pages, properties and the form's
+fields, free on every plan) and, from the Starter plan on, `fill_pdf_form` (by those field names), `redact_pdf` (text
+and areas removed from the file and checked), `split_pdf`, `compress_pdf` and `pdf_to_image` (a page comes back as a
+picture the agent can look at), `get_render`, `get_workspace` (which workspace the
 server works in, and the units left), `get_template_source` and `save_template` (a new template or a change as a draft,
 which a person publishes in Formfeed; needs `template:write` on the key, or the person's permission for a signed-in agent).
 
