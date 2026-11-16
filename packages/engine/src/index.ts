@@ -133,7 +133,9 @@ export {
   mergeSettings,
   pageSize,
   printReset,
+  assembleVersion,
   renderVersion,
+  renderVersionParts,
 } from './lib/assemble';
 export type { ChartSpec, ImageOptions } from './lib/helpers';
 export {
@@ -409,8 +411,38 @@ export { KeptHtmlCollector } from './lib/markdown/kept';
 export type { KeptHtml } from './lib/markdown/kept';
 export type { FrontMatterMetadata } from './lib/markdown/front-matter';
 export { markdownThemeCss } from './lib/markdown/themes';
-export { renderMarkdown } from './lib/markdown/render';
-export type { MarkdownConverter, MarkdownSource } from './lib/markdown/render';
+export {
+  finishMarkdown,
+  renderMarkdown,
+  renderMarkdownParts,
+  writtenMarkdownParts,
+} from './lib/markdown/render';
+export type {
+  MarkdownConverter,
+  MarkdownParts,
+  MarkdownSource,
+} from './lib/markdown/render';
+export {
+  SANDBOX_PROTOCOL,
+  errorData,
+  errorFromData,
+  unwrapResponse,
+} from './lib/sandbox/protocol';
+export type {
+  EngineRunner,
+  SandboxContext,
+  SandboxErrorData,
+  SandboxHost,
+  SandboxRequest,
+  SandboxResponse,
+  SandboxSeed,
+} from './lib/sandbox/protocol';
+export { inProcessRunner, runSandbox, sandboxSeed } from './lib/sandbox/run';
+export { renderOfficeWith, renderVersionWith } from './lib/sandbox/render';
+export {
+  SandboxResponseError,
+  parseSandboxResponse,
+} from './lib/sandbox/response';
 export {
   MARKDOWN_PICTURE_TYPES,
   MarkdownPictureError,
@@ -425,6 +457,7 @@ export { auditRuntime } from './lib/generated/frames';
 export { encodeTemplateText } from './lib/source-edit';
 export type { Dictionaries } from './lib/translation';
 export type {
+  AssembleContext,
   AssembleExtras,
   AssembleInput,
   AssembleVendor,
@@ -433,6 +466,7 @@ export type {
   RenderedDocument,
   TemplateKind,
   TemplateSettings,
+  VersionParts,
   VersionSource,
 } from './lib/assemble';
 export {

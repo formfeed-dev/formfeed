@@ -413,25 +413,47 @@ export interface RenderedDocument {
 }
 
 /**
- * Renders a template version end to end: body, header, footer and metadata with the same engine and
- * data, then assembles the document. Header and footer are rendered without autoescape differences:
- * they are HTML by definition.
+ * What a template version's code produced (plan 27 §5.1): the body, the header, the footer and the
+ * metadata, each rendered with the same engine and data. This is the only step of a render that runs
+ * template code; `assembleVersion` makes the document from it without running any, so a host can
+ * render the parts in a sandbox and assemble outside it, once or twice (Tailwind needs the classes
+ * the parts wrote before the document gets its stylesheet).
  */
-export async function renderVersion(
-  version: VersionSource,
-  data: unknown,
+export interface VersionParts {
+  html: string;
+  headerHtml?: string;
+  footerHtml?: string;
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string;
+}
+
+/** The context a version renders in: the settings' locale, time zone and currency win over the host's. */
+function versionContext(
+  settings: TemplateSettings,
   ctx: RenderContext,
-  mode: 'preview' | 'print' = 'print',
-  extras: AssembleExtras = {},
-): Promise<RenderedDocument> {
-  const engine = getEngine(version.engine);
-  const settings = mergeSettings(version.settings);
-  const renderCtx: RenderContext = {
+): RenderContext {
+  return {
     ...ctx,
     locale: settings.locale ?? ctx.locale,
     timezone: settings.timezone ?? ctx.timezone,
     currency: settings.currency ?? ctx.currency,
   };
+}
+
+/**
+ * Renders the parts of a template version. Header and footer are rendered without autoescape
+ * differences: they are HTML by definition.
+ */
+export async function renderVersionParts(
+  version: VersionSource,
+  data: unknown,
+  ctx: RenderContext,
+): Promise<VersionParts> {
+  const engine = getEngine(version.engine);
+  const settings = mergeSettings(version.settings);
+  const renderCtx = versionContext(settings, ctx);
   const renderPart = async (source: string | undefined | null, name: string) =>
     source
       ? engine.render(engine.compile(source, { name }), data, renderCtx)
@@ -451,8 +473,29 @@ export async function renderVersion(
       renderPart(meta?.subject, 'subject'),
       renderPart(meta?.keywords, 'keywords'),
     ]);
+  return { html, headerHtml, footerHtml, title, author, subject, keywords };
+}
+
+/** What `assembleVersion` takes of the render context: nothing in it runs template code. */
+export type AssembleContext = Pick<RenderContext, 'assetBaseUrl' | 'brand'>;
+
+/** Assembles a version's document from its rendered parts (spec 05 §5); runs no template code. */
+export function assembleVersion(
+  version: VersionSource,
+  parts: VersionParts,
+  ctx: AssembleContext,
+  mode: 'preview' | 'print' = 'print',
+  extras: AssembleExtras = {},
+): RenderedDocument {
+  const settings = mergeSettings(version.settings);
+  const { html, headerHtml, footerHtml } = parts;
+  const title = parts.title?.trim() || undefined;
   const metadata = Object.fromEntries(
-    Object.entries({ author, subject, keywords })
+    Object.entries({
+      author: parts.author,
+      subject: parts.subject,
+      keywords: parts.keywords,
+    })
       .map(([key, value]) => [key, value?.trim()])
       .filter(([, value]) => value),
   ) as RenderedDocument['metadata'];
@@ -476,14 +519,29 @@ export async function renderVersion(
       assetBaseUrl: ctx.assetBaseUrl,
       brand: ctx.brand,
       mode,
-      title: title?.trim() || undefined,
+      title,
       ...extras,
     }),
     headerHtml,
     footerHtml,
-    title: title?.trim() || undefined,
+    title,
     metadata,
     settings,
     inlineCss,
   };
+}
+
+/**
+ * Renders a template version end to end: its parts (`renderVersionParts`), then the document
+ * (`assembleVersion`).
+ */
+export async function renderVersion(
+  version: VersionSource,
+  data: unknown,
+  ctx: RenderContext,
+  mode: 'preview' | 'print' = 'print',
+  extras: AssembleExtras = {},
+): Promise<RenderedDocument> {
+  const parts = await renderVersionParts(version, data, ctx);
+  return assembleVersion(version, parts, ctx, mode, extras);
 }

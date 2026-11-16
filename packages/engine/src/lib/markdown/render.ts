@@ -63,6 +63,65 @@ export async function renderMarkdown(
   convert: MarkdownConverter = markdownToHtml,
 ): Promise<RenderedDocument> {
   const startedAt = Date.now();
+  const parts = await renderMarkdownParts(source, data, ctx);
+  return finishMarkdown(source, parts, ctx, mode, extras, convert, startedAt);
+}
+
+/**
+ * What a Markdown source's template code produced (plan 27 §5.1): the text, the header, the footer
+ * and the metadata, and the HTML the helpers kept. Without an engine they are the source as written,
+ * and nothing ran.
+ */
+export interface MarkdownParts {
+  text: string;
+  headerHtml?: string;
+  footerHtml?: string;
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string;
+  kept?: KeptHtml;
+}
+
+/**
+ * The parts of a Markdown source as written: what a source without an engine renders to, without
+ * running anything, so a host needs no sandbox for it.
+ */
+export function writtenMarkdownParts(source: MarkdownSource): MarkdownParts {
+  const settings = mergeSettings(source.settings);
+  const meta = settings.pdf?.metadata;
+  const written = (value: string | null | undefined) => value || undefined;
+  return {
+    text: source.markdown,
+    headerHtml: written(settings.header?.html),
+    footerHtml: written(settings.footer?.html),
+    title: written(meta?.title),
+    author: written(meta?.author),
+    subject: written(meta?.subject),
+    keywords: written(meta?.keywords),
+  };
+}
+
+/**
+ * Renders the parts of a Markdown source over the data, the text with the helpers' HTML kept behind
+ * placeholders of `nonce` (a fresh one without). The only step of a Markdown render that runs
+ * template code.
+ */
+export async function renderMarkdownParts(
+  source: MarkdownSource,
+  data: unknown,
+  ctx: RenderContext,
+  nonce?: string,
+): Promise<MarkdownParts> {
+  const written = writtenMarkdownParts(source);
+  if (!source.engine) return written;
+  const { headerHtml, footerHtml } = written;
+  const parts = [
+    written.title,
+    written.author,
+    written.subject,
+    written.keywords,
+  ];
   const settings = mergeSettings(source.settings);
   const options = resolveMarkdown(settings.markdown);
   const renderCtx: RenderContext = {
@@ -71,23 +130,14 @@ export async function renderMarkdown(
     timezone: settings.timezone ?? ctx.timezone,
     currency: settings.currency ?? ctx.currency,
   };
-  const meta = settings.pdf?.metadata;
-  const written = (value: string | null | undefined) => value || undefined;
-  let text = source.markdown;
-  let headerHtml = written(settings.header?.html);
-  let footerHtml = written(settings.footer?.html);
-  let parts = [meta?.title, meta?.author, meta?.subject, meta?.keywords].map(
-    written,
-  );
-  let kept: KeptHtml | undefined;
-  if (source.engine) {
-    const engine = getEngine(source.engine);
-    const collector = new KeptHtmlCollector();
-    const renderPart = async (part: string | undefined, name: string) =>
-      part
-        ? engine.render(engine.compile(part, { name }), data, renderCtx)
-        : undefined;
-    const [body, header, footer, ...metadata] = await Promise.all([
+  const engine = getEngine(source.engine);
+  const collector = new KeptHtmlCollector(nonce);
+  const renderPart = async (part: string | undefined, name: string) =>
+    part
+      ? engine.render(engine.compile(part, { name }), data, renderCtx)
+      : undefined;
+  const [text, header, footer, title, author, subject, keywords] =
+    await Promise.all([
       engine.render(
         engine.compile(source.markdown, { name: 'markdown' }),
         data,
@@ -106,12 +156,40 @@ export async function renderMarkdown(
         renderPart(parts[i], name),
       ),
     ]);
-    text = body;
-    headerHtml = header;
-    footerHtml = footer;
-    parts = metadata;
-    kept = collector;
-  }
+  return {
+    text,
+    headerHtml: header,
+    footerHtml: footer,
+    title,
+    author,
+    subject,
+    keywords,
+    kept: { nonce: collector.nonce, html: [...collector.html] },
+  };
+}
+
+/**
+ * Converts a Markdown source's rendered parts and assembles the document; runs no template code.
+ * `startedAt` is when the render began, against which the default converter's time is held.
+ */
+export async function finishMarkdown(
+  source: MarkdownSource,
+  rendered: MarkdownParts,
+  ctx: Pick<RenderContext, 'assetBaseUrl' | 'brand' | 'limits'>,
+  mode: 'preview' | 'print' = 'print',
+  extras: AssembleExtras = {},
+  convert: MarkdownConverter = markdownToHtml,
+  startedAt: number = Date.now(),
+): Promise<RenderedDocument> {
+  const settings = mergeSettings(source.settings);
+  const options = resolveMarkdown(settings.markdown);
+  const { text, headerHtml, footerHtml, kept } = rendered;
+  const parts = [
+    rendered.title,
+    rendered.author,
+    rendered.subject,
+    rendered.keywords,
+  ];
 
   const converted = await convert(text, {
     html: options.html,

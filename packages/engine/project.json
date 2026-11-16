@@ -15,6 +15,17 @@
         "command": "node packages/engine/scripts/build-frames.mjs"
       }
     },
+    "sandbox": {
+      "executor": "nx:run-commands",
+      "metadata": {
+        "description": "Bundles the template sandbox's runtime (src/sandbox/entry.ts, plan 27) into dist/packages/engine/sandbox/formfeed-sandbox.js, which the render-worker's isolate and the editor's frame load. Built where it is used, never committed."
+      },
+      "//": "Not cached: it takes about a second, and its inputs are the engine's sources and every library the helpers bundle.",
+      "cache": false,
+      "options": {
+        "command": "node packages/engine/scripts/build-sandbox.mjs"
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "metadata": {
