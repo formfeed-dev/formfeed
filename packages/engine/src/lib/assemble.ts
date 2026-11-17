@@ -47,6 +47,13 @@ export interface TemplateSettings {
      */
     networkIdle?: boolean | 'auto';
     selector?: string | null;
+    /**
+     * A JavaScript expression or function (plan 32) that the render-worker evaluates in the page
+     * until its value is truthy: a function is called, a promise counts by what it resolves to, and
+     * an error counts as not yet. It shares `timeoutMs` with `selector`.
+     */
+    function?: string | null;
+    /** How long `selector` and `function` may take together, in milliseconds. */
     timeoutMs?: number;
     delayMs?: number;
   };
@@ -144,6 +151,7 @@ export function defaultSettings(): Required<
     waitFor: {
       networkIdle: 'auto',
       selector: null,
+      function: null,
       timeoutMs: 5000,
       delayMs: 0,
     },

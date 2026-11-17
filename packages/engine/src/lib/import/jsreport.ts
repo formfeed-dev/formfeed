@@ -55,8 +55,16 @@ export interface JsreportTemplate extends JsreportEntity {
 export interface JsreportBundle {
   templates: JsreportTemplate[];
   data: Array<JsreportEntity & { dataJson?: string }>;
-  assets: Array<JsreportEntity & { content?: unknown; link?: string; isSharedHelper?: boolean }>;
-  components: Array<JsreportEntity & { content?: string; helpers?: string; engine?: string }>;
+  assets: Array<
+    JsreportEntity & {
+      content?: unknown;
+      link?: string;
+      isSharedHelper?: boolean;
+    }
+  >;
+  components: Array<
+    JsreportEntity & { content?: string; helpers?: string; engine?: string }
+  >;
   scripts: Array<JsreportEntity & { content?: string }>;
   folders: JsreportEntity[];
   /** jsreport version from metadata.json. */
@@ -69,33 +77,58 @@ export interface JsreportImportOptions {
 }
 
 const DOCS = '/migrate/jsreport';
-const COLLECTIONS = ['templates', 'data', 'assets', 'components', 'scripts', 'folders'] as const;
+const COLLECTIONS = [
+  'templates',
+  'data',
+  'assets',
+  'components',
+  'scripts',
+  'folders',
+] as const;
 
 /**
  * The entities of an unzipped `.jsrexport`: file path → file text. Entity files are
  * `<collection>/<name>-<id>.json`; everything else (metadata, versions, settings) is ignored.
  */
-export function readJsreportExport(files: Record<string, string>): JsreportBundle {
-  const bundle: JsreportBundle = { templates: [], data: [], assets: [], components: [], scripts: [], folders: [] };
+export function readJsreportExport(
+  files: Record<string, string>,
+): JsreportBundle {
+  const bundle: JsreportBundle = {
+    templates: [],
+    data: [],
+    assets: [],
+    components: [],
+    scripts: [],
+    folders: [],
+  };
   for (const [path, text] of Object.entries(files)) {
     const normalized = path.replace(/\\/g, '/').replace(/^\.?\//, '');
     if (normalized === 'metadata.json') {
       try {
-        bundle.version = String((JSON.parse(text) as { reporterVersion?: string }).reporterVersion ?? '');
+        bundle.version = String(
+          (JSON.parse(text) as { reporterVersion?: string }).reporterVersion ??
+            '',
+        );
       } catch {
         // an unreadable metadata file does not stop the import
       }
       continue;
     }
     const collection = normalized.split('/')[0] as (typeof COLLECTIONS)[number];
-    if (!COLLECTIONS.includes(collection) || !normalized.endsWith('.json')) continue;
+    if (!COLLECTIONS.includes(collection) || !normalized.endsWith('.json'))
+      continue;
     try {
-      (bundle[collection] as JsreportEntity[]).push(JSON.parse(text) as JsreportEntity);
+      (bundle[collection] as JsreportEntity[]).push(
+        JSON.parse(text) as JsreportEntity,
+      );
     } catch {
       // not an entity file
     }
   }
-  if (!bundle.templates.length) throw new Error('No templates found: this does not look like a jsreport export (.jsrexport).');
+  if (!bundle.templates.length)
+    throw new Error(
+      'No templates found: this does not look like a jsreport export (.jsrexport).',
+    );
   return bundle;
 }
 
@@ -117,16 +150,35 @@ function pathOf(bundle: JsreportBundle, entity: JsreportEntity): string {
 }
 
 /** The templates of an export for a picker: name, folder path, engine and recipe. */
-export function jsreportTemplates(bundle: JsreportBundle): Array<{ ref: string; name: string; path: string; engine: string; recipe: string }> {
+export function jsreportTemplates(bundle: JsreportBundle): Array<{
+  ref: string;
+  name: string;
+  path: string;
+  engine: string;
+  recipe: string;
+}> {
   return bundle.templates
-    .map((t) => ({ ref: t.shortid ?? t._id ?? t.name ?? '', name: t.name ?? '', path: pathOf(bundle, t), engine: t.engine ?? '', recipe: t.recipe ?? '' }))
+    .map((t) => ({
+      ref: t.shortid ?? t._id ?? t.name ?? '',
+      name: t.name ?? '',
+      path: pathOf(bundle, t),
+      engine: t.engine ?? '',
+      recipe: t.recipe ?? '',
+    }))
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /** Finds an entity by path (`folder/name`, with or without a leading `/` or `./`) or by bare name. */
-function byPath<T extends JsreportEntity>(bundle: JsreportBundle, list: T[], ref: string): T | undefined {
+function byPath<T extends JsreportEntity>(
+  bundle: JsreportBundle,
+  list: T[],
+  ref: string,
+): T | undefined {
   const wanted = ref.replace(/^\.?\/+/, '');
-  return list.find((e) => pathOf(bundle, e) === wanted) ?? list.find((e) => e.name === wanted.split('/').pop());
+  return (
+    list.find((e) => pathOf(bundle, e) === wanted) ??
+    list.find((e) => e.name === wanted.split('/').pop())
+  );
 }
 
 function decodeText(base64: string): string {
@@ -139,7 +191,8 @@ function decodeText(base64: string): string {
 function assetBase64(content: unknown): string | undefined {
   if (typeof content === 'string') {
     const compact = content.replace(/\s/g, '');
-    if (compact.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(compact)) return compact;
+    if (compact.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(compact))
+      return compact;
     return toBase64(new TextEncoder().encode(content));
   }
   return toBase64(content);
@@ -156,17 +209,26 @@ function resolveAssets(
   changes: Set<string>,
 ): string {
   // jsreport 3 `{{asset "name" "encoding"}}` (also triple-stash) and jsreport 2 `{#asset name @encoding=x}`
-  const v3 = /\{\{\{?\s*asset\s+(["'])([^"']+)\1(?:\s+(["'])([^"']+)\3)?\s*\}?\}\}/g;
+  const v3 =
+    /\{\{\{?\s*asset\s+(["'])([^"']+)\1(?:\s+(["'])([^"']+)\3)?\s*\}?\}\}/g;
   const v2 = /\{#asset\s+([^\s}]+)(?:\s+@encoding=(\w+))?\s*\}/g;
   const replace = (whole: string, ref: string, encoding = 'utf8'): string => {
     const asset = byPath(bundle, bundle.assets, ref);
     if (!asset) {
-      warnings.push({ code: 'asset-missing', message: `The asset "${ref}" is not in the export. Upload it to the workspace file library under that name, or replace the call with a full https URL.`, docs: `${DOCS}#assets` });
+      warnings.push({
+        code: 'asset-missing',
+        message: `The asset "${ref}" is not in the export. Upload it to the workspace file library under that name, or replace the call with a full https URL.`,
+        docs: `${DOCS}#assets`,
+      });
       return `{{asset "${ref}"}}`;
     }
     if (encoding === 'link' || (!asset.content && asset.link)) {
       if (asset.link && /^https?:\/\//.test(asset.link)) return asset.link;
-      warnings.push({ code: 'asset-link', message: `The asset "${ref}" is linked from the jsreport server, which this import cannot read. Upload the file to the workspace file library under that name, or replace the call with a full https URL.`, docs: `${DOCS}#assets` });
+      warnings.push({
+        code: 'asset-link',
+        message: `The asset "${ref}" is linked from the jsreport server, which this import cannot read. Upload the file to the workspace file library under that name, or replace the call with a full https URL.`,
+        docs: `${DOCS}#assets`,
+      });
       return `{{asset "${asset.name}"}}`;
     }
     const base64 = assetBase64(asset.content);
@@ -185,11 +247,19 @@ function resolveAssets(
       return `{{asset "${asset.name}"}}`;
     }
     changes.add('binary assets (images, fonts) inlined as data URIs');
-    return encoding === 'base64' ? base64 : `data:${mimeOf(asset.name ?? '')};base64,${base64}`;
+    return encoding === 'base64'
+      ? base64
+      : `data:${mimeOf(asset.name ?? '')};base64,${base64}`;
   };
   return source
-    .replace(v3, (whole, _q: string, ref: string, _q2?: string, encoding?: string) => replace(whole, ref, encoding))
-    .replace(v2, (whole, ref: string, encoding?: string) => replace(whole, ref, encoding));
+    .replace(
+      v3,
+      (whole, _q: string, ref: string, _q2?: string, encoding?: string) =>
+        replace(whole, ref, encoding),
+    )
+    .replace(v2, (whole, ref: string, encoding?: string) =>
+      replace(whole, ref, encoding),
+    );
 }
 
 function inlineChildren(
@@ -203,34 +273,52 @@ function inlineChildren(
   for (let depth = 0; depth < 6; depth++) {
     const before = out;
     // `{{childTemplate "name"}}` and jsreport 2 `{#child name}`
-    out = out.replace(/\{\{\{?\s*childTemplate\s+(["'])([^"']+)\1[^}]*\}?\}\}|\{#child\s+([^\s}]+)[^}]*\}/g, (whole, _q?: string, v3?: string, v2?: string) => {
-      const ref = v3 ?? v2 ?? '';
-      const child = byPath(bundle, bundle.templates, ref);
-      if (!child?.content) {
-        errors.push({ code: 'child-missing', message: `The child template "${ref}" is not in the export.`, docs: `${DOCS}#child-templates` });
-        return whole;
-      }
-      changes.add('child templates inlined');
-      return child.content;
-    });
+    out = out.replace(
+      /\{\{\{?\s*childTemplate\s+(["'])([^"']+)\1[^}]*\}?\}\}|\{#child\s+([^\s}]+)[^}]*\}/g,
+      (whole, _q?: string, v3?: string, v2?: string) => {
+        const ref = v3 ?? v2 ?? '';
+        const child = byPath(bundle, bundle.templates, ref);
+        if (!child?.content) {
+          errors.push({
+            code: 'child-missing',
+            message: `The child template "${ref}" is not in the export.`,
+            docs: `${DOCS}#child-templates`,
+          });
+          return whole;
+        }
+        changes.add('child templates inlined');
+        return child.content;
+      },
+    );
     // `{{component "./name" prop=value}}`
-    out = out.replace(/\{\{\{?\s*component\s+(["'])([^"']+)\1([^}]*)\}?\}\}/g, (whole, _q: string, ref: string, props: string) => {
-      const component = byPath(bundle, bundle.components, ref);
-      if (!component?.content) {
-        errors.push({ code: 'component-missing', message: `The component "${ref}" is not in the export.`, docs: `${DOCS}#components` });
-        return whole;
-      }
-      if (props.trim())
-        warnings.push({
-          code: 'component-props',
-          message: `The component "${ref}" received properties (${props.trim()}); it was inlined with the surrounding data, so reference those values directly.`,
-          docs: `${DOCS}#components`,
-        });
-      if (component.helpers?.trim())
-        warnings.push({ code: 'custom-helpers', message: `The component "${ref}" has JavaScript helpers, which Formfeed does not run.`, docs: `${DOCS}#helpers` });
-      changes.add('components inlined');
-      return component.content;
-    });
+    out = out.replace(
+      /\{\{\{?\s*component\s+(["'])([^"']+)\1([^}]*)\}?\}\}/g,
+      (whole, _q: string, ref: string, props: string) => {
+        const component = byPath(bundle, bundle.components, ref);
+        if (!component?.content) {
+          errors.push({
+            code: 'component-missing',
+            message: `The component "${ref}" is not in the export.`,
+            docs: `${DOCS}#components`,
+          });
+          return whole;
+        }
+        if (props.trim())
+          warnings.push({
+            code: 'component-props',
+            message: `The component "${ref}" received properties (${props.trim()}); it was inlined with the surrounding data, so reference those values directly.`,
+            docs: `${DOCS}#components`,
+          });
+        if (component.helpers?.trim())
+          warnings.push({
+            code: 'custom-helpers',
+            message: `The component "${ref}" has JavaScript helpers, which Formfeed does not run.`,
+            docs: `${DOCS}#helpers`,
+          });
+        changes.add('components inlined');
+        return component.content;
+      },
+    );
     if (out === before) break;
   }
   return out;
@@ -239,8 +327,14 @@ function inlineChildren(
 /** Names of the functions a jsreport helpers script defines. */
 export function helperNames(script: string): string[] {
   const names = new Set<string>();
-  for (const m of script.matchAll(/(?:^|[\s;])(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g)) names.add(m[1] ?? '');
-  for (const m of script.matchAll(/(?:^|[\s;])(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/g)) names.add(m[1] ?? '');
+  for (const m of script.matchAll(
+    /(?:^|[\s;])(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g,
+  ))
+    names.add(m[1] ?? '');
+  for (const m of script.matchAll(
+    /(?:^|[\s;])(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/g,
+  ))
+    names.add(m[1] ?? '');
   names.delete('');
   return [...names];
 }
@@ -253,46 +347,77 @@ function mapChrome(
 ): TemplateSettings {
   const settings: TemplateSettings = {};
   const chrome = template.chrome ?? {};
-  const str = (key: string) => (typeof chrome[key] === 'string' && (chrome[key] as string).trim() ? (chrome[key] as string).trim() : undefined);
+  const str = (key: string) =>
+    typeof chrome[key] === 'string' && (chrome[key] as string).trim()
+      ? (chrome[key] as string).trim()
+      : undefined;
   const paper: NonNullable<TemplateSettings['paper']> = {};
   const format = str('format');
-  if (format) paper.format = format.charAt(0).toUpperCase() + format.slice(1).toLowerCase();
+  if (format)
+    paper.format =
+      format.charAt(0).toUpperCase() + format.slice(1).toLowerCase();
   const width = lengthMm(str('width'));
   const height = lengthMm(str('height'));
   if (width && height) {
     paper.width = width;
     paper.height = height;
   }
-  if (chrome['landscape'] === true || chrome['landscape'] === 'true') paper.landscape = true;
+  if (chrome['landscape'] === true || chrome['landscape'] === 'true')
+    paper.landscape = true;
   if (Object.keys(paper).length) settings.paper = paper;
 
   const margin: NonNullable<TemplateSettings['margin']> = {};
   for (const side of ['top', 'right', 'bottom', 'left'] as const) {
-    const value = lengthMm(str(`margin${side[0]?.toUpperCase()}${side.slice(1)}`));
+    const value = lengthMm(
+      str(`margin${side[0]?.toUpperCase()}${side.slice(1)}`),
+    );
     if (value) margin[side] = value;
   }
   if (Object.keys(margin).length) settings.margin = margin;
 
-  const showHeaderFooter = chrome['displayHeaderFooter'] === true || chrome['displayHeaderFooter'] === 'true';
+  const showHeaderFooter =
+    chrome['displayHeaderFooter'] === true ||
+    chrome['displayHeaderFooter'] === 'true';
   if (showHeaderFooter) {
     const header = str('headerTemplate');
     const footer = str('footerTemplate');
     if (header) settings.header = { html: header };
     if (footer) settings.footer = { html: footer };
-    if (header || footer) changes.add('Chromium header and footer templates moved to the Header and Footer tabs');
+    if (header || footer)
+      changes.add(
+        'Chromium header and footer templates moved to the Header and Footer tabs',
+      );
   }
-  if (chrome['printBackground'] !== undefined) settings.printBackground = chrome['printBackground'] === true || chrome['printBackground'] === 'true';
-  if (chrome['scale'] !== undefined && Number.isFinite(Number(chrome['scale']))) settings.scale = Number(chrome['scale']);
+  if (chrome['printBackground'] !== undefined)
+    settings.printBackground =
+      chrome['printBackground'] === true ||
+      chrome['printBackground'] === 'true';
+  if (chrome['scale'] !== undefined && Number.isFinite(Number(chrome['scale'])))
+    settings.scale = Number(chrome['scale']);
   const ranges = str('pageRanges');
   if (ranges) settings.pageRanges = ranges;
-  if (chrome['waitForNetworkIdle'] === true || chrome['waitForNetworkIdle'] === 'true') settings.waitFor = { networkIdle: true };
-  if (chrome['waitForJS'] === true || chrome['waitForJS'] === 'true')
+  if (
+    chrome['waitForNetworkIdle'] === true ||
+    chrome['waitForNetworkIdle'] === 'true'
+  )
+    settings.waitFor = { networkIdle: true };
+  // the flag jsreport waits for is a condition Formfeed can wait for itself (plan 32)
+  if (chrome['waitForJS'] === true || chrome['waitForJS'] === 'true') {
+    settings.waitFor = {
+      ...settings.waitFor,
+      function: 'window.JSREPORT_READY_TO_START === true',
+    };
+    changes.add(
+      'waitForJS mapped to waitFor.function, which waits for window.JSREPORT_READY_TO_START within waitFor.timeoutMs (5 s unless set)',
+    );
+  }
+  if (str('mediaType') === 'screen')
     warnings.push({
-      code: 'wait-for-js',
-      message: 'The template sets window.JSREPORT_READY_TO_START; Formfeed waits for a CSS selector instead: set waitFor.selector in settings.json or in the settings of the API request.',
+      code: 'setting-ignored',
+      message:
+        'mediaType "screen" is not supported; Formfeed prints with the print media type.',
       docs: `${DOCS}#settings`,
     });
-  if (str('mediaType') === 'screen') warnings.push({ code: 'setting-ignored', message: 'mediaType "screen" is not supported; Formfeed prints with the print media type.', docs: `${DOCS}#settings` });
 
   if (kind === 'image') {
     const img = template.chromeImage ?? {};
@@ -301,7 +426,10 @@ function mapChrome(
       width: Number(img['viewportWidth'] ?? 0) || 1200,
       height: Number(img['viewportHeight'] ?? 0) || 630,
       format: type === 'jpeg' || type === 'jpg' ? 'jpeg' : 'png',
-      ...(Number.isFinite(Number(img['quality'])) && img['quality'] !== undefined ? { quality: Number(img['quality']) } : {}),
+      ...(Number.isFinite(Number(img['quality'])) &&
+      img['quality'] !== undefined
+        ? { quality: Number(img['quality']) }
+        : {}),
       ...(img['fullPage'] === true ? { fullPage: true } : {}),
       ...(img['omitBackground'] === true ? { transparent: true } : {}),
     };
@@ -310,19 +438,31 @@ function mapChrome(
 
   const meta = template.pdfMeta ?? {};
   const metadata = Object.fromEntries(
-    (['title', 'author', 'subject', 'keywords'] as const).filter((k) => typeof meta[k] === 'string' && meta[k]).map((k) => [k, String(meta[k])]),
+    (['title', 'author', 'subject', 'keywords'] as const)
+      .filter((k) => typeof meta[k] === 'string' && meta[k])
+      .map((k) => [k, String(meta[k])]),
   );
   if (Object.keys(metadata).length) {
     settings.pdf = { metadata };
     changes.add('PDF metadata (pdfMeta) mapped');
   }
-  changes.add('chrome-pdf options mapped: paper, orientation, margins, background, scale, page ranges');
+  changes.add(
+    'chrome-pdf options mapped: paper, orientation, margins, background, scale, page ranges',
+  );
   return settings;
 }
 
-export function importJsreport(bundle: JsreportBundle, ref: string, options: JsreportImportOptions = {}): ImportResult {
-  const opts: Required<JsreportImportOptions> = { inlineAssetBytes: options.inlineAssetBytes ?? 256 * 1024 };
-  const template = bundle.templates.find((t) => t.shortid === ref || t._id === ref) ?? byPath(bundle, bundle.templates, ref);
+export function importJsreport(
+  bundle: JsreportBundle,
+  ref: string,
+  options: JsreportImportOptions = {},
+): ImportResult {
+  const opts: Required<JsreportImportOptions> = {
+    inlineAssetBytes: options.inlineAssetBytes ?? 256 * 1024,
+  };
+  const template =
+    bundle.templates.find((t) => t.shortid === ref || t._id === ref) ??
+    byPath(bundle, bundle.templates, ref);
   if (!template) throw new Error(`No template "${ref}" in the export.`);
   const errors: ImportNote[] = [];
   const warnings: ImportNote[] = [];
@@ -336,7 +476,8 @@ export function importJsreport(bundle: JsreportBundle, ref: string, options: Jsr
       message: `The template uses the ${engine} engine; Formfeed runs Handlebars, Liquid and Jinja2. It was imported as Handlebars and needs rewriting.`,
       docs: `${DOCS}#engines`,
     });
-  if (engine === 'none') changes.add('template without an engine imported as Handlebars');
+  if (engine === 'none')
+    changes.add('template without an engine imported as Handlebars');
 
   const recipe = String(template.recipe ?? 'chrome-pdf').toLowerCase();
   const kind: 'pdf' | 'image' = recipe === 'chrome-image' ? 'image' : 'pdf';
@@ -350,24 +491,44 @@ export function importJsreport(bundle: JsreportBundle, ref: string, options: Jsr
 
   const settings = mapChrome(template, kind, warnings, changes);
 
-  let html = inlineChildren(template.content ?? '', bundle, errors, warnings, changes);
+  let html = inlineChildren(
+    template.content ?? '',
+    bundle,
+    errors,
+    warnings,
+    changes,
+  );
   html = resolveAssets(html, bundle, opts, warnings, changes);
   for (const key of ['header', 'footer'] as const) {
     const part = settings[key]?.html;
-    if (part) settings[key] = { html: resolveAssets(inlineChildren(part, bundle, errors, warnings, changes), bundle, opts, warnings, changes) };
+    if (part)
+      settings[key] = {
+        html: resolveAssets(
+          inlineChildren(part, bundle, errors, warnings, changes),
+          bundle,
+          opts,
+          warnings,
+          changes,
+        ),
+      };
   }
   // `{{toJS value}}` writes a value into a script; `json` does the same
-  html = html.replace(/\{\{\{?\s*toJS\s+([^}]+?)\s*\}?\}\}/g, (_m, value: string) => {
-    changes.add('`toJS` replaced by `json`');
-    return `{{{json ${value}}}}`;
-  });
+  html = html.replace(
+    /\{\{\{?\s*toJS\s+([^}]+?)\s*\}?\}\}/g,
+    (_m, value: string) => {
+      changes.add('`toJS` replaced by `json`');
+      return `{{{json ${value}}}}`;
+    },
+  );
 
   const helperSources = [
     template.helpers ?? '',
-    ...bundle.assets.filter((a) => a.isSharedHelper).map((a) => {
-      const b64 = assetBase64(a.content);
-      return b64 ? decodeText(b64) : '';
-    }),
+    ...bundle.assets
+      .filter((a) => a.isSharedHelper)
+      .map((a) => {
+        const b64 = assetBase64(a.content);
+        return b64 ? decodeText(b64) : '';
+      }),
   ].filter((s) => s.trim());
   const helpers = helperSources.flatMap(helperNames);
   if (helpers.length)
@@ -377,28 +538,65 @@ export function importJsreport(bundle: JsreportBundle, ref: string, options: Jsr
       docs: `${DOCS}#helpers`,
     });
   warnings.push(
-    ...notesFor(html, /\{\{\{?\s*(pdfAddPageItem|pdfCreatePagesGroup|pdfFormField|module)\b/, {
-      code: 'jsreport-helper',
-      message: 'A jsreport system helper (pdf-utils or module) has no Formfeed equivalent.',
-      docs: `${DOCS}#helpers`,
-    }),
+    ...notesFor(
+      html,
+      /\{\{\{?\s*(pdfAddPageItem|pdfCreatePagesGroup|pdfFormField|module)\b/,
+      {
+        code: 'jsreport-helper',
+        message:
+          'A jsreport system helper (pdf-utils or module) has no Formfeed equivalent.',
+        docs: `${DOCS}#helpers`,
+      },
+    ),
   );
   if (template.scripts?.length)
-    warnings.push({ code: 'scripts', message: 'The template runs jsreport scripts (beforeRender/afterRender); load that data in your application and send it with the render request.', docs: `${DOCS}#scripts` });
+    warnings.push({
+      code: 'scripts',
+      message:
+        'The template runs jsreport scripts (beforeRender/afterRender); load that data in your application and send it with the render request.',
+      docs: `${DOCS}#scripts`,
+    });
   if (template.pdfOperations?.length)
-    warnings.push({ code: 'pdf-operations', message: 'pdf-utils operations (merge, append, headers from another template) are not imported.', docs: `${DOCS}#pdf-utils` });
+    warnings.push({
+      code: 'pdf-operations',
+      message:
+        'pdf-utils operations (merge, append, headers from another template) are not imported.',
+      docs: `${DOCS}#pdf-utils`,
+    });
   if (template.pdfPassword && Object.values(template.pdfPassword).some(Boolean))
-    warnings.push({ code: 'pdf-password', message: 'PDF password protection is not imported.', docs: `${DOCS}#settings` });
+    warnings.push({
+      code: 'pdf-password',
+      message: 'PDF password protection is not imported.',
+      docs: `${DOCS}#settings`,
+    });
   if (template.localization?.language)
-    warnings.push({ code: 'localization', message: 'jsreport localization files are not imported; use the template dictionaries and the `t` helper.', docs: '/templates/helpers#t' });
+    warnings.push({
+      code: 'localization',
+      message:
+        'jsreport localization files are not imported; use the template dictionaries and the `t` helper.',
+      docs: '/templates/helpers#t',
+    });
 
-  const dataEntity = template.data?.shortid ? bundle.data.find((d) => d.shortid === template.data?.shortid) : undefined;
+  const dataEntity = template.data?.shortid
+    ? bundle.data.find((d) => d.shortid === template.data?.shortid)
+    : undefined;
   const sample = parseSample(dataEntity?.dataJson);
-  if (sample.error) warnings.push({ code: 'sample-json', message: `The sample data is not valid JSON (${sample.error}).`, docs: `${DOCS}#sample-data` });
-  if (dataEntity) changes.add(`sample data "${dataEntity.name}" became the default data set`);
+  if (sample.error)
+    warnings.push({
+      code: 'sample-json',
+      message: `The sample data is not valid JSON (${sample.error}).`,
+      docs: `${DOCS}#sample-data`,
+    });
+  if (dataEntity)
+    changes.add(`sample data "${dataEntity.name}" became the default data set`);
 
   if (new TextEncoder().encode(html).length > 1_000_000)
-    errors.push({ code: 'too-large', message: 'The template is larger than 1 MB after inlining its assets; upload the large files as workspace assets and reference them with {{asset "name"}}.', docs: `${DOCS}#assets` });
+    errors.push({
+      code: 'too-large',
+      message:
+        'The template is larger than 1 MB after inlining its assets; upload the large files as workspace assets and reference them with {{asset "name"}}.',
+      docs: `${DOCS}#assets`,
+    });
 
   const checked = checkTemplate('handlebars', html, sample.data, name, {
     syntax: '/templates/languages#handlebars',
