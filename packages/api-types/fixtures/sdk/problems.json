@@ -1,0 +1,101 @@
+{
+  "$comment": "Written by packages/api-types/src/lib/sdk-fixtures.spec.ts. Answer one request, without retries, with the status, headers and body (an object or array as JSON, a string as text/plain, null as no body) and check the error the SDK raises.",
+  "cases": [
+    {
+      "name": "a problem with every member",
+      "status": 422,
+      "headers": {
+        "x-request-id": "req_123"
+      },
+      "body": {
+        "type": "https://docs.formfeed.dev/errors/invalid-request",
+        "title": "Invalid request",
+        "status": 422,
+        "detail": "data.total must be a number",
+        "code": "invalid_request",
+        "request_id": "req_123"
+      },
+      "expect": {
+        "code": "invalid_request",
+        "message": "data.total must be a number",
+        "status": 422,
+        "request_id": "req_123"
+      }
+    },
+    {
+      "name": "no detail: the title",
+      "status": 404,
+      "headers": {
+        "x-request-id": "req_404"
+      },
+      "body": {
+        "title": "Not found",
+        "status": 404,
+        "code": "template_not_found"
+      },
+      "expect": {
+        "code": "template_not_found",
+        "message": "Not found",
+        "status": 404,
+        "request_id": "req_404"
+      }
+    },
+    {
+      "name": "no code: http_<status>",
+      "status": 403,
+      "headers": {},
+      "body": {
+        "title": "Forbidden",
+        "status": 403,
+        "detail": "This key may not render."
+      },
+      "expect": {
+        "code": "http_403",
+        "message": "This key may not render.",
+        "status": 403,
+        "request_id": null
+      }
+    },
+    {
+      "name": "a body that is not JSON",
+      "status": 502,
+      "headers": {
+        "x-request-id": "req_502"
+      },
+      "body": "Bad Gateway",
+      "expect": {
+        "code": "http_502",
+        "message": "HTTP 502",
+        "status": 502,
+        "request_id": "req_502"
+      }
+    },
+    {
+      "name": "no body",
+      "status": 500,
+      "headers": {},
+      "body": null,
+      "expect": {
+        "code": "http_500",
+        "message": "HTTP 500",
+        "status": 500,
+        "request_id": null
+      }
+    },
+    {
+      "name": "JSON that is not an object",
+      "status": 400,
+      "headers": {},
+      "body": [
+        1,
+        2
+      ],
+      "expect": {
+        "code": "http_400",
+        "message": "HTTP 400",
+        "status": 400,
+        "request_id": null
+      }
+    }
+  ]
+}

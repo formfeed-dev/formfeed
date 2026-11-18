@@ -1,0 +1,317 @@
+{
+  "$comment": "Written by packages/api-types/src/lib/sdk-fixtures.spec.ts. Answer one request with \"answers\" in order (status, Retry-After, a JSON body, or a network error; a missing body is {}), with max_retries set, and check every wait the client makes against its [lowest, highest] bounds in ms and how the call ends.",
+  "max_retries": 3,
+  "cases": [
+    {
+      "name": "429 with Retry-After: 2, then 200",
+      "answers": [
+        {
+          "status": 429,
+          "retry_after": "2"
+        },
+        {
+          "status": 200
+        }
+      ],
+      "waits_ms": [
+        [
+          2000,
+          2250
+        ]
+      ],
+      "outcome": {
+        "ok": true
+      }
+    },
+    {
+      "name": "503 without Retry-After, then 200",
+      "answers": [
+        {
+          "status": 503
+        },
+        {
+          "status": 200
+        }
+      ],
+      "waits_ms": [
+        [
+          500,
+          750
+        ]
+      ],
+      "outcome": {
+        "ok": true
+      }
+    },
+    {
+      "name": "503 three times, then 200: the wait doubles",
+      "answers": [
+        {
+          "status": 503
+        },
+        {
+          "status": 503
+        },
+        {
+          "status": 503
+        },
+        {
+          "status": 200
+        }
+      ],
+      "waits_ms": [
+        [
+          500,
+          750
+        ],
+        [
+          1000,
+          1250
+        ],
+        [
+          2000,
+          2250
+        ]
+      ],
+      "outcome": {
+        "ok": true
+      }
+    },
+    {
+      "name": "503 four times: three retries, then the problem",
+      "answers": [
+        {
+          "status": 503
+        },
+        {
+          "status": 503
+        },
+        {
+          "status": 503
+        },
+        {
+          "status": 503,
+          "body": {
+            "code": "worker_unavailable",
+            "detail": "No render slot is free."
+          }
+        }
+      ],
+      "waits_ms": [
+        [
+          500,
+          750
+        ],
+        [
+          1000,
+          1250
+        ],
+        [
+          2000,
+          2250
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "code": "worker_unavailable",
+          "status": 503
+        }
+      }
+    },
+    {
+      "name": "429 with Retry-After: 0 waits as if there were none",
+      "answers": [
+        {
+          "status": 429,
+          "retry_after": "0"
+        },
+        {
+          "status": 200
+        }
+      ],
+      "waits_ms": [
+        [
+          500,
+          750
+        ]
+      ],
+      "outcome": {
+        "ok": true
+      }
+    },
+    {
+      "name": "429 with Retry-After as a date waits as if there were none",
+      "answers": [
+        {
+          "status": 429,
+          "retry_after": "Wed, 18 Nov 2026 08:00:00 GMT"
+        },
+        {
+          "status": 200
+        }
+      ],
+      "waits_ms": [
+        [
+          500,
+          750
+        ]
+      ],
+      "outcome": {
+        "ok": true
+      }
+    },
+    {
+      "name": "429 with Retry-After: 1.5",
+      "answers": [
+        {
+          "status": 429,
+          "retry_after": "1.5"
+        },
+        {
+          "status": 200
+        }
+      ],
+      "waits_ms": [
+        [
+          1500,
+          1750
+        ]
+      ],
+      "outcome": {
+        "ok": true
+      }
+    },
+    {
+      "name": "429 with Retry-After: 120 waits at most 30 s",
+      "answers": [
+        {
+          "status": 429,
+          "retry_after": "120"
+        },
+        {
+          "status": 200
+        }
+      ],
+      "waits_ms": [
+        [
+          30000,
+          30000
+        ]
+      ],
+      "outcome": {
+        "ok": true
+      }
+    },
+    {
+      "name": "a network error, then 200",
+      "answers": [
+        {
+          "network_error": true
+        },
+        {
+          "status": 200
+        }
+      ],
+      "waits_ms": [
+        [
+          500,
+          750
+        ]
+      ],
+      "outcome": {
+        "ok": true
+      }
+    },
+    {
+      "name": "four network errors: three retries, then network_error",
+      "answers": [
+        {
+          "network_error": true
+        },
+        {
+          "network_error": true
+        },
+        {
+          "network_error": true
+        },
+        {
+          "network_error": true
+        }
+      ],
+      "waits_ms": [
+        [
+          500,
+          750
+        ],
+        [
+          1000,
+          1250
+        ],
+        [
+          2000,
+          2250
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "code": "network_error",
+          "status": 0
+        }
+      }
+    },
+    {
+      "name": "500 is not retried",
+      "answers": [
+        {
+          "status": 500,
+          "body": {
+            "code": "internal_error"
+          }
+        }
+      ],
+      "waits_ms": [],
+      "outcome": {
+        "error": {
+          "code": "internal_error",
+          "status": 500
+        }
+      }
+    },
+    {
+      "name": "502 is not retried",
+      "answers": [
+        {
+          "status": 502,
+          "body": {
+            "code": "worker_error"
+          }
+        }
+      ],
+      "waits_ms": [],
+      "outcome": {
+        "error": {
+          "code": "worker_error",
+          "status": 502
+        }
+      }
+    },
+    {
+      "name": "400 is not retried",
+      "answers": [
+        {
+          "status": 400,
+          "body": {
+            "code": "invalid_request"
+          }
+        }
+      ],
+      "waits_ms": [],
+      "outcome": {
+        "error": {
+          "code": "invalid_request",
+          "status": 400
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "$comment": "Every operation of openapi.yaml (packages/api-types/fixtures/sdk/operations.json) and the method of this SDK that calls it, or why it has none. Held by packages/api-types/src/lib/sdk-fixtures.spec.ts and src/lib/operations.spec.ts (plan 34).",
+  "operations": {
+    "createRender": "renders.create",
+    "listRenders": "renders.list",
+    "getRender": "renders.get",
+    "getRenderResult": {
+      "none": "the Location of a 202 for Power Automate and Logic Apps; renders.waitFor polls getRender"
+    },
+    "getRenderInput": "renders.input",
+    "deleteRenderOutputs": "renders.deleteOutputs",
+    "createBatch": "renders.batch",
+    "getJob": "jobs.get",
+    "listTemplates": "templates.list",
+    "createTemplate": "templates.create",
+    "getTemplate": "templates.get",
+    "updateTemplate": "templates.update",
+    "archiveTemplate": "templates.archive",
+    "listTemplateVersions": "templates.versions.list",
+    "createTemplateVersion": "templates.versions.create",
+    "getTemplateVersion": "templates.versions.get",
+    "downloadTemplateFile": "templates.versions.file",
+    "publishTemplateVersion": "templates.versions.publish",
+    "listTemplateChannels": "templates.channels.list",
+    "setTemplateChannel": "templates.channels.set",
+    "deleteTemplateChannel": "templates.channels.delete",
+    "promoteTemplateChannel": "templates.channels.promote",
+    "rollbackTemplateChannel": "templates.channels.rollback",
+    "getTemplateSchema": "templates.schema",
+    "validateTemplate": "templates.validate",
+    "listFiles": "files.list",
+    "uploadFile": "files.upload",
+    "getFile": "files.get",
+    "deleteFile": "files.delete",
+    "getBrand": "brand.get",
+    "listPartials": "partials.list",
+    "getPartial": "partials.get",
+    "putPartial": "partials.put",
+    "deletePartial": "partials.delete",
+    "startDeviceLogin": {
+      "none": "the device login of formfeed login, which the CLI makes"
+    },
+    "claimDeviceLogin": {
+      "none": "the device login of formfeed login, which the CLI makes"
+    },
+    "getAccount": "account.get",
+    "getUsage": "account.usage",
+    "deleteWorkspace": "workspaces.delete",
+    "getStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "putStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "deleteStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "testStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "redeliverStorage": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "mergePdf": "pdf.merge",
+    "protectPdf": "pdf.protect",
+    "convertOfficeToPdf": "pdf.convert",
+    "watermarkPdf": "pdf.watermark",
+    "splitPdf": "pdf.split",
+    "compressPdf": "pdf.compress",
+    "pdfToImage": "pdf.toImage",
+    "redactPdf": "pdf.redact",
+    "fillPdfForm": "pdf.fill",
+    "pdfInfo": "pdf.info",
+    "validateEinvoice": "einvoices.validate",
+    "listWebhooks": "webhooks.list",
+    "createWebhook": "webhooks.create",
+    "updateWebhook": "webhooks.update",
+    "deleteWebhook": "webhooks.delete",
+    "testWebhook": "webhooks.test",
+    "startListenSession": "webhooks.listen.start",
+    "endListenSession": "webhooks.listen.end",
+    "resendWebhookEvent": "webhooks.resend",
+    "compatApitemplateCreatePdf": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreateImage": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreatePdfFromHtml": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreatePdfFromUrl": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    }
+  }
+}

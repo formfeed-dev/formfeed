@@ -1,0 +1,273 @@
+{
+  "$comment": "Written by packages/api-types/src/lib/sdk-fixtures.spec.ts from openapi.yaml. Every SDK names in its operations.json, for each operation, its method or, as { \"none\": \"<reason>\" }, why it has none.",
+  "operations": {
+    "listRenders": {
+      "method": "GET",
+      "path": "/renders"
+    },
+    "createRender": {
+      "method": "POST",
+      "path": "/renders"
+    },
+    "getRender": {
+      "method": "GET",
+      "path": "/renders/{id}"
+    },
+    "getRenderResult": {
+      "method": "GET",
+      "path": "/renders/{id}/result"
+    },
+    "getRenderInput": {
+      "method": "GET",
+      "path": "/renders/{id}/input"
+    },
+    "deleteRenderOutputs": {
+      "method": "DELETE",
+      "path": "/renders/{id}/outputs"
+    },
+    "createBatch": {
+      "method": "POST",
+      "path": "/renders/batch"
+    },
+    "getJob": {
+      "method": "GET",
+      "path": "/jobs/{id}"
+    },
+    "listTemplates": {
+      "method": "GET",
+      "path": "/templates"
+    },
+    "createTemplate": {
+      "method": "POST",
+      "path": "/templates"
+    },
+    "getTemplate": {
+      "method": "GET",
+      "path": "/templates/{id}"
+    },
+    "updateTemplate": {
+      "method": "PUT",
+      "path": "/templates/{id}"
+    },
+    "archiveTemplate": {
+      "method": "DELETE",
+      "path": "/templates/{id}"
+    },
+    "listTemplateVersions": {
+      "method": "GET",
+      "path": "/templates/{id}/versions"
+    },
+    "createTemplateVersion": {
+      "method": "POST",
+      "path": "/templates/{id}/versions"
+    },
+    "getTemplateVersion": {
+      "method": "GET",
+      "path": "/templates/{id}/versions/{which}"
+    },
+    "downloadTemplateFile": {
+      "method": "GET",
+      "path": "/templates/{id}/versions/{which}/file"
+    },
+    "publishTemplateVersion": {
+      "method": "POST",
+      "path": "/templates/{id}/versions/{number}/publish"
+    },
+    "listTemplateChannels": {
+      "method": "GET",
+      "path": "/templates/{id}/channels"
+    },
+    "setTemplateChannel": {
+      "method": "PUT",
+      "path": "/templates/{id}/channels/{name}"
+    },
+    "deleteTemplateChannel": {
+      "method": "DELETE",
+      "path": "/templates/{id}/channels/{name}"
+    },
+    "promoteTemplateChannel": {
+      "method": "POST",
+      "path": "/templates/{id}/channels/{name}/promote"
+    },
+    "rollbackTemplateChannel": {
+      "method": "POST",
+      "path": "/templates/{id}/channels/{name}/rollback"
+    },
+    "getTemplateSchema": {
+      "method": "GET",
+      "path": "/templates/{id}/schema"
+    },
+    "validateTemplate": {
+      "method": "POST",
+      "path": "/templates/{id}/validate"
+    },
+    "listFiles": {
+      "method": "GET",
+      "path": "/files"
+    },
+    "uploadFile": {
+      "method": "POST",
+      "path": "/files"
+    },
+    "getFile": {
+      "method": "GET",
+      "path": "/files/{id}"
+    },
+    "deleteFile": {
+      "method": "DELETE",
+      "path": "/files/{id}"
+    },
+    "getBrand": {
+      "method": "GET",
+      "path": "/brand"
+    },
+    "listPartials": {
+      "method": "GET",
+      "path": "/partials"
+    },
+    "getPartial": {
+      "method": "GET",
+      "path": "/partials/{name}"
+    },
+    "putPartial": {
+      "method": "PUT",
+      "path": "/partials/{name}"
+    },
+    "deletePartial": {
+      "method": "DELETE",
+      "path": "/partials/{name}"
+    },
+    "startDeviceLogin": {
+      "method": "POST",
+      "path": "/auth/device"
+    },
+    "claimDeviceLogin": {
+      "method": "POST",
+      "path": "/auth/device/token"
+    },
+    "getAccount": {
+      "method": "GET",
+      "path": "/account"
+    },
+    "getUsage": {
+      "method": "GET",
+      "path": "/usage"
+    },
+    "deleteWorkspace": {
+      "method": "DELETE",
+      "path": "/workspaces/{id}"
+    },
+    "getStorageConnection": {
+      "method": "GET",
+      "path": "/workspaces/{id}/storage"
+    },
+    "putStorageConnection": {
+      "method": "PUT",
+      "path": "/workspaces/{id}/storage"
+    },
+    "deleteStorageConnection": {
+      "method": "DELETE",
+      "path": "/workspaces/{id}/storage"
+    },
+    "testStorageConnection": {
+      "method": "POST",
+      "path": "/workspaces/{id}/storage/test"
+    },
+    "redeliverStorage": {
+      "method": "POST",
+      "path": "/workspaces/{id}/storage/redeliver"
+    },
+    "mergePdf": {
+      "method": "POST",
+      "path": "/pdf/merge"
+    },
+    "protectPdf": {
+      "method": "POST",
+      "path": "/pdf/protect"
+    },
+    "convertOfficeToPdf": {
+      "method": "POST",
+      "path": "/pdf/convert"
+    },
+    "watermarkPdf": {
+      "method": "POST",
+      "path": "/pdf/watermark"
+    },
+    "splitPdf": {
+      "method": "POST",
+      "path": "/pdf/split"
+    },
+    "compressPdf": {
+      "method": "POST",
+      "path": "/pdf/compress"
+    },
+    "pdfToImage": {
+      "method": "POST",
+      "path": "/pdf/to-image"
+    },
+    "redactPdf": {
+      "method": "POST",
+      "path": "/pdf/redact"
+    },
+    "fillPdfForm": {
+      "method": "POST",
+      "path": "/pdf/fill"
+    },
+    "pdfInfo": {
+      "method": "POST",
+      "path": "/pdf/info"
+    },
+    "validateEinvoice": {
+      "method": "POST",
+      "path": "/einvoices/validate"
+    },
+    "listWebhooks": {
+      "method": "GET",
+      "path": "/webhooks"
+    },
+    "createWebhook": {
+      "method": "POST",
+      "path": "/webhooks"
+    },
+    "updateWebhook": {
+      "method": "PUT",
+      "path": "/webhooks/{id}"
+    },
+    "deleteWebhook": {
+      "method": "DELETE",
+      "path": "/webhooks/{id}"
+    },
+    "testWebhook": {
+      "method": "POST",
+      "path": "/webhooks/{id}/test"
+    },
+    "startListenSession": {
+      "method": "POST",
+      "path": "/webhooks/listen"
+    },
+    "endListenSession": {
+      "method": "DELETE",
+      "path": "/webhooks/listen/{id}"
+    },
+    "resendWebhookEvent": {
+      "method": "POST",
+      "path": "/webhooks/events/{id}/resend"
+    },
+    "compatApitemplateCreatePdf": {
+      "method": "POST",
+      "path": "/compat/apitemplate/create-pdf"
+    },
+    "compatApitemplateCreateImage": {
+      "method": "POST",
+      "path": "/compat/apitemplate/create-image"
+    },
+    "compatApitemplateCreatePdfFromHtml": {
+      "method": "POST",
+      "path": "/compat/apitemplate/create-pdf-from-html"
+    },
+    "compatApitemplateCreatePdfFromUrl": {
+      "method": "POST",
+      "path": "/compat/apitemplate/create-pdf-from-url"
+    }
+  }
+}

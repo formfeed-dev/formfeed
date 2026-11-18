@@ -1,0 +1,93 @@
+{
+  "$comment": "Written by packages/api-types/src/lib/sdk-fixtures.spec.ts. Check each case with the secret, \"now\" and the tolerance given; a case whose body is null is signed over \"body\".",
+  "secret": "whsec_mock_secret_123456",
+  "now": 1795000000,
+  "tolerance_seconds": 300,
+  "body": "{\"id\":\"evt_1\",\"type\":\"render.completed\",\"created_at\":\"2026-09-18T12:00:00Z\",\"workspace_id\":\"ws_1\",\"data\":{\"id\":\"rnd_1\",\"status\":\"succeeded\",\"download_url\":\"https://cdn.formfeed.test/o/x.pdf\",\"note\":\"Größe: 3 × ü\"}}",
+  "cases": [
+    {
+      "name": "valid",
+      "header": "t=1795000000,v1=2c363cb1efc4371bfff30390c59700bb9702a42452ac3af5f3fc4f184b70ff31",
+      "body": null,
+      "valid": true
+    },
+    {
+      "name": "upper-case hex",
+      "header": "t=1795000000,v1=2C363CB1EFC4371BFFF30390C59700BB9702A42452AC3AF5F3FC4F184B70FF31",
+      "body": null,
+      "valid": true
+    },
+    {
+      "name": "tampered body",
+      "header": "t=1795000000,v1=2c363cb1efc4371bfff30390c59700bb9702a42452ac3af5f3fc4f184b70ff31",
+      "body": "{\"id\":\"evt_1\",\"type\":\"render.completed\",\"created_at\":\"2026-09-18T12:00:00Z\",\"workspace_id\":\"ws_1\",\"data\":{\"id\":\"rnd_2\",\"status\":\"succeeded\",\"download_url\":\"https://cdn.formfeed.test/o/x.pdf\",\"note\":\"Größe: 3 × ü\"}}",
+      "valid": false
+    },
+    {
+      "name": "ten minutes old",
+      "header": "t=1794999400,v1=6a08c801518866005ed14007a0c183a2a9f795d5fa38f715161d118df18978cd",
+      "body": null,
+      "valid": false
+    },
+    {
+      "name": "wrong secret",
+      "header": "t=1795000000,v1=ecb15ab8d2bd2078ccebcb6e55baeb79c427b22664922493b9a128f5681eb544",
+      "body": null,
+      "valid": false
+    },
+    {
+      "name": "garbage header",
+      "header": "t=abc,v1=zz",
+      "body": null,
+      "valid": false
+    },
+    {
+      "name": "header without pairs",
+      "header": "nonsense",
+      "body": null,
+      "valid": false
+    },
+    {
+      "name": "no header",
+      "header": null,
+      "body": null,
+      "valid": false
+    },
+    {
+      "name": "five minutes old, the edge of the tolerance",
+      "header": "t=1794999700,v1=f29dc6de418418f47fa02c0b0eeccbdf2796622f08477ceab350bfe060a2bdf4",
+      "body": null,
+      "valid": true
+    },
+    {
+      "name": "a second past the tolerance",
+      "header": "t=1794999699,v1=0f6b346289a14c94bc8aacb0851d8c5f4f8d10b224213e17ccac8502e5f48880",
+      "body": null,
+      "valid": false
+    },
+    {
+      "name": "five minutes ahead, a sender clock that runs fast",
+      "header": "t=1795000300,v1=6d438c94d9732dd5d3b78fe7f8f2216b50cad5d893de29db5333551e90ff2315",
+      "body": null,
+      "valid": true
+    },
+    {
+      "name": "a space after the comma",
+      "header": "t=1795000000, v1=2c363cb1efc4371bfff30390c59700bb9702a42452ac3af5f3fc4f184b70ff31",
+      "body": null,
+      "valid": true
+    },
+    {
+      "name": "v1 before t",
+      "header": "v1=2c363cb1efc4371bfff30390c59700bb9702a42452ac3af5f3fc4f184b70ff31,t=1795000000",
+      "body": null,
+      "valid": true
+    },
+    {
+      "name": "a signature one character short",
+      "header": "t=1795000000,v1=c363cb1efc4371bfff30390c59700bb9702a42452ac3af5f3fc4f184b70ff31",
+      "body": null,
+      "valid": false
+    }
+  ]
+}
