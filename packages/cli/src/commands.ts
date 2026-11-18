@@ -163,7 +163,21 @@ import {
   type TypeSource,
 } from '@formfeed/devkit';
 import { onlyNames, planPull, planPush, remoteAssetBase } from './lib/files';
+import {
+  pageChange,
+  pagesChanged,
+  parseDataSets,
+  previewDataSets,
+  previewFile,
+  previewMarkdown,
+  readBaseProject,
+  type GitBytes,
+  type PreviewRow,
+  type PreviewSide,
+} from './lib/ci-preview';
 import { cliImageHost } from './lib/office-images';
+
+export { previewKeyLine } from './lib/ci-preview';
 
 /**
  * Command tree of spec 15 §3. `buildProgram()` is exported for tests: commands never call
@@ -179,6 +193,8 @@ export interface ProgramContext {
   onServer?: (server: { url: string; close(): Promise<void> }) => void;
   /** Runs git for `ci preview`; injected in tests. Returns stdout, or null when git is unavailable. */
   git?: (args: string[], cwd: string) => string | null;
+  /** Runs git for a file of the base `ci preview --compare` renders, answering its bytes; injected in tests. */
+  gitBytes?: GitBytes;
   /** Waits between device-login polls and listen reconnects; injected in tests so they do not sleep. */
   wait?: (ms: number) => Promise<void>;
   /** Opens the relay WebSocket of `listen`; Node's global `WebSocket` by default, a fake in tests. */
@@ -1548,83 +1564,181 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
     )
     .option('--summary <file>', 'markdown summary file', 'formfeed-preview.md')
     .option('--all', 'render every template instead of the changed ones')
+    .option(
+      '--data-sets <which>',
+      "default (each template's default data set), all, or names separated by commas",
+      'default',
+    )
+    .option(
+      '--compare',
+      "render the base's version of each data set too, and fail when a page count changed",
+    )
+    .option(
+      '--allow-page-changes',
+      'with --compare: report a changed page count without failing',
+    )
+    .option(
+      '--max-renders <n>',
+      "stop before making more renders than this, the base's included",
+      positiveInt,
+      100,
+    )
     .action(
       async (opts: {
         base: string;
         out: string;
         summary: string;
         all?: boolean;
+        dataSets: string;
+        compare?: boolean;
+        allowPageChanges?: boolean;
+        maxRenders: number;
       }) => {
         const s = settings();
         const project = requireProject(s);
         const cwd = ctx.cwd ?? process.cwd();
+        const choice = parseDataSets(opts.dataSets);
         const all = listTemplateSlugs(project);
         const slugs = opts.all
           ? all
           : changedTemplates(project, all, opts.base, cwd, ctx.git);
         const outDir = resolve(cwd, opts.out);
         const summaryFile = resolve(cwd, opts.summary);
+        /** The run's result: printed with `--json`, and kept as `preview.json` beside the files. */
+        const keep = (result: Record<string, unknown>) => {
+          mkdirSync(outDir, { recursive: true });
+          writeFileSync(
+            join(outDir, 'preview.json'),
+            `${JSON.stringify(result, null, 2)}\n`,
+          );
+        };
 
         if (slugs.length === 0) {
           const text = `## Formfeed preview\n\nNo template changes against \`${opts.base}\`.\n`;
           writeFileSync(summaryFile, text);
-          emit(
-            p(),
-            { base: opts.base, templates: [], summary: summaryFile },
-            () => [`No template changes against ${opts.base}`],
-          );
+          const result = {
+            base: opts.base,
+            templates: [],
+            summary: summaryFile,
+          };
+          keep({ ...result, ...(opts.compare ? { pages_changed: 0 } : {}) });
+          emit(p(), result, () => [`No template changes against ${opts.base}`]);
           return;
         }
 
-        const c = client(s);
-        mkdirSync(outDir, { recursive: true });
-        const assetBaseUrl = await remoteAssetBase(c);
-        const brand = readBrand(project);
-        const run = startRun<PreviewRow>(p(), slugs.length);
-        const finished = (r: PreviewRow) =>
-          run.done(r, [
-            r.status === 'succeeded'
-              ? `${r.slug} (${r.data}): ${r.pages ?? '?'} page(s) -> ${r.file}`
-              : `${r.slug} (${r.data}): failed ${r.error ?? ''}`,
-          ]);
+        // plan 35: the data sets of each template, and with --compare the base's copy of them
+        const plans = slugs.map((slug) => {
+          const tpl = readTemplate(project, slug);
+          return { slug, tpl, sets: previewDataSets(tpl, choice) };
+        });
+        const base = opts.compare
+          ? readBaseProject(
+              project,
+              opts.base,
+              slugs,
+              ctx.git ?? defaultGit,
+              ctx.gitBytes ?? defaultGitBytes,
+            )
+          : null;
         try {
-          for (const one of slugs) {
-            const tpl = readTemplate(project, one);
-            const set = defaultData(tpl);
-            // a pull request is reviewed as PDF: Word and PowerPoint templates are filled here and converted
+          const baseTemplates = new Map<string, LocalTemplate>();
+          for (const slug of slugs)
+            if (base?.slugs.has(slug))
+              baseTemplates.set(slug, readTemplate(base.project, slug));
+          /** The base's data set of the same name; a template without data sets renders `{}` on both sides. */
+          const baseSet = (slug: string, name: string) => {
+            const tpl = baseTemplates.get(slug);
+            if (!tpl) return null;
+            if (name in tpl.dataSets) return { name, data: tpl.dataSets[name] };
+            return name === 'empty' && Object.keys(tpl.dataSets).length === 0
+              ? { name, data: {} }
+              : null;
+          };
+          /** Data sets only the base has: listed as removed, not rendered. */
+          const removedSets = (slug: string, rendered: string[]) => {
+            const tpl = baseTemplates.get(slug);
+            if (!tpl || choice === 'default') return [];
+            return Object.keys(tpl.dataSets).filter(
+              (name) =>
+                !rendered.includes(name) &&
+                (choice === 'all' || choice.includes(name)),
+            );
+          };
+          const planned = plans.reduce(
+            (n, plan) =>
+              n +
+              plan.sets.length +
+              plan.sets.filter((set) => baseSet(plan.slug, set.name)).length,
+            0,
+          );
+          if (planned > opts.maxRenders)
+            throw new CliError(
+              `ci preview would make ${planned} renders, more than --max-renders ${opts.maxRenders}: name fewer data sets with --data-sets, or raise --max-renders`,
+              exitCodes.usage,
+            );
+
+          const c = client(s);
+          mkdirSync(outDir, { recursive: true });
+          const assetBaseUrl = await remoteAssetBase(c);
+          const brand = readBrand(project);
+          const run = startRun<PreviewRow>(
+            p(),
+            plans.reduce((n, plan) => n + plan.sets.length, 0),
+          );
+          const finished = (r: PreviewRow) => run.done(r, [previewLine(r)]);
+
+          /**
+           * One data set through the API: an HTML template is rendered here and sent as HTML, a Word or
+           * PowerPoint template filled here and converted, since a pull request is reviewed as PDF.
+           */
+          const renderSet = async (
+            proj: typeof project,
+            tpl: LocalTemplate,
+            set: { name: string; data: unknown },
+            side: 'branch' | 'base',
+          ): Promise<{ render?: Render; error?: string; output: string }> => {
             const output = tpl.file
               ? 'pdf'
               : defaultOutput(tpl.meta.kind, tpl.settings);
-            const meta = { source: 'formfeed ci preview', template: one };
+            const meta = {
+              source: 'formfeed ci preview',
+              template: tpl.slug,
+              data_set: set.name,
+              ...(side === 'base' ? { side: 'base' } : {}),
+            };
             let created: Render;
             if (tpl.file) {
-              run.step(one, 'filling the document');
+              run.update(
+                side === 'base' ? 'filling the base' : 'filling the document',
+              );
               let filled;
               try {
-                filled = await renderOfficeLocal(project, tpl, set.data, {
+                filled = await renderOfficeLocal(proj, tpl, set.data, {
                   assetBaseUrl,
                   brand,
                   images: cliImageHost(ctx.fetch),
                 });
               } catch (e) {
-                finished({
-                  slug: one,
-                  data: set.name,
-                  status: 'failed',
-                  error: officeFailureLines(one, e).join(' '),
-                });
-                continue;
+                return {
+                  error: officeFailureLines(tpl.slug, e).join(' '),
+                  output,
+                };
               }
-              run.update('converting to PDF');
+              run.update(
+                side === 'base' ? 'converting the base' : 'converting to PDF',
+              );
               created = await c.pdf.convert(
                 {
-                  file: { data: filled.bytes, name: `${one}.${tpl.meta.kind}` },
+                  file: {
+                    data: filled.bytes,
+                    name: `${tpl.slug}.${tpl.meta.kind}`,
+                  },
                 },
-                { filename: `${one}.pdf`, meta },
+                { filename: `${tpl.slug}.pdf`, meta },
               );
             } else {
-              run.step(one, 'rendering');
-              const rendered = await renderLocal(project, tpl, set.data, {
+              run.update(side === 'base' ? 'rendering the base' : 'rendering');
+              const rendered = await renderLocal(proj, tpl, set.data, {
                 mode: 'print',
                 assetBaseUrl,
                 brand,
@@ -1642,49 +1756,153 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
               created.status === 'succeeded' || created.status === 'failed'
                 ? created
                 : await c.renders.waitFor(created.id);
-            if (render.status !== 'succeeded') {
-              finished({
-                slug: one,
-                data: set.name,
-                status: 'failed',
-                error: JSON.stringify(render.error ?? null),
-                environment: render.environment,
-              });
-              continue;
-            }
-            run.update('downloading');
-            const file = join(outDir, `${one}.${output}`);
-            writeFileSync(file, await c.renders.download(render));
-            finished({
-              slug: one,
-              data: set.name,
-              status: 'succeeded',
-              file,
-              pages: render.page_count ?? null,
-              url: render.download_url ?? null,
-              environment: render.environment,
-            });
-          }
-        } finally {
-          run.stop();
-        }
-        const rows = run.results;
+            return render.status === 'succeeded'
+              ? { render, output }
+              : { render, error: JSON.stringify(render.error ?? null), output };
+          };
 
-        writeFileSync(summaryFile, previewMarkdown(opts.base, rows));
-        const failed = rows.filter((r) => r.status === 'failed').length;
-        run.finish({
-          base: opts.base,
-          templates: rows,
-          summary: summaryFile,
-          out: outDir,
-        });
-        if (!p().json) p().out(`Summary written to ${summaryFile}`);
-        if (failed > 0)
-          throw new CliError(
-            `${failed} template(s) failed to render`,
-            exitCodes.validation,
-            { silent: true },
+          try {
+            for (const plan of plans) {
+              const { slug, tpl } = plan;
+              for (const set of plan.sets) {
+                run.step(
+                  choice === 'default' ? slug : `${slug} (${set.name})`,
+                  'rendering',
+                );
+                const branch = await renderSet(project, tpl, set, 'branch');
+                const side: PreviewSide =
+                  branch.render?.status === 'succeeded'
+                    ? {
+                        status: 'succeeded',
+                        pages: branch.render.page_count ?? null,
+                        url: branch.render.download_url ?? null,
+                        environment: branch.render.environment,
+                      }
+                    : {
+                        status: 'failed',
+                        error: branch.error,
+                        ...(branch.render
+                          ? { environment: branch.render.environment }
+                          : {}),
+                      };
+                // the base's render of the same data set; a base that cannot render is reported, and
+                // stops nothing, since the branch may be what fixes it
+                let baseSide: PreviewSide | undefined;
+                const theirs = base ? baseSet(slug, set.name) : null;
+                const baseTpl = baseTemplates.get(slug);
+                if (theirs && baseTpl && base) {
+                  try {
+                    const done = await renderSet(
+                      base.project,
+                      baseTpl,
+                      theirs,
+                      'base',
+                    );
+                    baseSide =
+                      done.render?.status === 'succeeded'
+                        ? {
+                            status: 'succeeded',
+                            pages: done.render.page_count ?? null,
+                            url: done.render.download_url ?? null,
+                            environment: done.render.environment,
+                          }
+                        : {
+                            status: 'failed',
+                            error: done.error,
+                            ...(done.render
+                              ? { environment: done.render.environment }
+                              : {}),
+                          };
+                  } catch (e) {
+                    baseSide = {
+                      status: 'failed',
+                      error: e instanceof Error ? e.message : String(e),
+                    };
+                  }
+                }
+                let file: string | undefined;
+                if (branch.render && side.status === 'succeeded') {
+                  run.update('downloading');
+                  file = previewFile(
+                    outDir,
+                    slug,
+                    set.name,
+                    branch.output,
+                    choice,
+                  );
+                  mkdirSync(dirname(file), { recursive: true });
+                  writeFileSync(file, await c.renders.download(branch.render));
+                }
+                finished({
+                  slug,
+                  data: set.name,
+                  ...side,
+                  ...(file ? { file } : {}),
+                  ...(base
+                    ? {
+                        ...(baseSide ? { base: baseSide } : {}),
+                        change: pageChange(side, baseSide),
+                      }
+                    : {}),
+                });
+              }
+              for (const name of removedSets(
+                slug,
+                plan.sets.map((set) => set.name),
+              ))
+                finished({
+                  slug,
+                  data: name,
+                  status: 'removed',
+                  change: 'removed',
+                });
+            }
+          } finally {
+            run.stop();
+          }
+          const rows = run.results;
+
+          writeFileSync(
+            summaryFile,
+            previewMarkdown({
+              base: opts.base,
+              rows,
+              compare: Boolean(base),
+              allowPageChanges: Boolean(opts.allowPageChanges),
+            }),
           );
+          const failed = rows.filter((r) => r.status === 'failed').length;
+          const changed = base ? pagesChanged(rows) : 0;
+          const result = {
+            base: opts.base,
+            templates: rows,
+            summary: summaryFile,
+            out: outDir,
+            ...(base ? { base_ref: base.ref, pages_changed: changed } : {}),
+          };
+          keep(result);
+          run.finish(result);
+          if (!p().json) p().out(`Summary written to ${summaryFile}`);
+          const reasons = [
+            ...(failed > 0
+              ? [
+                  `${failed} ${choice === 'default' ? 'template(s)' : 'data set(s)'} failed to render`,
+                ]
+              : []),
+            ...(changed > 0 && !opts.allowPageChanges
+              ? [
+                  `${changed} data set(s) changed their page count against ${opts.base}`,
+                ]
+              : []),
+          ];
+          if (reasons.length)
+            throw new CliError(reasons.join('; '), exitCodes.validation, {
+              // the summary names a failed render; a changed page count is said here too
+              silent: changed === 0 || Boolean(opts.allowPageChanges),
+            });
+        } finally {
+          base?.remove();
+        }
       },
     );
 
@@ -4081,18 +4299,6 @@ interface TestResult {
   snapshot?: string;
 }
 
-interface PreviewRow {
-  slug: string;
-  data: string;
-  status: 'succeeded' | 'failed';
-  file?: string;
-  pages?: number | null;
-  url?: string | null;
-  error?: string;
-  /** Whose key rendered it, as the API says: the summary names it. */
-  environment?: 'live' | 'test';
-}
-
 /** Approved snapshots live beside the template, the layout the docs describe (`.xml` for Word and PowerPoint). */
 function snapshotPath(
   project: Parameters<typeof templateDir>[0],
@@ -4180,37 +4386,27 @@ function defaultGit(args: string[], cwd: string): string | null {
   return result.status === 0 ? result.stdout : null;
 }
 
-/**
- * What the summary says about the key, from the renders themselves: until 2026-10-19 it said "test
- * key" whatever key rendered, also under renders that had counted units.
- */
-export function previewKeyLine(
-  rows: Pick<PreviewRow, 'environment'>[],
-): string | null {
-  const environments = new Set(rows.map((r) => r.environment).filter(Boolean));
-  if (environments.has('live'))
-    return 'Rendered with a Formfeed live key, so these renders counted units; links expire.';
-  if (environments.has('test'))
-    return 'Rendered with a Formfeed test key; links expire.';
-  return null;
+/** git's stdout as bytes, for a file of a ref that may be binary (`ci preview --compare`). */
+function defaultGitBytes(args: string[], cwd: string): Uint8Array | null {
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'buffer',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return result.status === 0 ? new Uint8Array(result.stdout) : null;
 }
 
-function previewMarkdown(base: string, rows: PreviewRow[]): string {
-  const keyLine = previewKeyLine(rows);
-  const lines = [
-    '## Formfeed preview',
-    '',
-    `Templates changed against \`${base}\`: ${rows.length}`,
-    '',
-    '| Template | Data set | Pages | Output |',
-    '| --- | --- | --- | --- |',
-    ...rows.map((r) =>
-      r.status === 'succeeded'
-        ? `| \`${r.slug}\` | ${r.data} | ${r.pages ?? '?'} | [${basename(r.file ?? '')}](${r.url ?? r.file ?? ''}) |`
-        : `| \`${r.slug}\` | ${r.data} | — | failed: ${r.error ?? 'unknown error'} |`,
-    ),
-    '',
-    ...(keyLine ? [keyLine, ''] : []),
-  ];
-  return lines.join('\n');
+/** The line a data set's row prints once it is done; without `--compare` the line it always was. */
+function previewLine(r: PreviewRow): string {
+  if (r.status === 'removed')
+    return `${r.slug} (${r.data}): only in the base, not rendered`;
+  if (r.status === 'failed')
+    return `${r.slug} (${r.data}): failed ${r.error ?? ''}`;
+  const line = `${r.slug} (${r.data}): ${r.pages ?? '?'} page(s) -> ${r.file}`;
+  if (r.change === 'changed')
+    return `${line}, ${r.base?.pages ?? '?'} in the base`;
+  if (r.change === 'new') return `${line}, new on the branch`;
+  if (r.change === 'base_failed')
+    return `${line}, the base failed: ${r.base?.error ?? ''}`;
+  return line;
 }

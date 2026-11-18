@@ -1642,6 +1642,291 @@ describe('formfeed CLI', () => {
     ).toBe(0);
     expect(JSON.parse(out.at(-1)!).templates).toHaveLength(1);
   });
+
+  describe('ci preview on every data set, compared with the base (plan 35)', () => {
+    /** A template whose page count is a value of its data, as the fake API answers it. */
+    const template = '<div data-pages="{{ pages }}">{{ title }}</div>';
+    const setUp = async (sets: Record<string, number>) => {
+      await run(['init'], ctx);
+      const folder = join(dir, 'templates', 'hello');
+      writeFileSync(join(folder, 'template.html'), template);
+      rmSync(join(folder, 'data'), { recursive: true, force: true });
+      mkdirSync(join(folder, 'data'));
+      for (const [name, pages] of Object.entries(sets))
+        writeFileSync(
+          join(folder, 'data', `${name}.json`),
+          JSON.stringify({ pages, title: name }),
+        );
+    };
+    /** The renders answer as many pages as the document's `data-pages` says. */
+    let renders: Array<{ html: string; meta: Record<string, unknown> }>;
+    const pagesFetch = (inner: typeof fetch): typeof fetch =>
+      (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/v1/renders' && init?.method === 'POST') {
+          const body = JSON.parse(String(init.body)) as {
+            html: string;
+            meta: Record<string, unknown>;
+          };
+          renders.push(body);
+          const pages = Number(/data-pages="(\d+)"/.exec(body.html)?.[1] ?? 1);
+          return new Response(
+            JSON.stringify({
+              id: `rnd_${renders.length}`,
+              status: 'succeeded',
+              page_count: pages,
+              units: 0,
+              environment: 'test',
+              download_url: `https://cdn.test/o/${renders.length}.pdf`,
+            }),
+            { status: 201, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return inner(input, init);
+      }) as typeof fetch;
+    /**
+     * git for the base: the diff names the template, the merge base is `base1`, and the base's
+     * files are the template with the data sets given.
+     */
+    const baseGit = (sets: Record<string, number> | null) => {
+      const files: Record<string, string> = sets
+        ? {
+            'templates/hello/template.html': template,
+            'templates/hello/template.json': JSON.stringify({
+              name: 'Hello',
+              engine: 'jinja2',
+              kind: 'pdf',
+            }),
+            ...Object.fromEntries(
+              Object.entries(sets).map(([name, pages]) => [
+                `templates/hello/data/${name}.json`,
+                JSON.stringify({ pages, title: name }),
+              ]),
+            ),
+          }
+        : {};
+      return {
+        git: (args: string[]) => {
+          if (args[0] === 'diff') return 'templates/hello/template.html\n';
+          if (args[0] === 'merge-base') return 'base1\n';
+          if (args[0] === 'ls-tree')
+            return Object.keys(files)
+              .map((f) => `${f}\0`)
+              .join('');
+          return null;
+        },
+        gitBytes: (args: string[]) => {
+          const path = args[2]?.replace(/^base1:\.\//, '') ?? '';
+          return path in files ? new TextEncoder().encode(files[path]!) : null;
+        },
+      };
+    };
+
+    beforeEach(() => {
+      renders = [];
+      ctx = { ...ctx, fetch: pagesFetch(api.fetchImpl) };
+    });
+
+    it('fails on a changed page count and shows it first, the base beside the branch', async () => {
+      await setUp({ default: 1, long: 3 });
+      out = [];
+      const code = await run(
+        ['ci', 'preview', '--data-sets', 'all', '--compare', '--json'],
+        { ...ctx, ...baseGit({ default: 1, long: 2 }) },
+      );
+      expect(code, err.join('\n')).toBe(1);
+      // the result comes before the error object `--json` ends a failed command with
+      const result = out
+        .filter((line) => line.trimStart().startsWith('{'))
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .find((doc) => 'templates' in doc) as Record<string, unknown> & {
+        templates: unknown[];
+      };
+      expect(result).toMatchObject({ base_ref: 'base1', pages_changed: 1 });
+      expect(result.templates).toEqual([
+        expect.objectContaining({
+          data: 'default',
+          pages: 1,
+          base: expect.objectContaining({ pages: 1 }),
+          change: 'same',
+        }),
+        expect.objectContaining({
+          data: 'long',
+          pages: 3,
+          base: expect.objectContaining({ pages: 2 }),
+          change: 'changed',
+        }),
+      ]);
+      // two data sets on both sides; the base's renders say so
+      expect(renders).toHaveLength(4);
+      expect(renders.filter((r) => r.meta['side'] === 'base')).toHaveLength(2);
+      // a data set's files go to a folder of its template
+      expect(
+        existsSync(join(dir, 'formfeed-preview', 'hello', 'long.pdf')),
+      ).toBe(true);
+      expect(
+        JSON.parse(
+          readFileSync(join(dir, 'formfeed-preview', 'preview.json'), 'utf8'),
+        ),
+      ).toMatchObject({ pages_changed: 1 });
+      const summary = readFileSync(join(dir, 'formfeed-preview.md'), 'utf8');
+      expect(summary).toContain(
+        'Templates changed against `origin/main`: 1, data sets: 2. **1 data set changed its page count.**',
+      );
+      expect(summary).toContain(
+        '| Template | Data set | Base | Branch | Output |',
+      );
+      expect(summary).toContain(
+        '| `hello` | long | 2 | **3** | [long.pdf](https://cdn.test/o/3.pdf), [base](https://cdn.test/o/4.pdf) |',
+      );
+      // the reason for the exit code is said, not only shown in the summary: with --json in the
+      // error document that ends the output
+      expect(out.at(-1)).toContain(
+        '1 data set(s) changed their page count against origin/main',
+      );
+    });
+
+    it('reports a change without failing when it is allowed', async () => {
+      await setUp({ default: 1, long: 3 });
+      expect(
+        await run(
+          [
+            'ci',
+            'preview',
+            '--data-sets',
+            'all',
+            '--compare',
+            '--allow-page-changes',
+          ],
+          { ...ctx, ...baseGit({ default: 1, long: 2 }) },
+        ),
+      ).toBe(0);
+      const summary = readFileSync(join(dir, 'formfeed-preview.md'), 'utf8');
+      expect(summary).toContain('**1 data set changed its page count.**');
+      expect(summary).toContain('Changed page counts do not fail this run.');
+      expect(out.join('\n')).toContain('hello (long): 3 page(s) -> ');
+      expect(out.join('\n')).toContain(', 2 in the base');
+    });
+
+    it('names data sets new on the branch, removed from it, and a template the base does not have', async () => {
+      await setUp({ default: 1, extra: 2 });
+      expect(
+        await run(
+          ['ci', 'preview', '--data-sets', 'all', '--compare', '--json'],
+          {
+            ...ctx,
+            ...baseGit({ default: 1, old: 4 }),
+          },
+        ),
+      ).toBe(0);
+      const rows = JSON.parse(out.at(-1)!).templates;
+      expect(
+        rows.map((r: { data: string; change: string }) => [r.data, r.change]),
+      ).toEqual([
+        ['default', 'same'],
+        ['extra', 'new'],
+        ['old', 'removed'],
+      ]);
+      // what only the base has is listed, not rendered
+      expect(renders).toHaveLength(3);
+      const summary = readFileSync(join(dir, 'formfeed-preview.md'), 'utf8');
+      expect(summary).toContain('| `hello` | extra | — | 2 (new) |');
+      expect(summary).toContain('| `hello` | old | — | removed | — |');
+
+      out = [];
+      renders = [];
+      // a template new on the branch: nothing to compare, nothing to fail
+      expect(
+        await run(
+          ['ci', 'preview', '--data-sets', 'all', '--compare', '--json'],
+          {
+            ...ctx,
+            ...baseGit(null),
+          },
+        ),
+      ).toBe(0);
+      expect(
+        JSON.parse(out.at(-1)!).templates.map(
+          (r: { change: string }) => r.change,
+        ),
+      ).toEqual(['new', 'new']);
+      expect(renders).toHaveLength(2);
+    });
+
+    it('takes a base that does not render for a base that failed, never for a failure of the branch', async () => {
+      await setUp({ default: 1 });
+      const git = baseGit({ default: 1 });
+      const broken = {
+        ...git,
+        gitBytes: (args: string[]) =>
+          args[2] === 'base1:./templates/hello/template.html'
+            ? new TextEncoder().encode('<div>{% if %}</div>')
+            : git.gitBytes(args),
+      };
+      expect(
+        await run(['ci', 'preview', '--compare', '--json'], {
+          ...ctx,
+          ...broken,
+        }),
+      ).toBe(0);
+      const [row] = JSON.parse(out.at(-1)!).templates;
+      expect(row).toMatchObject({
+        status: 'succeeded',
+        change: 'base_failed',
+        base: { status: 'failed' },
+      });
+    });
+
+    it('renders the named data sets, and the default one of a template that has none of them', async () => {
+      await setUp({ default: 1, long: 3 });
+      expect(
+        await run(['ci', 'preview', '--data-sets', 'long', '--json'], ctx),
+      ).toBe(0);
+      expect(
+        JSON.parse(out.at(-1)!).templates.map((r: { data: string }) => r.data),
+      ).toEqual(['long']);
+      out = [];
+      expect(
+        await run(['ci', 'preview', '--data-sets', 'other', '--json'], ctx),
+      ).toBe(0);
+      expect(
+        JSON.parse(out.at(-1)!).templates.map((r: { data: string }) => r.data),
+      ).toEqual(['default']);
+    });
+
+    it('stops before a run larger than --max-renders, and without the base files', async () => {
+      await setUp({ default: 1, long: 3 });
+      expect(
+        await run(
+          [
+            'ci',
+            'preview',
+            '--data-sets',
+            'all',
+            '--compare',
+            '--max-renders',
+            '3',
+          ],
+          { ...ctx, ...baseGit({ default: 1, long: 2 }) },
+        ),
+      ).toBe(2);
+      expect(err.join('\n')).toContain(
+        'ci preview would make 4 renders, more than --max-renders 3',
+      );
+      expect(renders).toHaveLength(0);
+
+      err = [];
+      const { git } = baseGit({ default: 1 });
+      expect(
+        await run(['ci', 'preview', '--compare'], {
+          ...ctx,
+          git: (args: string[]) => (args[0] === 'ls-tree' ? null : git(args)),
+          gitBytes: () => null,
+        }),
+      ).toBe(2);
+      expect(err.join('\n')).toContain('fetch the history up to it');
+    });
+  });
 });
 
 /** A relay WebSocket in memory: the test plays the gateway through `message` and `drop`. */
