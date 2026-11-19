@@ -38,6 +38,22 @@ import { Slugger } from './slug';
  * `ff-h<n>`), heading ids by GitHub's rule and the wrapper `<div class="ff-markdown">`.
  */
 
+/**
+ * Colours one fence's code (plan 33): the HTML of its tokens, escaped, or `null` to print it plain.
+ * One per document, because the document's code budget is counted across its fences.
+ */
+export type CodeHighlighter = (code: string, language: string) => string | null;
+
+/**
+ * What a host adds to markdown-it (plan 33): `@formfeed/engine/markdown/rich`, which the render-worker's
+ * Markdown thread hands in. The converter imports none of it, so the published package and the
+ * gateway carry no highlighter, and a host that passes nothing converts code plain.
+ */
+export interface RichMarkdown {
+  /** A highlighter for one document. */
+  highlighter(): CodeHighlighter;
+}
+
 export interface MarkdownConvertOptions {
   /** Raw HTML: `safe` shows it as text, `allow` writes it as it stands (decision 3). */
   html: MarkdownHtmlMode;
@@ -45,6 +61,10 @@ export interface MarkdownConvertOptions {
   breaks?: boolean;
   /** The helpers' HTML behind its placeholders, in a Markdown render with an engine (`kept.ts`). */
   kept?: KeptHtml;
+  /** A fence that names a language is coloured, where `rich` is there to colour it (plan 33). */
+  highlight?: boolean;
+  /** What colours it; data a thread cannot be sent, so the thread adds it itself. */
+  rich?: RichMarkdown;
 }
 
 export interface ConvertedMarkdown {
@@ -63,6 +83,8 @@ interface Pass {
   kind: Kind;
   kept?: KeptHtml;
   heading?: string;
+  /** The document's highlighter, which counts its budget; none in a fragment (plan 33, decision 1). */
+  code?: CodeHighlighter;
 }
 
 const PASS = 'formfeed';
@@ -409,6 +431,14 @@ function inlineRules(
 
 // --- the parsers ----------------------------------------------------------------------------------
 
+/** A fence's language as markdown-it reads it: the first word of its info string, unescaped. */
+function fenceLanguage(
+  info: string,
+  unescapeAll: (s: string) => string,
+): string {
+  return info ? (unescapeAll(info).trim().split(/\s/, 1)[0] ?? '') : '';
+}
+
 function createParser(
   kind: Kind,
   mode: MarkdownHtmlMode,
@@ -430,6 +460,22 @@ function createParser(
 
   const escape = md.utils.escapeHtml;
   const rules = md.renderer.rules;
+  // A fence whose language the document's highlighter colours (plan 33) gets highlight.js's own
+  // classes, `hljs` on the code included, so that any highlight.js stylesheet in
+  // `settings.markdown.css` applies; every other fence is markdown-it's. The helpers' HTML in code is
+  // restored as text before (the core rule), so the highlighter sees it as code and escapes it.
+  const fence = rules['fence'];
+  rules['fence'] = (tokens, idx, options, env, self) => {
+    const token = tokens[idx];
+    const code = passOf(env).code;
+    if (token && code) {
+      const language = fenceLanguage(token.info, md.utils.unescapeAll);
+      const html = language ? code(token.content, language) : null;
+      if (html !== null)
+        return `<pre><code class="hljs language-${escape(language)}">${html}</code></pre>\n`;
+    }
+    return fence ? fence(tokens, idx, options, env, self) : '';
+  };
   rules['formfeed_page_break'] = () => PAGE_BREAK;
   rules['formfeed_task'] = (tokens, idx) =>
     tokens[idx]?.meta?.['checked']
@@ -560,7 +606,14 @@ export async function markdownToHtml(
       );
     }
   }
-  const pass: Pass = { kind: 'document', kept: options.kept };
+  const pass: Pass = {
+    kind: 'document',
+    kept: options.kept,
+    code:
+      options.highlight && options.rich
+        ? options.rich.highlighter()
+        : undefined,
+  };
   const inner = finish(
     md.render(body, { [PASS]: pass }),
     options.kept,

@@ -6,8 +6,10 @@ import {
   linkAllowed,
   markdownFragment,
   markdownToHtml,
+  type MarkdownConvertOptions,
 } from './convert';
 import { KEPT_CLOSE, KEPT_OPEN, KeptHtmlCollector } from './kept';
+import { richMarkdown } from './rich';
 import { MARKDOWN_CONVERTER } from './settings';
 
 const NBSP = String.fromCharCode(0xa0);
@@ -764,5 +766,121 @@ describe('the helpers’ HTML in a Markdown render', () => {
     expect(await body(`a ${KEPT_OPEN}x:0${KEPT_CLOSE} b`)).toBe(
       `<p>a ${KEPT_OPEN}x:0${KEPT_CLOSE} b</p>`,
     );
+  });
+});
+
+describe('highlighted code (plan 33)', () => {
+  const rich = richMarkdown();
+  const highlighted = async (
+    text: string,
+    extra: Partial<MarkdownConvertOptions> = {},
+  ) =>
+    (
+      await markdownToHtml(text, {
+        html: 'safe',
+        highlight: true,
+        rich,
+        ...extra,
+      })
+    ).html;
+  /**
+   * A highlighted document without the highlighter's spans, each of which must be a bare class of
+   * highlight.js (a token's, or an embedded language's), for `problemsOf` to judge the rest.
+   */
+  const withoutSpans = (html: string) => {
+    for (const span of html.match(/<span\b[^>]*>/g) ?? [])
+      expect(span).toMatch(
+        /^<span class="(?:hljs-[a-z_ -]+|language-[a-z0-9-]+)">$/,
+      );
+    return html.replace(/<span\b[^>]*>|<\/span>/g, '');
+  };
+  const fence = '```ts\nconst a = 1;\n```';
+  const plainTs = '<pre><code class="language-ts">const a = 1;\n</code></pre>';
+
+  it('colours a fence that names a language, with highlight.js’s classes', async () => {
+    expect(await highlighted(fence)).toBe(
+      '<div class="ff-markdown">\n<pre><code class="hljs language-ts"><span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;\n</code></pre>\n</div>\n',
+    );
+    // the language as markdown-it reads it: the first word of the info string, in any case
+    expect(
+      await highlighted('```TS title="a.ts"\nconst a = 1;\n```'),
+    ).toContain(
+      '<code class="hljs language-TS"><span class="hljs-keyword">const</span>',
+    );
+  });
+
+  it('prints plain without a language, with one it does not take, and indented', async () => {
+    expect(await highlighted('```\nconst a = 1;\n```')).toContain(
+      '<pre><code>const a = 1;\n</code></pre>',
+    );
+    expect(await highlighted('```math\nx^2\n```')).toContain(
+      '<pre><code class="language-math">x^2\n</code></pre>',
+    );
+    expect(await highlighted('    const a = 1;')).toContain(
+      '<pre><code>const a = 1;\n</code></pre>',
+    );
+  });
+
+  it('prints plain when switched off, without the highlighter, and in a fragment (decision 1)', async () => {
+    expect(await highlighted(fence, { highlight: false })).toContain(plainTs);
+    expect(await highlighted(fence, { rich: undefined })).toContain(plainTs);
+    expect(
+      markdownFragment(fence, { html: 'safe', highlight: true, rich }),
+    ).toContain(plainTs);
+  });
+
+  it('runs nothing that the code holds, in any language', async () => {
+    const hostile = [
+      '</code></pre><script>alert(1)</script>',
+      '<img src=x onerror=alert(1)>',
+      '"><svg onload=alert(1)>',
+      '<style>*{display:none}</style>',
+      '<!-- <a href="javascript:alert(1)">x</a> -->',
+      '&lt;script&gt; &#106;avascript:',
+      '${`<b>`}',
+    ].join('\n');
+    for (const language of [
+      'ts',
+      'html',
+      'markdown',
+      'php-template',
+      'bash',
+      'json',
+      'yaml',
+      'css',
+    ]) {
+      const html = await highlighted(`\`\`\`${language}\n${hostile}\n\`\`\``);
+      expect(html, language).toContain(
+        `<code class="hljs language-${language}">`,
+      );
+      expect(problemsOf(withoutSpans(html)), language).toEqual([]);
+    }
+  });
+
+  it('shows the helpers’ HTML in code as text, and colours it as code', async () => {
+    const kept = new KeptHtmlCollector();
+    const b = kept.keep('<strong class="x">kept</strong>');
+    const html = await highlighted(`\`\`\`html\n${b}\n\`\`\``, { kept });
+    expect(html).not.toContain('<strong class="x">');
+    expect(html).toContain('<span class="hljs-name">strong</span>');
+    expect(problemsOf(withoutSpans(html))).toEqual([]);
+  });
+
+  it('gives every document its own budget, counted in the order of its code', async () => {
+    // 89,700 bytes a block: two fit in the 256 kB, the third would cross it
+    const block = `\`\`\`ts\n${'const a = 1;\n'.repeat(6900)}\`\`\``;
+    const text = [block, block, block, '```ts\nconst last = 2;\n```'].join(
+      '\n\n',
+    );
+    for (const run of [1, 2]) {
+      const html = await highlighted(text);
+      expect(
+        html.match(/class="hljs language-ts"/g),
+        `run ${run}`,
+      ).toHaveLength(2);
+      expect(html, `run ${run}`).toContain(
+        '<pre><code class="language-ts">const last = 2;\n</code></pre>',
+      );
+    }
   });
 });

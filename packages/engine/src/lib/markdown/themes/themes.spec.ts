@@ -11,8 +11,8 @@ import { markdownThemeCss } from './index';
  */
 const PINNED: Record<string, { revision: number; sha256: string }> = {
   document: {
-    revision: 1,
-    sha256: '2934d5bca8df9b142330fcb2448a478d132a58407cf316bb0c2221338fb18710',
+    revision: 2,
+    sha256: '54862d994be68ca0cb13c3f8e6de53b525c082ad947037f2ab8d8937cc2430ac',
   },
 };
 
@@ -52,6 +52,38 @@ describe('themes', () => {
           `\\.ff-markdown ${element} \\{[^}]*overflow-wrap: anywhere;`,
         ),
       );
+  });
+
+  it('colours code’s tokens at 5:1 or more on the code’s background (plan 33, decision 4)', () => {
+    const channel = (v: number) =>
+      v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    const luminance = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) =>
+        channel(parseInt(hex.slice(i, i + 2), 16) / 255),
+      );
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const contrast = (a: string, b: string) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    const background =
+      /\.ff-markdown pre \{[^}]*background: (#[0-9a-f]{6});/.exec(
+        documentTheme,
+      )?.[1];
+    expect(background).toBe('#f6f8fa');
+    const colours = [
+      ...documentTheme.matchAll(
+        /^(.*\.hljs-[^{]*)\{[^}]*color: (#[0-9a-f]{6});/gm,
+      ),
+    ];
+    // every group of decision 4, the text of an interpolation included
+    expect(new Set(colours.map((c) => c[2])).size).toBe(10);
+    for (const [, selectors, colour] of colours)
+      expect(
+        contrast(colour!, background!),
+        `${selectors!.trim()} ${colour}`,
+      ).toBeGreaterThanOrEqual(5);
   });
 
   it('`none` is the print reset alone', () => {

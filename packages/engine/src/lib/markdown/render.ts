@@ -191,9 +191,12 @@ export async function finishMarkdown(
     rendered.keywords,
   ];
 
+  // `highlight` is what the document asks for; the converter colours code only where its host
+  // handed it the highlighter (the render-worker's thread), and prints it plain otherwise
   const converted = await convert(text, {
     html: options.html,
     breaks: options.breaks,
+    highlight: options.highlight,
     kept,
   });
   // The default converter ran in this thread, where nothing could stop it, so its time is checked

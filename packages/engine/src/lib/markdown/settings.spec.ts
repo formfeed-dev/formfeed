@@ -15,6 +15,7 @@ describe('settings.markdown', () => {
       theme: 'document',
       html: 'safe',
       breaks: false,
+      highlight: true,
       css: '',
     };
     expect(resolveMarkdown(undefined)).toEqual(defaults);
@@ -25,23 +26,32 @@ describe('settings.markdown', () => {
         theme: 'none',
         html: 'allow',
         breaks: true,
+        highlight: false,
         css: 'p{}',
       }),
     ).toEqual({
       theme: 'none',
       html: 'allow',
       breaks: true,
+      highlight: false,
       css: 'p{}',
     });
   });
 
   it('reads a value the API would have refused as its default, since a render never fails on its look', () => {
     expect(
-      resolveMarkdown({ theme: 'github', html: 'yes', breaks: 'true', css: 1 }),
+      resolveMarkdown({
+        theme: 'github',
+        html: 'yes',
+        breaks: 'true',
+        highlight: 'no',
+        css: 1,
+      }),
     ).toEqual({
       theme: 'document',
       html: 'safe',
       breaks: false,
+      highlight: true,
       css: '',
     });
     expect(resolveMarkdown('document')).toEqual(resolveMarkdown(undefined));
@@ -54,6 +64,7 @@ describe('settings.markdown', () => {
         theme: 'none',
         html: 'allow',
         breaks: true,
+        highlight: false,
         css: '',
       }),
     ).toBeNull();
@@ -68,7 +79,7 @@ describe('settings.markdown', () => {
     expect(markdownSettingsProblem({ themes: 'none' })).toEqual({
       field: 'settings.markdown.themes',
       message:
-        'settings.markdown.themes is not a setting: the settings are theme, html, breaks, css',
+        'settings.markdown.themes is not a setting: the settings are theme, html, breaks, highlight, css',
     });
     expect(markdownSettingsProblem({ theme: 'github' })).toEqual({
       field: 'settings.markdown.theme',
@@ -81,6 +92,10 @@ describe('settings.markdown', () => {
     expect(markdownSettingsProblem({ breaks: 'yes' })).toEqual({
       field: 'settings.markdown.breaks',
       message: MARKDOWN_REFUSALS.breaks,
+    });
+    expect(markdownSettingsProblem({ highlight: 'false' })).toEqual({
+      field: 'settings.markdown.highlight',
+      message: MARKDOWN_REFUSALS.highlight,
     });
     expect(markdownSettingsProblem({ css: ['p{}'] })).toEqual({
       field: 'settings.markdown.css',
@@ -120,12 +135,24 @@ describe('settings.markdown', () => {
     expect(MARKDOWN_REFUSALS.textTooLarge).toBe('markdown is larger than 1 MB');
   });
 
-  it('names the converter and the theme as a render records them', () => {
+  it('names the converter, the theme and the libraries the settings let a render use', () => {
+    expect(markdownVersion(resolveMarkdown({}))).toBe(
+      'markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0',
+    );
+    expect(markdownVersion(resolveMarkdown({ highlight: false }))).toBe(
+      'markdown-it 15.0.3, rules 2, theme document 2',
+    );
+    expect(markdownVersion(resolveMarkdown({ theme: 'none' }))).toBe(
+      'markdown-it 15.0.3, rules 2, theme none 1, highlight.js 11.12.0',
+    );
+  });
+
+  it('takes a theme alone, as callers before plan 33 pass it, with the other defaults', () => {
     expect(markdownVersion('document')).toBe(
-      'markdown-it 15.0.3, rules 1, theme document 1',
+      markdownVersion(resolveMarkdown({})),
     );
     expect(markdownVersion('none')).toBe(
-      'markdown-it 15.0.3, rules 1, theme none 1',
+      markdownVersion(resolveMarkdown({ theme: 'none' })),
     );
   });
 });

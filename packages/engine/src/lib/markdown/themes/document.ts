@@ -10,6 +10,10 @@
  * - A heading takes its size from the level written (`ff-h1` to `ff-h6`), never from its tag, whose
  *   level the converter closes up, and stays with what follows it.
  * - Three lines at least at a page's foot and head.
+ * - Code's tokens in GitHub's light palette (plan 33, decision 4), every colour at 5:1 or more on the
+ *   code's background, which `themes.spec.ts` checks: comments darker than GitHub's, whose 4.27:1
+ *   falls short, and strings in a petrol blue, because GitHub's navy is hard to tell from the text.
+ *   The brand kit does not recolour code.
  *
  * Any change here bumps `MARKDOWN_THEME_REVISIONS.document` (`themes.spec.ts` holds it to the hash).
  */
@@ -53,6 +57,20 @@ export const documentTheme = `.ff-markdown {
 .ff-markdown kbd { font-size: 0.85em; border: 1px solid #d0d7de; border-bottom-width: 2px; border-radius: 3px; padding: 0 0.3em; }
 .ff-markdown pre { font-size: 0.85em; line-height: 1.45; background: #f6f8fa; padding: 0.7em 0.9em; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ff-markdown pre code { font-size: 1em; background: none; padding: 0; border-radius: 0; }
+.ff-markdown .hljs-keyword, .ff-markdown .hljs-doctag, .ff-markdown .hljs-type, .ff-markdown .hljs-template-tag, .ff-markdown .hljs-template-variable, .ff-markdown .hljs-variable.language_ { color: #cf222e; }
+.ff-markdown .hljs-string, .ff-markdown .hljs-regexp { color: #005f87; }
+.ff-markdown .hljs-comment, .ff-markdown .hljs-code, .ff-markdown .hljs-formula { color: #59636e; }
+.ff-markdown .hljs-number, .ff-markdown .hljs-literal, .ff-markdown .hljs-attr, .ff-markdown .hljs-attribute, .ff-markdown .hljs-property, .ff-markdown .hljs-operator, .ff-markdown .hljs-selector-attr, .ff-markdown .hljs-selector-class, .ff-markdown .hljs-selector-id, .ff-markdown .hljs-section { color: #0550ae; }
+.ff-markdown .hljs-title { color: #6639ba; }
+.ff-markdown .hljs-variable, .ff-markdown .hljs-built_in, .ff-markdown .hljs-symbol, .ff-markdown .hljs-bullet { color: #953800; }
+.ff-markdown .hljs-name, .ff-markdown .hljs-selector-tag, .ff-markdown .hljs-selector-pseudo, .ff-markdown .hljs-quote, .ff-markdown .hljs-addition { color: #116329; }
+.ff-markdown .hljs-deletion { color: #82071e; }
+.ff-markdown .hljs-meta { color: #57606a; }
+.ff-markdown .hljs-meta .hljs-keyword { color: #cf222e; }
+.ff-markdown .hljs-meta .hljs-string { color: #005f87; }
+.ff-markdown .hljs-subst { color: #1f2328; }
+.ff-markdown .hljs-section, .ff-markdown .hljs-strong { font-weight: 600; }
+.ff-markdown .hljs-emphasis { font-style: italic; }
 .ff-markdown blockquote { border-left: 3px solid var(--brand-color-primary, #d0d7de); padding: 0 1em; color: #424a53; }
 .ff-markdown blockquote > :last-child { margin-bottom: 0; }
 .ff-markdown table { width: 100%; }

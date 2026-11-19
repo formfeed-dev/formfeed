@@ -2302,6 +2302,10 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
       '--raw-html',
       'Markdown: write raw HTML in the text as it stands instead of showing it as text',
     )
+    .option(
+      '--no-highlight',
+      "Markdown: print code in the text's colour instead of colouring the fences that name a language",
+    )
     .option('--no-download', 'create the PDF render without downloading it')
     .action(
       async (
@@ -2315,6 +2319,7 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
           css?: string;
           settings?: string;
           rawHtml?: boolean;
+          highlight: boolean;
           download: boolean;
         },
       ) => {
@@ -2340,6 +2345,8 @@ export function buildProgram(ctx: ProgramContext = {}): Command {
             ['--css', opts.css],
             ['--settings', opts.settings],
             ['--raw-html', opts.rawHtml],
+            // true unless the option was given, as for every --no- option
+            ['--no-highlight', opts.highlight ? undefined : false],
           ] as const
         ).find(([, value]) => value !== undefined);
         if (!markdown && markdownOnly)

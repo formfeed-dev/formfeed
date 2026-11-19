@@ -27,6 +27,11 @@ export interface MarkdownSettings {
   html?: MarkdownHtmlMode;
   /** A single line break is a `<br>`, as in a chat; off by default, as in GitHub Flavored Markdown. */
   breaks?: boolean;
+  /**
+   * A fence that names a language highlight.js knows is coloured (plan 33); on by default. The
+   * classes are written in either theme, and `document` gives them its colours.
+   */
+  highlight?: boolean;
   /** A stylesheet that comes after the theme. */
   css?: string;
 }
@@ -36,6 +41,7 @@ export interface ResolvedMarkdown {
   theme: MarkdownTheme;
   html: MarkdownHtmlMode;
   breaks: boolean;
+  highlight: boolean;
   css: string;
 }
 
@@ -47,9 +53,22 @@ export const MARKDOWN_LIMITS = {
   textBytes: 1024 * 1024,
   /** `settings.markdown.css`, in UTF-8 bytes. */
   cssBytes: 256 * 1024,
+  /**
+   * The code a document highlights, in UTF-8 bytes and in the order of the document (plan 33,
+   * decision 3): what comes after prints plain. The linear grammars still cost up to 5.7 ms per kB on
+   * input made to be slow.
+   */
+  highlightBytes: 256 * 1024,
+  /** A block larger than this, in UTF-8 bytes, prints plain. */
+  highlightBlockBytes: 100 * 1024,
+  /**
+   * A block with a line longer than this, in characters, prints plain: the `markdown` and `yaml`
+   * grammars are quadratic within a line (14.5 s for one line of 100 kB in step 1).
+   */
+  highlightLineLength: 1000,
 } as const;
 
-const SETTING_KEYS = ['theme', 'html', 'breaks', 'css'] as const;
+const SETTING_KEYS = ['theme', 'html', 'breaks', 'highlight', 'css'] as const;
 
 const megabytes = (bytes: number) => `${bytes / 1024 / 1024} MB`;
 const kilobytes = (bytes: number) => `${bytes / 1024} kB`;
@@ -65,6 +84,7 @@ export const MARKDOWN_REFUSALS = {
   theme: `settings.markdown.theme must be one of ${MARKDOWN_THEMES.join(', ')}`,
   html: `settings.markdown.html must be one of ${MARKDOWN_HTML_MODES.join(', ')}`,
   breaks: 'settings.markdown.breaks must be true or false',
+  highlight: 'settings.markdown.highlight must be true or false',
   css: 'settings.markdown.css must be a stylesheet as text',
   cssTooLarge: `settings.markdown.css is larger than ${kilobytes(MARKDOWN_LIMITS.cssBytes)}`,
   textTooLarge: `markdown is larger than ${megabytes(MARKDOWN_LIMITS.textBytes)}`,
@@ -129,6 +149,11 @@ export function markdownSettingsProblem(
     return at('html', MARKDOWN_REFUSALS.html);
   if (block['breaks'] !== undefined && typeof block['breaks'] !== 'boolean')
     return at('breaks', MARKDOWN_REFUSALS.breaks);
+  if (
+    block['highlight'] !== undefined &&
+    typeof block['highlight'] !== 'boolean'
+  )
+    return at('highlight', MARKDOWN_REFUSALS.highlight);
   if (block['css'] !== undefined) {
     if (typeof block['css'] !== 'string')
       return at('css', MARKDOWN_REFUSALS.css);
@@ -164,6 +189,7 @@ export function resolveMarkdown(value: unknown): ResolvedMarkdown {
       ? (html as MarkdownHtmlMode)
       : 'safe',
     breaks: block['breaks'] === true,
+    highlight: block['highlight'] !== false,
     css: typeof block['css'] === 'string' ? block['css'] : '',
   };
 }
@@ -173,12 +199,23 @@ export function resolveMarkdown(value: unknown): ResolvedMarkdown {
 /**
  * What converts the text: the parser, its release (`convert.spec.ts` holds it to the installed
  * package) and the revision of our own rules on top of it (front matter, page breaks, heading levels
- * and ids, cells, task lists, raw HTML). A change to the rules that changes a document bumps `rules`.
+ * and ids, cells, task lists, raw HTML, the highlighted fence). A change to the rules that changes a
+ * document bumps `rules`.
  */
 export const MARKDOWN_CONVERTER = {
   parser: 'markdown-it',
   version: '15.0.3',
-  rules: 1,
+  rules: 2,
+} as const;
+
+/**
+ * What colours code (plan 33, decision 2), and its release; `rich/code.spec.ts` holds it to the
+ * installed package. A new release may colour a document differently, so it changes the version a
+ * render records.
+ */
+export const MARKDOWN_HIGHLIGHTER = {
+  library: 'highlight.js',
+  version: '11.12.0',
 } as const;
 
 /**
@@ -188,15 +225,33 @@ export const MARKDOWN_CONVERTER = {
  */
 export const MARKDOWN_THEME_REVISIONS: Readonly<Record<MarkdownTheme, number>> =
   {
-    document: 1,
+    document: 2,
     none: 1,
   };
 
 /**
- * How a render records its converter and theme, in `engine_version` and the deduplication key:
- * `markdown-it 15.0.3, rules 1, theme document 1`.
+ * How a render records its converter, its theme and the libraries its settings let it use, in
+ * `engine_version` and the deduplication key, so that the key changes when one of them does:
+ * `markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0`. The settings decide, not
+ * the text, so a document without code names highlight.js as well. A theme alone, as callers before
+ * plan 33 pass it, stands for that theme with the other defaults.
  */
-export function markdownVersion(theme: MarkdownTheme): string {
+export function markdownVersion(
+  markdown: MarkdownTheme | Pick<ResolvedMarkdown, 'theme' | 'highlight'>,
+): string {
   const { parser, version, rules } = MARKDOWN_CONVERTER;
-  return `${parser} ${version}, rules ${rules}, theme ${theme} ${MARKDOWN_THEME_REVISIONS[theme]}`;
+  const { theme, highlight } =
+    typeof markdown === 'string'
+      ? { ...resolveMarkdown({}), theme: markdown }
+      : markdown;
+  const parts = [
+    `${parser} ${version}`,
+    `rules ${rules}`,
+    `theme ${theme} ${MARKDOWN_THEME_REVISIONS[theme]}`,
+  ];
+  if (highlight)
+    parts.push(
+      `${MARKDOWN_HIGHLIGHTER.library} ${MARKDOWN_HIGHLIGHTER.version}`,
+    );
+  return parts.join(', ');
 }

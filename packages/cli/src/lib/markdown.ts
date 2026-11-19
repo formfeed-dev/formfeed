@@ -30,6 +30,8 @@ export interface MarkdownConvertOptions {
   settings?: string;
   /** `--raw-html`: raw HTML is written as it stands, as `settings.markdown.html: "allow"`. */
   rawHtml?: boolean;
+  /** `--no-highlight` makes it `false`: code prints in the text's colour (plan 33). */
+  highlight?: boolean;
   landscape?: boolean;
   pageRanges?: string;
 }
@@ -93,6 +95,7 @@ export async function markdownConvertRequest(
     block['css'] = readText(file);
   }
   if (options.rawHtml) block['html'] = 'allow';
+  if (options.highlight === false) block['highlight'] = false;
   if (Object.keys(block).length) settings['markdown'] = block;
   const problem = markdownSettingsProblem(settings['markdown']);
   if (problem) throw new CliError(problem.message);

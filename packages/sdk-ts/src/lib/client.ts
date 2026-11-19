@@ -47,6 +47,11 @@ export interface MarkdownSettings {
   html?: 'safe' | 'allow';
   /** A single line break becomes a line break, as in a chat; off by default. */
   breaks?: boolean;
+  /**
+   * A fenced code block that names its language is coloured by highlight.js, with its classes
+   * (`hljs-keyword`); on by default, `false` prints code in the text's colour.
+   */
+  highlight?: boolean;
   /** A stylesheet after the theme, at most 256 kB. */
   css?: string;
 }
