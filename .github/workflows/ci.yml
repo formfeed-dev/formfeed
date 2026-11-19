@@ -29,7 +29,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # lint and unit tests, then build every npm package and try it the way a user installs it
-      - run: pnpm nx run-many -t lint test bundle smoke --exclude sdk-python
+      - run: pnpm nx run-many -t lint test bundle smoke --exclude sdk-python,sdk-php,sdk-laravel
 
   python:
     runs-on: ubuntu-latest
@@ -52,3 +52,30 @@ jobs:
           pip install build twine
           python -m build
           python -m twine check --strict dist/*
+
+  php:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # the oldest PHP with the older Laravel, the newest with the newer
+        include:
+          - { php: '8.3', laravel: '12' }
+          - { php: '8.5', laravel: '13' }
+    env:
+      PHP: ${{ matrix.php }}
+      LARAVEL: ${{ matrix.laravel }}
+    steps:
+      - uses: actions/checkout@v5
+      # Node only starts the checks, which run in the official PHP image (packages/sdk-php/docker)
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: node packages/sdk-php/scripts/php.mjs test
+      - run: node packages/sdk-php/scripts/php.mjs --package sdk-laravel test
+      - if: matrix.php == '8.3'
+        run: |
+          node packages/sdk-php/scripts/php.mjs lint
+          node packages/sdk-php/scripts/php.mjs --package sdk-laravel lint

@@ -4,22 +4,27 @@ Client libraries, command line tools and integrations for [Formfeed](https://for
 for generating PDFs and images from templates. Documentation lives at
 [docs.formfeed.dev](https://docs.formfeed.dev).
 
-| Package | Registry | What it is |
-|---|---|---|
-| [`@formfeed/sdk`](packages/sdk-ts) | [npm](https://www.npmjs.com/package/@formfeed/sdk) | TypeScript client: renders, batches, templates, webhooks. No dependencies, Web APIs only |
-| [`formfeed`](packages/sdk-python) | [PyPI](https://pypi.org/project/formfeed/) | Python client, sync and async |
-| [`formfeed`](packages/cli) | [npm](https://www.npmjs.com/package/formfeed) | CLI: templates as files, offline preview and validation, renders through the API |
-| [`@formfeed/engine`](packages/engine) | [npm](https://www.npmjs.com/package/@formfeed/engine) | The template engine (Jinja2, Liquid, Handlebars) the API and the editor use |
-| [`@formfeed/devkit`](packages/devkit) | [npm](https://www.npmjs.com/package/@formfeed/devkit) | Template folders, project config and local rendering |
-| [`@formfeed/testing`](packages/testing) | [npm](https://www.npmjs.com/package/@formfeed/testing) | Vitest and Jest matchers for templates |
-| [`@formfeed/mcp`](packages/mcp) | [npm](https://www.npmjs.com/package/@formfeed/mcp) | Model Context Protocol server for AI agents [![formfeed MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/formfeed-dev/formfeed/badges/score.svg)](https://glama.ai/mcp/servers/formfeed-dev/formfeed) |
-| [`n8n-nodes-formfeed`](packages/n8n-nodes-formfeed) | [npm](https://www.npmjs.com/package/n8n-nodes-formfeed) | n8n community node |
+| Package                                             | Registry                                                     | What it is                                                                                                                                                                                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@formfeed/sdk`](packages/sdk-ts)                  | [npm](https://www.npmjs.com/package/@formfeed/sdk)           | TypeScript client: renders, batches, templates, webhooks. No dependencies, Web APIs only                                                                                                                                               |
+| [`formfeed`](packages/sdk-python)                   | [PyPI](https://pypi.org/project/formfeed/)                   | Python client, sync and async                                                                                                                                                                                                          |
+| [`formfeed/sdk`](packages/sdk-php)                  | [Packagist](https://packagist.org/packages/formfeed/sdk)     | PHP client over any PSR-18 HTTP client                                                                                                                                                                                                 |
+| [`formfeed/laravel`](packages/sdk-laravel)          | [Packagist](https://packagist.org/packages/formfeed/laravel) | Laravel package: settings from `.env`, the `Formfeed` facade, a webhook middleware and `Formfeed::fake()` for tests                                                                                                                    |
+| [`formfeed`](packages/cli)                          | [npm](https://www.npmjs.com/package/formfeed)                | CLI: templates as files, offline preview and validation, renders through the API                                                                                                                                                       |
+| [`@formfeed/engine`](packages/engine)               | [npm](https://www.npmjs.com/package/@formfeed/engine)        | The template engine (Jinja2, Liquid, Handlebars) the API and the editor use                                                                                                                                                            |
+| [`@formfeed/devkit`](packages/devkit)               | [npm](https://www.npmjs.com/package/@formfeed/devkit)        | Template folders, project config and local rendering                                                                                                                                                                                   |
+| [`@formfeed/testing`](packages/testing)             | [npm](https://www.npmjs.com/package/@formfeed/testing)       | Vitest and Jest matchers for templates                                                                                                                                                                                                 |
+| [`@formfeed/mcp`](packages/mcp)                     | [npm](https://www.npmjs.com/package/@formfeed/mcp)           | Model Context Protocol server for AI agents [![formfeed MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/formfeed-dev/formfeed/badges/score.svg)](https://glama.ai/mcp/servers/formfeed-dev/formfeed) |
+| [`n8n-nodes-formfeed`](packages/n8n-nodes-formfeed) | [npm](https://www.npmjs.com/package/n8n-nodes-formfeed)      | n8n community node                                                                                                                                                                                                                     |
 
 Every npm package is built and published from this repository by
 [GitHub Actions](.github/workflows/release.yml) with
 [provenance](https://docs.npmjs.com/generating-provenance-statements), and the Python package with
 [trusted publishing](https://docs.pypi.org/trusted-publishers/), so each release can be traced to
-the commit and workflow run it came from.
+the commit and workflow run it came from. Packagist reads the PHP packages from repositories of their
+own, [formfeed-php](https://github.com/formfeed-dev/formfeed-php) and
+[formfeed-laravel](https://github.com/formfeed-dev/formfeed-laravel), which are tagged with every
+release.
 
 ## Development
 
@@ -27,8 +32,9 @@ Node 22 or newer and pnpm (the version in `package.json`, `corepack enable` pick
 
 ```bash
 pnpm install
-pnpm nx run-many -t lint test --exclude sdk-python   # TypeScript packages
+pnpm nx run-many -t lint test --exclude sdk-python,sdk-php,sdk-laravel   # TypeScript packages
 pnpm nx run-many -t bundle smoke                     # build, pack and try every npm package
+pnpm nx run-many -t lint test -p sdk-php sdk-laravel   # PHP packages, in Docker
 cd packages/sdk-python && pip install pytest httpx pydantic && python -m pytest -q
 ```
 

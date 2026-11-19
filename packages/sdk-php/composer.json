@@ -1,0 +1,59 @@
+{
+  "name": "formfeed/sdk",
+  "description": "PHP client for the Formfeed API: PDFs and images from templates, HTML or URLs, and tools for existing PDFs.",
+  "type": "library",
+  "keywords": [
+    "formfeed",
+    "pdf",
+    "pdf-generation",
+    "templates",
+    "html-to-pdf",
+    "zugferd"
+  ],
+  "homepage": "https://docs.formfeed.dev",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Formfeed",
+      "email": "support@formfeed.dev"
+    }
+  ],
+  "support": {
+    "docs": "https://docs.formfeed.dev",
+    "email": "support@formfeed.dev"
+  },
+  "require": {
+    "php": ">=8.3",
+    "ext-json": "*",
+    "php-http/discovery": "^1.19",
+    "psr/http-client": "^1.0",
+    "psr/http-client-implementation": "*",
+    "psr/http-factory": "^1.0",
+    "psr/http-factory-implementation": "*",
+    "psr/http-message": "^1.1 || ^2.0"
+  },
+  "require-dev": {
+    "friendsofphp/php-cs-fixer": "^3.64",
+    "nyholm/psr7": "^1.8",
+    "php-http/mock-client": "^1.6",
+    "phpstan/phpstan": "^2.0",
+    "phpunit/phpunit": "^11.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Formfeed\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Formfeed\\Tests\\": "tests/"
+    }
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": {
+      "php-http/discovery": false
+    }
+  },
+  "minimum-stability": "stable"
+}

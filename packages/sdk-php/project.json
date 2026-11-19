@@ -1,0 +1,47 @@
+{
+  "name": "sdk-php",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/sdk-php/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/tests/**/*",
+        "{projectRoot}/composer.json",
+        "{projectRoot}/operations.json",
+        "{projectRoot}/phpunit.xml.dist",
+        "{workspaceRoot}/packages/api-types/fixtures/**/*",
+        "{workspaceRoot}/tools/publish/packages.mjs",
+        "{projectRoot}/scripts/php.mjs",
+        { "env": "PHP" }
+      ],
+      "options": {
+        "command": "node packages/sdk-php/scripts/php.mjs test"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/tests/**/*",
+        "{projectRoot}/composer.json",
+        "{projectRoot}/phpstan.neon.dist",
+        "{projectRoot}/.php-cs-fixer.dist.php",
+        "{projectRoot}/scripts/php.mjs",
+        { "env": "PHP" }
+      ],
+      "options": {
+        "command": "node packages/sdk-php/scripts/php.mjs lint"
+      }
+    },
+    "fix": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node packages/sdk-php/scripts/php.mjs fix"
+      }
+    }
+  }
+}

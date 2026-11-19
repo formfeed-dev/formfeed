@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "bundle": "nx run-many -t bundle",
-    "test": "nx run-many -t test --exclude sdk-python",
+    "test": "nx run-many -t test --exclude sdk-python,sdk-php,sdk-laravel",
     "lint": "nx run-many -t lint"
   },
   "packageManager": "pnpm@11.3.0",

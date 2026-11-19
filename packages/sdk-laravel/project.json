@@ -1,0 +1,54 @@
+{
+  "name": "sdk-laravel",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/sdk-laravel/src",
+  "projectType": "library",
+  "tags": [],
+  "implicitDependencies": ["sdk-php"],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/config/**/*",
+        "{projectRoot}/tests/**/*",
+        "{projectRoot}/composer.json",
+        "{projectRoot}/phpunit.xml.dist",
+        "{workspaceRoot}/packages/sdk-php/src/**/*",
+        "{workspaceRoot}/packages/sdk-php/scripts/php.mjs",
+        "{workspaceRoot}/packages/sdk-php/composer.json",
+        "{workspaceRoot}/packages/api-types/fixtures/sdk/**/*",
+        "{workspaceRoot}/tools/publish/packages.mjs",
+        { "env": "PHP" },
+        { "env": "LARAVEL" }
+      ],
+      "options": {
+        "command": "node packages/sdk-php/scripts/php.mjs --package sdk-laravel test"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/config/**/*",
+        "{projectRoot}/tests/**/*",
+        "{projectRoot}/composer.json",
+        "{projectRoot}/phpstan.neon.dist",
+        "{projectRoot}/.php-cs-fixer.dist.php",
+        "{workspaceRoot}/packages/sdk-php/src/**/*",
+        "{workspaceRoot}/packages/sdk-php/scripts/php.mjs",
+        { "env": "PHP" },
+        { "env": "LARAVEL" }
+      ],
+      "options": {
+        "command": "node packages/sdk-php/scripts/php.mjs --package sdk-laravel lint"
+      }
+    },
+    "fix": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node packages/sdk-php/scripts/php.mjs --package sdk-laravel fix"
+      }
+    }
+  }
+}

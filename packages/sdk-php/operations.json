@@ -1,0 +1,138 @@
+{
+  "$comment": "Every operation of openapi.yaml (packages/api-types/fixtures/sdk/operations.json) and the method of this SDK that calls it, as $client->service->method(), or why it has none. Held by packages/api-types/src/lib/sdk-fixtures.spec.ts and tests/OperationsTest.php (plan 34).",
+  "operations": {
+    "createRender": "renders.create",
+    "listRenders": "renders.list",
+    "getRender": "renders.get",
+    "getRenderResult": {
+      "none": "the Location of a 202 for Power Automate and Logic Apps; renders->waitFor() polls getRender"
+    },
+    "getRenderInput": "renders.input",
+    "deleteRenderOutputs": "renders.deleteOutputs",
+    "createBatch": "renders.batch",
+    "getJob": "jobs.get",
+    "listTemplates": "templates.list",
+    "createTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "getTemplate": "templates.get",
+    "updateTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "archiveTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "listTemplateVersions": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "createTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "getTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "downloadTemplateFile": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "publishTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "listTemplateChannels": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "setTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "deleteTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "promoteTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "rollbackTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "getTemplateSchema": "templates.schema",
+    "validateTemplate": "templates.validate",
+    "listFiles": "files.list",
+    "uploadFile": "files.upload",
+    "getFile": "files.get",
+    "deleteFile": "files.delete",
+    "getBrand": {
+      "none": "the brand kit, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "listPartials": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "getPartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "putPartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "deletePartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "startDeviceLogin": {
+      "none": "the device login of formfeed login, which the CLI makes"
+    },
+    "claimDeviceLogin": {
+      "none": "the device login of formfeed login, which the CLI makes"
+    },
+    "getAccount": "account.get",
+    "getUsage": "account.usage",
+    "deleteWorkspace": {
+      "none": "deleting a workspace, later and on demand (plan 34, decision 2); Client::request() reaches it"
+    },
+    "getStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "putStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "deleteStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "testStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "redeliverStorage": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "mergePdf": "pdf.merge",
+    "protectPdf": "pdf.protect",
+    "convertOfficeToPdf": "pdf.convert",
+    "watermarkPdf": "pdf.watermark",
+    "splitPdf": "pdf.split",
+    "compressPdf": "pdf.compress",
+    "pdfToImage": "pdf.toImage",
+    "redactPdf": "pdf.redact",
+    "fillPdfForm": "pdf.fill",
+    "pdfInfo": "pdf.info",
+    "validateEinvoice": "einvoices.validate",
+    "listWebhooks": "webhooks.list",
+    "createWebhook": "webhooks.create",
+    "updateWebhook": "webhooks.update",
+    "deleteWebhook": "webhooks.delete",
+    "testWebhook": "webhooks.test",
+    "startListenSession": {
+      "none": "listen sessions, which the command line's formfeed listen holds"
+    },
+    "endListenSession": {
+      "none": "listen sessions, which the command line's formfeed listen holds"
+    },
+    "resendWebhookEvent": "webhooks.resend",
+    "compatApitemplateCreatePdf": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreateImage": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreatePdfFromHtml": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreatePdfFromUrl": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    }
+  }
+}

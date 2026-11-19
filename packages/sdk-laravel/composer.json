@@ -1,0 +1,78 @@
+{
+  "name": "formfeed/laravel",
+  "description": "Formfeed for Laravel: the API client from config/formfeed.php, the Formfeed facade, a middleware that checks webhook signatures, and Formfeed::fake() for tests.",
+  "type": "library",
+  "keywords": [
+    "formfeed",
+    "laravel",
+    "pdf",
+    "pdf-generation",
+    "templates",
+    "html-to-pdf",
+    "zugferd"
+  ],
+  "homepage": "https://docs.formfeed.dev",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Formfeed",
+      "email": "support@formfeed.dev"
+    }
+  ],
+  "support": {
+    "docs": "https://docs.formfeed.dev",
+    "email": "support@formfeed.dev"
+  },
+  "require": {
+    "php": ">=8.3",
+    "formfeed/sdk": "^0.3.27",
+    "illuminate/contracts": "^12.0 || ^13.0",
+    "illuminate/http": "^12.0 || ^13.0",
+    "illuminate/routing": "^12.0 || ^13.0",
+    "illuminate/support": "^12.0 || ^13.0"
+  },
+  "require-dev": {
+    "friendsofphp/php-cs-fixer": "^3.64",
+    "orchestra/testbench": "^10.12 || ^11.3",
+    "phpstan/phpstan": "^2.0",
+    "phpunit/phpunit": "^11.5.3 || ^12.0"
+  },
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../sdk-php",
+      "options": {
+        "versions": {
+          "formfeed/sdk": "0.3.27"
+        }
+      }
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Formfeed\\Laravel\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Formfeed\\Laravel\\Tests\\": "tests/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "Formfeed\\Laravel\\FormfeedServiceProvider"
+      ],
+      "aliases": {
+        "Formfeed": "Formfeed\\Laravel\\Facades\\Formfeed"
+      }
+    }
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": {
+      "php-http/discovery": false
+    }
+  },
+  "minimum-stability": "stable"
+}
