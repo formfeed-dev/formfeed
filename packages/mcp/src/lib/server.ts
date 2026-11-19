@@ -1389,6 +1389,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           ? 'with path, a picture beside the file is sent along instead.'
           : 'a picture can also be a data:image URI.',
         'The headings become the PDF bookmarks by default, and pdf_ua checks the file against PDF/UA-1 before it is delivered.',
+        'If the text holds formulas ($…$, $$…$$ or a ```math fence), set math: they are typeset with KaTeX, and a formula that does not parse fails the call naming its line; without math a $ is text, as in prices.',
         'To fill a template with data, use render; to convert an office file, use convert_to_pdf.',
         'Every call is a new render: one unit per started five pages on a live key or for a signed-in agent, free with a test key; every plan.',
       ].join(' '),
@@ -1430,6 +1431,12 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           .optional()
           .describe(
             'A stylesheet after the theme, e.g. h1 { color: #0f766e }; the document is inside div.ff-markdown',
+          ),
+        math: z
+          .boolean()
+          .optional()
+          .describe(
+            'Typesets formulas with KaTeX: $…$ and $`…`$ in a line, $$…$$ on lines of their own, ```math fences. Set it when you wrote formulas; left out, a $ stays text',
           ),
         paper: z
           .enum(['A4', 'Letter'])
@@ -1503,13 +1510,15 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           markdown = pictures.markdown;
           name = basename(path, extname(path));
         } else markdown = args.markdown!;
-        const { title, theme, css, paper, landscape, outline, pdf_ua } = args;
+        const { title, theme, css, math, paper, landscape, outline, pdf_ua } =
+          args;
         const settings = {
-          ...(theme || css
+          ...(theme || css || math
             ? {
                 markdown: {
                   ...(theme ? { theme } : {}),
                   ...(css ? { css } : {}),
+                  ...(math ? { math } : {}),
                 },
               }
             : {}),

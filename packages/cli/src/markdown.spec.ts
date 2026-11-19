@@ -110,6 +110,7 @@ describe('formfeed pdf convert: Markdown', () => {
         'settings.json',
         '--raw-html',
         '--no-highlight',
+        '--math',
         '--landscape',
         '--page-ranges',
         '1-2',
@@ -129,6 +130,7 @@ describe('formfeed pdf convert: Markdown', () => {
           css: 'h1 { color: teal }',
           html: 'allow',
           highlight: false,
+          math: true,
         },
         paper: { landscape: true },
         pageRanges: '1-2',
@@ -202,6 +204,10 @@ describe('formfeed pdf convert: Markdown', () => {
     await refused(
       ['report.docx', '--no-highlight'],
       '--no-highlight applies to a Markdown file',
+    );
+    await refused(
+      ['report.docx', '--math'],
+      '--math applies to a Markdown file',
     );
     expect(renders()).toHaveLength(0);
   });

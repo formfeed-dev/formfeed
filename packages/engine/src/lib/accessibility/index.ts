@@ -185,6 +185,12 @@ export interface AuditReport {
   links: AuditLink[];
   /** The links of the header and footer templates. */
   templateLinks: AuditLink[];
+  /**
+   * The alternative texts of the body's formulas in document order (plan 33, decision 13): the TeX
+   * a Markdown document's formula is named by. Chromium tags a formula as a `Figure` with that text
+   * as its `Alt`, and the render-worker renames the figures whose `Alt` is the next of these.
+   */
+  formulas: string[];
 }
 
 export interface AuditOptions {

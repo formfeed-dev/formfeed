@@ -304,7 +304,18 @@ export function audit(win: Window, options: AuditOptions = {}): AuditReport {
     }
   }
 
-  return { findings, links, templateLinks };
+  // --- formulas (plan 33, decision 13) -------------------------------------------------------------
+
+  // KaTeX's formulas, named by their TeX: the repair tells them from pictures by these names, so
+  // a formula nobody sees is left out as Chromium leaves it out of the tags
+  const formulas = body
+    ? Array.from(body.querySelectorAll('.katex[role="img"][aria-label]'))
+        .filter((formula) => !inChrome(formula) && !unpainted(formula))
+        .map((formula) => collapse(formula.getAttribute('aria-label')))
+        .filter(Boolean)
+    : [];
+
+  return { findings, links, templateLinks, formulas };
 }
 
 /**

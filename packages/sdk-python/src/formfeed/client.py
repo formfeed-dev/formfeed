@@ -401,7 +401,9 @@ class _Renders:
         ``markdown`` is a document of at most 1 MB (with an ``engine``, a template over ``data`` first);
         ``settings={"markdown": {"theme": "none", "css": "…"}}`` sets its look, and ``"html": "allow"`` lets
         raw HTML in it through, which it otherwise shows as text. A fenced code block that names its
-        language is coloured; ``"highlight": False`` prints code in the text's colour.
+        language is coloured; ``"highlight": False`` prints code in the text's colour. ``"math": True``
+        typesets formulas (``$…$``, ``$$…$$``, fences of the language ``math``) with KaTeX; one that does
+        not parse fails the render with ``markdown_syntax_error``, which names its line.
 
         ``storage`` controls the copy for the workspace's own bucket: ``False`` leaves this document out,
         ``{"key": "invoices/RE-1001.pdf"}`` names its object below the connection's prefix."""

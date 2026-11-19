@@ -1159,6 +1159,14 @@ describe('@formfeed/mcp', () => {
       filename: 'notes.pdf',
       meta: { source: 'mcp' },
     });
+    // formulas are typeset where the agent says the text holds them (plan 33)
+    await client.callTool({
+      name: 'markdown_to_pdf',
+      arguments: { markdown: 'Energy $E=mc^2$', math: true },
+    });
+    expect(api.calls.at(-1)?.body).toMatchObject({
+      settings: { markdown: { math: true }, pdf: { outline: true } },
+    });
     await close();
 
     const local = await connectedClient(api.fetchImpl, true);

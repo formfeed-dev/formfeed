@@ -1,7 +1,13 @@
 // eslint-disable-next-line @typescript-eslint/triple-slash-reference -- ambient typings for deep imports must reach every consumer of the package
 /// <reference path="./types/modules.d.ts" />
 export * from './lib/types';
-export { EngineSyntaxError, RenderError, RenderLimitError } from './lib/errors';
+export {
+  EngineSyntaxError,
+  MarkdownSyntaxError,
+  RenderError,
+  RenderLimitError,
+} from './lib/errors';
+export type { MarkdownSyntaxPart } from './lib/errors';
 export {
   defaultLimits,
   depthGuard,
@@ -382,6 +388,7 @@ export {
   MARKDOWN_HIGHLIGHTER,
   MARKDOWN_HTML_MODES,
   MARKDOWN_LIMITS,
+  MARKDOWN_MATH,
   MARKDOWN_REFUSALS,
   MARKDOWN_THEMES,
   MARKDOWN_THEME_REVISIONS,

@@ -16,6 +16,7 @@ describe('settings.markdown', () => {
       html: 'safe',
       breaks: false,
       highlight: true,
+      math: false,
       css: '',
     };
     expect(resolveMarkdown(undefined)).toEqual(defaults);
@@ -27,6 +28,7 @@ describe('settings.markdown', () => {
         html: 'allow',
         breaks: true,
         highlight: false,
+        math: true,
         css: 'p{}',
       }),
     ).toEqual({
@@ -34,6 +36,7 @@ describe('settings.markdown', () => {
       html: 'allow',
       breaks: true,
       highlight: false,
+      math: true,
       css: 'p{}',
     });
   });
@@ -45,6 +48,7 @@ describe('settings.markdown', () => {
         html: 'yes',
         breaks: 'true',
         highlight: 'no',
+        math: 'yes',
         css: 1,
       }),
     ).toEqual({
@@ -52,6 +56,7 @@ describe('settings.markdown', () => {
       html: 'safe',
       breaks: false,
       highlight: true,
+      math: false,
       css: '',
     });
     expect(resolveMarkdown('document')).toEqual(resolveMarkdown(undefined));
@@ -65,6 +70,7 @@ describe('settings.markdown', () => {
         html: 'allow',
         breaks: true,
         highlight: false,
+        math: true,
         css: '',
       }),
     ).toBeNull();
@@ -79,7 +85,7 @@ describe('settings.markdown', () => {
     expect(markdownSettingsProblem({ themes: 'none' })).toEqual({
       field: 'settings.markdown.themes',
       message:
-        'settings.markdown.themes is not a setting: the settings are theme, html, breaks, highlight, css',
+        'settings.markdown.themes is not a setting: the settings are theme, html, breaks, highlight, math, css',
     });
     expect(markdownSettingsProblem({ theme: 'github' })).toEqual({
       field: 'settings.markdown.theme',
@@ -96,6 +102,10 @@ describe('settings.markdown', () => {
     expect(markdownSettingsProblem({ highlight: 'false' })).toEqual({
       field: 'settings.markdown.highlight',
       message: MARKDOWN_REFUSALS.highlight,
+    });
+    expect(markdownSettingsProblem({ math: 1 })).toEqual({
+      field: 'settings.markdown.math',
+      message: MARKDOWN_REFUSALS.math,
     });
     expect(markdownSettingsProblem({ css: ['p{}'] })).toEqual({
       field: 'settings.markdown.css',
@@ -145,6 +155,12 @@ describe('settings.markdown', () => {
     expect(markdownVersion(resolveMarkdown({ theme: 'none' }))).toBe(
       'markdown-it 15.0.3, rules 2, theme none 1, highlight.js 11.12.0',
     );
+    expect(markdownVersion(resolveMarkdown({ math: true }))).toBe(
+      'markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0, katex 0.19.1',
+    );
+    expect(
+      markdownVersion(resolveMarkdown({ highlight: false, math: true })),
+    ).toBe('markdown-it 15.0.3, rules 2, theme document 2, katex 0.19.1');
   });
 
   it('takes a theme alone, as callers before plan 33 pass it, with the other defaults', () => {

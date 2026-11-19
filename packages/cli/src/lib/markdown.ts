@@ -32,6 +32,8 @@ export interface MarkdownConvertOptions {
   rawHtml?: boolean;
   /** `--no-highlight` makes it `false`: code prints in the text's colour (plan 33). */
   highlight?: boolean;
+  /** `--math`: formulas are typeset, as `settings.markdown.math: true` (plan 33). */
+  math?: boolean;
   landscape?: boolean;
   pageRanges?: string;
 }
@@ -96,6 +98,7 @@ export async function markdownConvertRequest(
   }
   if (options.rawHtml) block['html'] = 'allow';
   if (options.highlight === false) block['highlight'] = false;
+  if (options.math) block['math'] = true;
   if (Object.keys(block).length) settings['markdown'] = block;
   const problem = markdownSettingsProblem(settings['markdown']);
   if (problem) throw new CliError(problem.message);

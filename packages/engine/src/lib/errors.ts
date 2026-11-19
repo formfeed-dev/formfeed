@@ -51,6 +51,26 @@ export class RenderLimitError extends Error {
   }
 }
 
+/** What part of a Markdown document its library could not read (plan 33, decision 9). */
+export type MarkdownSyntaxPart = 'math';
+
+/**
+ * A formula in a Markdown document that does not parse or is past a limit (plan 33, decision 9):
+ * the render fails, naming the line, instead of printing an error box into a document that will be
+ * sent. The API answers it as `422 markdown_syntax_error`.
+ */
+export class MarkdownSyntaxError extends Error {
+  override readonly name = 'MarkdownSyntaxError';
+  constructor(
+    readonly part: MarkdownSyntaxPart,
+    message: string,
+    /** The line of the document, from 1, front matter included. */
+    readonly line: number,
+  ) {
+    super(message);
+  }
+}
+
 /** Runtime failure inside a template (unknown filter at render time, helper threw, ...). */
 export class RenderError extends Error {
   override readonly name = 'RenderError';

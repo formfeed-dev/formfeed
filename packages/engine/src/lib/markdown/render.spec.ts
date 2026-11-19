@@ -3,8 +3,10 @@ import { emptyBrand } from '../brand';
 import { RenderLimitError } from '../errors';
 import { defaultHelpers } from '../helpers';
 import type { EngineId, RenderContext } from '../types';
+import { markdownToHtml, type MarkdownConvertOptions } from './convert';
 import type { MarkdownSource } from './render';
 import { renderMarkdown } from './render';
+import { richMarkdown } from './rich';
 import { documentTheme } from './themes/document';
 
 const context = (overrides: Partial<RenderContext> = {}): RenderContext => ({
@@ -137,6 +139,58 @@ describe('renderMarkdown without an engine', () => {
     });
     expect(allow.document).toContain('<span onclick="x()">tag</span>');
     expect(allow.document).toContain('<script>x()</script>');
+  });
+
+  it('typesets formulas where the document asks and the host can, with KaTeX’s stylesheet before the theme (plan 33)', async () => {
+    const withRich = (text: string, options: MarkdownConvertOptions) =>
+      markdownToHtml(text, { ...options, rich: richMarkdown() });
+    const extras = {
+      vendor: { katex: { css: '.katex { font-size: 1.1em; }' } },
+    };
+    const markdown = 'Energy $E=mc^2$.';
+    const asked = await renderMarkdown(
+      { markdown, settings: { markdown: { math: true } } },
+      {},
+      context(),
+      'print',
+      extras,
+      withRich,
+    );
+    expect(bodyOf(asked.document)).toContain(
+      '<span class="katex" role="img" aria-label="E=mc^2">',
+    );
+    const order = [
+      'data-formfeed="reset"',
+      'data-formfeed="katex"',
+      'data-formfeed="markdown"',
+    ].map((s) => asked.document.indexOf(s));
+    expect(order.every((at) => at > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(asked.document).toContain(
+      // KaTeX's arrows and accents keep their width under the print reset's `max-width`
+      '<style data-formfeed="katex">.katex { font-size: 1.1em; }\n.katex svg { max-width: none; }</style>',
+    );
+    // not asked for, or no typesetter in the host: the dollars are text, and no stylesheet comes
+    for (const rendered of [
+      await renderMarkdown(
+        { markdown },
+        {},
+        context(),
+        'print',
+        extras,
+        withRich,
+      ),
+      await renderMarkdown(
+        { markdown, settings: { markdown: { math: true } } },
+        {},
+        context(),
+        'print',
+        extras,
+      ),
+    ]) {
+      expect(bodyOf(rendered.document)).toContain('<p>Energy $E=mc^2$.</p>');
+      expect(rendered.document).not.toContain('data-formfeed="katex"');
+    }
   });
 
   it('checks its own conversion’s time afterwards, where nothing could stop it', async () => {

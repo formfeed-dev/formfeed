@@ -210,7 +210,23 @@ describe('the audit', () => {
         findings: [],
         links: [{ href: 'https://formfeed.test/a', name: 'A' }],
         templateLinks: [],
+        formulas: [],
       });
+    });
+  });
+
+  describe('formulas (plan 33)', () => {
+    it('hands over the TeX of every formula in document order, not a picture’s name or a hidden one', () => {
+      page(
+        '<h1>A</h1><p>Inline <span class="katex" role="img" aria-label="E=mc^2"><span class="katex-html">E</span></span>.</p>' +
+          `<img src="${px}" alt="x^2">` +
+          '<p class="ff-math"><span class="katex-display"><span class="katex" role="img" aria-label="\\int_0^1  x\\,dx"><span class="katex-html">∫</span></span></span></p>' +
+          '<div hidden><span class="katex" role="img" aria-label="y"></span></div>',
+      );
+      const report = audit(window, { findings: false });
+      expect(report.formulas).toEqual(['E=mc^2', '\\int_0^1 x\\,dx']);
+      // a formula has its name, so it is no finding of `figure-name`
+      expect(codes()).toEqual([]);
     });
   });
 

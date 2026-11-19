@@ -47,12 +47,22 @@ export type CodeHighlighter = (code: string, language: string) => string | null;
 /**
  * What a host adds to markdown-it (plan 33): `@formfeed/engine/markdown/rich`, which the render-worker's
  * Markdown thread hands in. The converter imports none of it, so the published package and the
- * gateway carry no highlighter, and a host that passes nothing converts code plain.
+ * gateway carry no highlighter and no typesetter, and a host that passes nothing converts code plain
+ * and leaves a `$` the text it is.
  */
 export interface RichMarkdown {
   /** A highlighter for one document. */
   highlighter(): CodeHighlighter;
+  /**
+   * The rules and renderers of formulas (plan 33, decisions 5 to 7), as a markdown-it plugin that the
+   * parser of a document asking for math is made with. It throws `MarkdownSyntaxError` for a formula
+   * that does not parse or is past a limit, naming the line of the document.
+   */
+  math?: MarkdownPlugin;
 }
+
+/** A markdown-it plugin a host hands in (plan 33). */
+export type MarkdownPlugin = (md: Parser) => void;
 
 export interface MarkdownConvertOptions {
   /** Raw HTML: `safe` shows it as text, `allow` writes it as it stands (decision 3). */
@@ -63,7 +73,9 @@ export interface MarkdownConvertOptions {
   kept?: KeptHtml;
   /** A fence that names a language is coloured, where `rich` is there to colour it (plan 33). */
   highlight?: boolean;
-  /** What colours it; data a thread cannot be sent, so the thread adds it itself. */
+  /** Formulas are typeset, where `rich` is there to typeset them (plan 33). */
+  math?: boolean;
+  /** What colours and typesets; code a thread cannot be sent, so the thread adds it itself. */
   rich?: RichMarkdown;
 }
 
@@ -240,7 +252,12 @@ function plainText(
 ): string {
   let text = '';
   for (const child of children ?? [])
-    if (child.type === 'text' || child.type === 'code_inline')
+    if (
+      child.type === 'text' ||
+      child.type === 'code_inline' ||
+      // a formula reads as its TeX, as its alternative text does (plan 33)
+      child.type === 'math_inline'
+    )
       text += child.content;
     else if (child.type === 'softbreak' || child.type === 'hardbreak')
       text += ' ';
@@ -443,6 +460,7 @@ function createParser(
   kind: Kind,
   mode: MarkdownHtmlMode,
   breaks: boolean,
+  math: MarkdownPlugin | undefined,
 ): Parser {
   const md = new MarkdownIt('default', {
     html: true,
@@ -451,6 +469,7 @@ function createParser(
     typographer: false,
   });
   md.use(footnote);
+  if (math) md.use(math);
   // markdown-it asks with the address it decoded and encoded; links and pictures part afterwards
   md.validateLink = parseable;
   md.block.ruler.before('html_block', 'formfeed_page_break', pageBreakRule, {
@@ -517,16 +536,27 @@ function createParser(
 }
 
 const parsers = new Map<string, Parser>();
+/** The parsers made with a host's math rules, kept per plugin (plan 33). */
+const mathParsers = new WeakMap<MarkdownPlugin, Map<string, Parser>>();
 
-/** One parser per kind, mode and line-break option, made once: the rules keep nothing between calls. */
+/**
+ * One parser per kind, mode, line-break option and math plugin, made once: the rules keep nothing
+ * between calls.
+ */
 function parserFor(
   kind: Kind,
   mode: MarkdownHtmlMode,
   breaks: boolean,
+  math?: MarkdownPlugin,
 ): Parser {
   const key = `${kind}:${mode}:${breaks}`;
-  let md = parsers.get(key);
-  if (!md) parsers.set(key, (md = createParser(kind, mode, breaks)));
+  let cache = parsers;
+  if (math) {
+    cache = mathParsers.get(math) ?? new Map<string, Parser>();
+    mathParsers.set(math, cache);
+  }
+  let md = cache.get(key);
+  if (!md) cache.set(key, (md = createParser(kind, mode, breaks, math)));
   return md;
 }
 
@@ -592,13 +622,17 @@ export async function markdownToHtml(
   text: string,
   options: MarkdownConvertOptions,
 ): Promise<ConvertedMarkdown> {
-  const md = parserFor('document', options.html, options.breaks === true);
+  // the math rules come with the host, and only a document that asks for formulas gets them
+  const math = options.math ? options.rich?.math : undefined;
+  const md = parserFor('document', options.html, options.breaks === true, math);
   let body = text;
   let frontMatter: FrontMatterMetadata = {};
   if (opensWithFrontMatter(text)) {
     const read = await readFrontMatter(text);
     if (read) {
-      body = read.body;
+      // with formulas, an empty line stands for each of the block's, which markdown-it reads as
+      // nothing, so the line a formula's error names is the line of the text as it was sent
+      body = math ? '\n'.repeat(read.lines) + read.body : read.body;
       frontMatter = metadataText(
         read.metadata,
         options.kept,

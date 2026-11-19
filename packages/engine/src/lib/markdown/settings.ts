@@ -32,6 +32,11 @@ export interface MarkdownSettings {
    * classes are written in either theme, and `document` gives them its colours.
    */
   highlight?: boolean;
+  /**
+   * `$…$`, ``$`…`$``, `$$…$$` on lines of their own and ` ```math ` fences are typeset by KaTeX
+   * (plan 33, decision 5). Off by default, because a `$` in a business document is usually money.
+   */
+  math?: boolean;
   /** A stylesheet that comes after the theme. */
   css?: string;
 }
@@ -42,6 +47,7 @@ export interface ResolvedMarkdown {
   html: MarkdownHtmlMode;
   breaks: boolean;
   highlight: boolean;
+  math: boolean;
   css: string;
 }
 
@@ -66,9 +72,29 @@ export const MARKDOWN_LIMITS = {
    * grammars are quadratic within a line (14.5 s for one line of 100 kB in step 1).
    */
   highlightLineLength: 1000,
+  /** A formula's TeX, in UTF-8 bytes (plan 33, decision 7). */
+  formulaBytes: 4 * 1024,
+  /**
+   * The formulas a document holds: 1,000 took 7 s to render as PDF/UA-1 in step 1, and 2,000 did
+   * not always finish. Counted as they are read, so the refusal comes before any is typeset.
+   */
+  formulas: 1000,
+  /**
+   * The TeX of a document's formulas together, in UTF-8 bytes (step 3): KaTeX's text mode grows
+   * faster than its input, so 1 MB of formulas of 4 kB that are `\text{…}` took 3.1 s of a laptop's
+   * CPU, and this cap holds such a document to about a second.
+   */
+  mathBytes: 256 * 1024,
 } as const;
 
-const SETTING_KEYS = ['theme', 'html', 'breaks', 'highlight', 'css'] as const;
+const SETTING_KEYS = [
+  'theme',
+  'html',
+  'breaks',
+  'highlight',
+  'math',
+  'css',
+] as const;
 
 const megabytes = (bytes: number) => `${bytes / 1024 / 1024} MB`;
 const kilobytes = (bytes: number) => `${bytes / 1024} kB`;
@@ -85,6 +111,7 @@ export const MARKDOWN_REFUSALS = {
   html: `settings.markdown.html must be one of ${MARKDOWN_HTML_MODES.join(', ')}`,
   breaks: 'settings.markdown.breaks must be true or false',
   highlight: 'settings.markdown.highlight must be true or false',
+  math: 'settings.markdown.math must be true or false',
   css: 'settings.markdown.css must be a stylesheet as text',
   cssTooLarge: `settings.markdown.css is larger than ${kilobytes(MARKDOWN_LIMITS.cssBytes)}`,
   textTooLarge: `markdown is larger than ${megabytes(MARKDOWN_LIMITS.textBytes)}`,
@@ -154,6 +181,8 @@ export function markdownSettingsProblem(
     typeof block['highlight'] !== 'boolean'
   )
     return at('highlight', MARKDOWN_REFUSALS.highlight);
+  if (block['math'] !== undefined && typeof block['math'] !== 'boolean')
+    return at('math', MARKDOWN_REFUSALS.math);
   if (block['css'] !== undefined) {
     if (typeof block['css'] !== 'string')
       return at('css', MARKDOWN_REFUSALS.css);
@@ -190,6 +219,7 @@ export function resolveMarkdown(value: unknown): ResolvedMarkdown {
       : 'safe',
     breaks: block['breaks'] === true,
     highlight: block['highlight'] !== false,
+    math: block['math'] === true,
     css: typeof block['css'] === 'string' ? block['css'] : '',
   };
 }
@@ -219,6 +249,16 @@ export const MARKDOWN_HIGHLIGHTER = {
 } as const;
 
 /**
+ * What typesets formulas (plan 33, decision 7), and its release; `rich/math.spec.ts` holds it to the
+ * installed package. A document with `math` names it, because a new release may set a formula
+ * differently.
+ */
+export const MARKDOWN_MATH = {
+  library: 'katex',
+  version: '0.19.1',
+} as const;
+
+/**
  * The revision of each theme's stylesheet. A change to a theme bumps its revision, so a render is
  * never deduplicated against a file in yesterday's look; `themes.spec.ts` holds each to a hash of
  * its CSS.
@@ -232,15 +272,17 @@ export const MARKDOWN_THEME_REVISIONS: Readonly<Record<MarkdownTheme, number>> =
 /**
  * How a render records its converter, its theme and the libraries its settings let it use, in
  * `engine_version` and the deduplication key, so that the key changes when one of them does:
- * `markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0`. The settings decide, not
- * the text, so a document without code names highlight.js as well. A theme alone, as callers before
- * plan 33 pass it, stands for that theme with the other defaults.
+ * `markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0, katex 0.19.1`. The settings
+ * decide, not the text, so a document without code names highlight.js as well. A theme alone, as
+ * callers before plan 33 pass it, stands for that theme with the other defaults.
  */
 export function markdownVersion(
-  markdown: MarkdownTheme | Pick<ResolvedMarkdown, 'theme' | 'highlight'>,
+  markdown:
+    | MarkdownTheme
+    | (Pick<ResolvedMarkdown, 'theme' | 'highlight'> & { math?: boolean }),
 ): string {
   const { parser, version, rules } = MARKDOWN_CONVERTER;
-  const { theme, highlight } =
+  const { theme, highlight, math } =
     typeof markdown === 'string'
       ? { ...resolveMarkdown({}), theme: markdown }
       : markdown;
@@ -253,5 +295,6 @@ export function markdownVersion(
     parts.push(
       `${MARKDOWN_HIGHLIGHTER.library} ${MARKDOWN_HIGHLIGHTER.version}`,
     );
+  if (math) parts.push(`${MARKDOWN_MATH.library} ${MARKDOWN_MATH.version}`);
   return parts.join(', ');
 }

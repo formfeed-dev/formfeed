@@ -52,6 +52,12 @@ export interface MarkdownSettings {
    * (`hljs-keyword`); on by default, `false` prints code in the text's colour.
    */
   highlight?: boolean;
+  /**
+   * Formulas are typeset by KaTeX: `$…$` and ``$`…`$`` in a line, `$$…$$` on lines of their own and
+   * fences of the language `math`. Off by default, because a `$` is usually money; a formula that
+   * does not parse fails the render with `markdown_syntax_error`, naming its line.
+   */
+  math?: boolean;
   /** A stylesheet after the theme, at most 256 kB. */
   css?: string;
 }

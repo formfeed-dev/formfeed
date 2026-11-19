@@ -256,6 +256,11 @@ export interface AssembleVendor {
   chartJs?: { src: string } | { inline: string };
   /** `@tailwindcss/browser` for the preview; the worker compiles Tailwind ahead and passes `extraCss`. */
   tailwind?: { src: string };
+  /**
+   * KaTeX's stylesheet for a Markdown document's formulas (plan 33, decision 11), with its fonts at
+   * addresses the host serves: added before the theme where the document holds a formula.
+   */
+  katex?: { css: string };
 }
 
 /** Optional inputs that vary per host (preview frame vs. worker) rather than per template. */
@@ -372,6 +377,13 @@ export function assembleDocument(input: AssembleInput): string {
   const theme = input.theme
     ? `<style data-formfeed="markdown">${input.theme}</style>\n`
     : '';
+  // KaTeX lays a formula out with its own stylesheet, so it comes before the theme and the
+  // document's own CSS, which may restyle it. The print reset holds pictures to their box, and
+  // KaTeX draws an accent such as `\vec`'s arrow in a box of no width, which took the arrow away.
+  const katex =
+    input.vendor?.katex && input.html.includes('class="katex')
+      ? `<style data-formfeed="katex">${input.vendor.katex.css.replace(/<\/style/gi, '<\\/style')}\n.katex svg { max-width: none; }</style>\n`
+      : '';
   const charts = chartScripts(input.html, input.vendor);
   // text that shrinks to fit its box (plan 16 §4.3); the render-worker calls it again before capturing
   const fit = input.html.includes('data-ff-fit')
@@ -384,7 +396,7 @@ export function assembleDocument(input: AssembleInput): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${base}${title}${input.head ?? ''}
 ${fontStyle}${brandStyle}<style data-formfeed="reset">${printReset(settings, kind)}</style>
-${theme}${tailwind}<style data-formfeed="template">${input.css ?? ''}</style>
+${katex}${theme}${tailwind}<style data-formfeed="template">${input.css ?? ''}</style>
 ${charts.head}</head>
 <body class="formfeed-body formfeed-${kind}${input.mode === 'preview' ? ' formfeed-preview' : ''}">
 ${input.html}
