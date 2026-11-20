@@ -31,7 +31,7 @@ use Psr\Http\Message\StreamFactoryInterface;
  */
 final class Client
 {
-    public const VERSION = '0.3.28';
+    public const VERSION = '0.3.29';
 
     private const HOSTS = [
         'eu' => 'https://api-eu.formfeed.dev/v1',
