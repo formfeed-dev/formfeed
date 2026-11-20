@@ -1390,6 +1390,7 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           : 'a picture can also be a data:image URI.',
         'The headings become the PDF bookmarks by default, and pdf_ua checks the file against PDF/UA-1 before it is delivered.',
         'If the text holds formulas ($…$, $$…$$ or a ```math fence), set math: they are typeset with KaTeX, and a formula that does not parse fails the call naming its line; without math a $ is text, as in prices.',
+        'If it holds ```mermaid fences, set diagrams: they are drawn by Mermaid; give each an accTitle line, its name in the PDF, and a diagram that cannot be drawn fails the call naming its line.',
         'To fill a template with data, use render; to convert an office file, use convert_to_pdf.',
         'Every call is a new render: one unit per started five pages on a live key or for a signed-in agent, free with a test key; every plan.',
       ].join(' '),
@@ -1437,6 +1438,12 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           .optional()
           .describe(
             'Typesets formulas with KaTeX: $…$ and $`…`$ in a line, $$…$$ on lines of their own, ```math fences. Set it when you wrote formulas; left out, a $ stays text',
+          ),
+        diagrams: z
+          .boolean()
+          .optional()
+          .describe(
+            'Draws ```mermaid fences with Mermaid (flowcharts, sequences, pie charts and more). Set it when you wrote one, with an accTitle line as its name; left out, a fence prints as code',
           ),
         paper: z
           .enum(['A4', 'Letter'])
@@ -1510,15 +1517,25 @@ export function createFormfeedServer(options: ServerOptions): McpServer {
           markdown = pictures.markdown;
           name = basename(path, extname(path));
         } else markdown = args.markdown!;
-        const { title, theme, css, math, paper, landscape, outline, pdf_ua } =
-          args;
+        const {
+          title,
+          theme,
+          css,
+          math,
+          diagrams,
+          paper,
+          landscape,
+          outline,
+          pdf_ua,
+        } = args;
         const settings = {
-          ...(theme || css || math
+          ...(theme || css || math || diagrams
             ? {
                 markdown: {
                   ...(theme ? { theme } : {}),
                   ...(css ? { css } : {}),
                   ...(math ? { math } : {}),
+                  ...(diagrams ? { diagrams } : {}),
                 },
               }
             : {}),

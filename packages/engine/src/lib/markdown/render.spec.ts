@@ -193,6 +193,61 @@ describe('renderMarkdown without an engine', () => {
     }
   });
 
+  it('adds Mermaid and the runner where the document holds a diagram, the figure’s style before the theme (plan 33)', async () => {
+    const withRich = (text: string, options: MarkdownConvertOptions) =>
+      markdownToHtml(text, { ...options, rich: richMarkdown() });
+    const extras = {
+      vendor: {
+        mermaid: {
+          src: 'https://vendor.formfeed.invalid/mermaid/12.3.0/mermaid.min.js',
+        },
+      },
+    };
+    const markdown = '# Flow\n\n```mermaid\nflowchart LR\n  A --> B\n```';
+    const drawn = await renderMarkdown(
+      { markdown, settings: { markdown: { diagrams: true } } },
+      {},
+      context(),
+      'print',
+      extras,
+      withRich,
+    );
+    expect(drawn.document).toContain(
+      '<script data-formfeed="mermaid" src="https://vendor.formfeed.invalid/mermaid/12.3.0/mermaid.min.js"></script>',
+    );
+    expect(drawn.document).toMatch(
+      /<script data-formfeed="diagrams">.+<\/script>\n<\/body>/s,
+    );
+    const order = [
+      'data-formfeed="reset"',
+      'data-formfeed="diagrams"',
+      'data-formfeed="markdown"',
+      'data-formfeed="template"',
+    ].map((s) => drawn.document.indexOf(s));
+    expect(order.every((at) => at > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // without a diagram, or not asked for, nothing of Mermaid comes into the page
+    for (const rendered of [
+      await renderMarkdown(
+        { markdown: '# Flow', settings: { markdown: { diagrams: true } } },
+        {},
+        context(),
+        'print',
+        extras,
+        withRich,
+      ),
+      await renderMarkdown(
+        { markdown },
+        {},
+        context(),
+        'print',
+        extras,
+        withRich,
+      ),
+    ])
+      expect(rendered.document).not.toContain('data-formfeed="mermaid"');
+  });
+
   it('checks its own conversion’s time afterwards, where nothing could stop it', async () => {
     // a quarter of a megabyte takes more than the millisecond allowed here
     await expect(

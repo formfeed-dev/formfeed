@@ -18,6 +18,7 @@ const entries = {
   stageRuntime: 'src/frame/stage.entry.ts',
   auditRuntime: 'src/frame/audit.entry.ts',
   pagedPrintRuntime: 'src/frame/paged-print.entry.ts',
+  diagramsRuntime: 'src/frame/diagrams.entry.ts',
 };
 
 async function bundle(entry) {

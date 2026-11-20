@@ -1167,6 +1167,14 @@ describe('@formfeed/mcp', () => {
     expect(api.calls.at(-1)?.body).toMatchObject({
       settings: { markdown: { math: true }, pdf: { outline: true } },
     });
+    // and diagrams drawn where it wrote a mermaid fence
+    await client.callTool({
+      name: 'markdown_to_pdf',
+      arguments: { markdown: '```mermaid\npie\n```', diagrams: true },
+    });
+    expect(api.calls.at(-1)?.body).toMatchObject({
+      settings: { markdown: { diagrams: true }, pdf: { outline: true } },
+    });
     await close();
 
     const local = await connectedClient(api.fetchImpl, true);

@@ -58,6 +58,11 @@ export interface MarkdownSettings {
    * does not parse fails the render with `markdown_syntax_error`, naming its line.
    */
   math?: boolean;
+  /**
+   * A fence of the language `mermaid` is drawn by Mermaid. Off by default; name each diagram with
+   * `accTitle`, and one that cannot be drawn fails the render with `markdown_syntax_error`.
+   */
+  diagrams?: boolean;
   /** A stylesheet after the theme, at most 256 kB. */
   css?: string;
 }

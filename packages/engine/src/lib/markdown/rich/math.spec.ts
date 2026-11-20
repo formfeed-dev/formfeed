@@ -299,5 +299,6 @@ describe('the limits of a document’s formulas (decision 7, step 3)', () => {
     expect((e as Error).message).toBe(
       `The document's formulas make more than ${defaultLimits.outputBytes / 1024 / 1024} MB of HTML, which is what a document may make`,
     );
-  });
+    // half a second alone, and 6.9 s once while five projects' tests ran beside it
+  }, 30_000);
 });

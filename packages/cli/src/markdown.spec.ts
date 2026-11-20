@@ -111,6 +111,7 @@ describe('formfeed pdf convert: Markdown', () => {
         '--raw-html',
         '--no-highlight',
         '--math',
+        '--diagrams',
         '--landscape',
         '--page-ranges',
         '1-2',
@@ -131,6 +132,7 @@ describe('formfeed pdf convert: Markdown', () => {
           html: 'allow',
           highlight: false,
           math: true,
+          diagrams: true,
         },
         paper: { landscape: true },
         pageRanges: '1-2',
@@ -208,6 +210,10 @@ describe('formfeed pdf convert: Markdown', () => {
     await refused(
       ['report.docx', '--math'],
       '--math applies to a Markdown file',
+    );
+    await refused(
+      ['report.docx', '--diagrams'],
+      '--diagrams applies to a Markdown file',
     );
     expect(renders()).toHaveLength(0);
   });

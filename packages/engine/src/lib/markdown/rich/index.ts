@@ -8,6 +8,7 @@
  */
 import type { RichMarkdown } from '../convert';
 import { codeHighlighter } from './code';
+import { diagramRules } from './diagrams';
 import { mathRules } from './math';
 
 export {
@@ -16,9 +17,17 @@ export {
   codeHighlighter,
   highlightLanguage,
 } from './code';
+export { diagramRules } from './diagrams';
 export { KATEX_VERSION, mathRules } from './math';
 
-/** What the converter takes as `rich`: highlighted code and typeset formulas. */
+/**
+ * What the converter takes as `rich`: highlighted code, typeset formulas, and the fences of diagrams
+ * that the page draws.
+ */
 export function richMarkdown(): RichMarkdown {
-  return { highlighter: codeHighlighter, math: mathRules };
+  return {
+    highlighter: codeHighlighter,
+    math: mathRules,
+    diagrams: diagramRules,
+  };
 }

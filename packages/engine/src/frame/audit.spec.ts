@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { auditMessage } from '../lib/accessibility';
 import { audit, generatedText, rowWidths, startTag } from './audit';
 
 /**
@@ -81,6 +82,22 @@ describe('the audit', () => {
         ['figure-name', 'svg'],
         ['figure-name', 'div'],
       ]);
+    });
+
+    it('says when the figure without a name is a Markdown document’s diagram (plan 33)', () => {
+      page(
+        '<h1>A</h1><figure class="ff-diagram" role="img"><svg><rect/></svg></figure>' +
+          '<figure class="ff-diagram" role="img" aria-label="Order flow"><svg><rect/></svg></figure>',
+      );
+      const [finding, ...rest] = audit(window).findings;
+      expect(rest).toEqual([]);
+      expect(finding).toMatchObject({
+        code: 'figure-name',
+        args: { tag: 'figure', diagram: 'mermaid' },
+      });
+      expect(
+        auditMessage(finding ?? { code: 'figure-name', args: {} }),
+      ).toMatch(/^The diagram has no text alternative\. Name it with accTitle/);
     });
   });
 

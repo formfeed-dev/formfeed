@@ -262,7 +262,14 @@ export function audit(win: Window, options: AuditOptions = {}): AuditReport {
         labelOf(element) ||
         collapse(element.getAttribute('title')) ||
         collapse(element.querySelector(':scope > title')?.textContent);
-      if (!named) add('figure-name', element, { tag });
+      // a Markdown document's diagram is named in its source, which the message says (plan 33)
+      if (!named)
+        add('figure-name', element, {
+          tag,
+          ...(element.classList.contains('ff-diagram')
+            ? { diagram: 'mermaid' }
+            : {}),
+        });
     }
 
     const level = /^h[1-6]$/.test(tag)

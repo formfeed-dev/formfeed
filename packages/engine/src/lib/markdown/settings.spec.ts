@@ -17,6 +17,7 @@ describe('settings.markdown', () => {
       breaks: false,
       highlight: true,
       math: false,
+      diagrams: false,
       css: '',
     };
     expect(resolveMarkdown(undefined)).toEqual(defaults);
@@ -29,6 +30,7 @@ describe('settings.markdown', () => {
         breaks: true,
         highlight: false,
         math: true,
+        diagrams: true,
         css: 'p{}',
       }),
     ).toEqual({
@@ -37,6 +39,7 @@ describe('settings.markdown', () => {
       breaks: true,
       highlight: false,
       math: true,
+      diagrams: true,
       css: 'p{}',
     });
   });
@@ -49,6 +52,7 @@ describe('settings.markdown', () => {
         breaks: 'true',
         highlight: 'no',
         math: 'yes',
+        diagrams: 'on',
         css: 1,
       }),
     ).toEqual({
@@ -57,6 +61,7 @@ describe('settings.markdown', () => {
       breaks: false,
       highlight: true,
       math: false,
+      diagrams: false,
       css: '',
     });
     expect(resolveMarkdown('document')).toEqual(resolveMarkdown(undefined));
@@ -71,6 +76,7 @@ describe('settings.markdown', () => {
         breaks: true,
         highlight: false,
         math: true,
+        diagrams: true,
         css: '',
       }),
     ).toBeNull();
@@ -85,7 +91,7 @@ describe('settings.markdown', () => {
     expect(markdownSettingsProblem({ themes: 'none' })).toEqual({
       field: 'settings.markdown.themes',
       message:
-        'settings.markdown.themes is not a setting: the settings are theme, html, breaks, highlight, math, css',
+        'settings.markdown.themes is not a setting: the settings are theme, html, breaks, highlight, math, diagrams, css',
     });
     expect(markdownSettingsProblem({ theme: 'github' })).toEqual({
       field: 'settings.markdown.theme',
@@ -106,6 +112,10 @@ describe('settings.markdown', () => {
     expect(markdownSettingsProblem({ math: 1 })).toEqual({
       field: 'settings.markdown.math',
       message: MARKDOWN_REFUSALS.math,
+    });
+    expect(markdownSettingsProblem({ diagrams: 'true' })).toEqual({
+      field: 'settings.markdown.diagrams',
+      message: MARKDOWN_REFUSALS.diagrams,
     });
     expect(markdownSettingsProblem({ css: ['p{}'] })).toEqual({
       field: 'settings.markdown.css',
@@ -161,6 +171,14 @@ describe('settings.markdown', () => {
     expect(
       markdownVersion(resolveMarkdown({ highlight: false, math: true })),
     ).toBe('markdown-it 15.0.3, rules 2, theme document 2, katex 0.19.1');
+    expect(markdownVersion(resolveMarkdown({ diagrams: true }))).toBe(
+      'markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0, mermaid 12.3.0',
+    );
+    expect(
+      markdownVersion(resolveMarkdown({ math: true, diagrams: true })),
+    ).toBe(
+      'markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0, katex 0.19.1, mermaid 12.3.0',
+    );
   });
 
   it('takes a theme alone, as callers before plan 33 pass it, with the other defaults', () => {

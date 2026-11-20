@@ -385,6 +385,7 @@ export type {
 // parser, for the gateway's sake; the converter and `renderMarkdown` are named here.
 export {
   MARKDOWN_CONVERTER,
+  MARKDOWN_DIAGRAMS,
   MARKDOWN_HIGHLIGHTER,
   MARKDOWN_HTML_MODES,
   MARKDOWN_LIMITS,

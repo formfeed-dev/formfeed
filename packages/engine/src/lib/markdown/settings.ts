@@ -37,6 +37,12 @@ export interface MarkdownSettings {
    * (plan 33, decision 5). Off by default, because a `$` in a business document is usually money.
    */
   math?: boolean;
+  /**
+   * A ` ```mermaid ` fence is drawn by Mermaid in the page before it is printed (plan 33, decision
+   * 8). Off by default: nothing runs in a Markdown document unless asked for, and Mermaid is a large
+   * script that runs on the caller's text.
+   */
+  diagrams?: boolean;
   /** A stylesheet that comes after the theme. */
   css?: string;
 }
@@ -48,6 +54,7 @@ export interface ResolvedMarkdown {
   breaks: boolean;
   highlight: boolean;
   math: boolean;
+  diagrams: boolean;
   css: string;
 }
 
@@ -85,6 +92,13 @@ export const MARKDOWN_LIMITS = {
    * CPU, and this cap holds such a document to about a second.
    */
   mathBytes: 256 * 1024,
+  /**
+   * The diagrams a document holds (plan 33, decision 8): drawing 50 took 2 s in step 1. Counted as
+   * they are read, so the refusal comes before Mermaid runs.
+   */
+  diagrams: 50,
+  /** A diagram's source, in UTF-8 bytes. */
+  diagramBytes: 50 * 1024,
 } as const;
 
 const SETTING_KEYS = [
@@ -93,6 +107,7 @@ const SETTING_KEYS = [
   'breaks',
   'highlight',
   'math',
+  'diagrams',
   'css',
 ] as const;
 
@@ -112,6 +127,7 @@ export const MARKDOWN_REFUSALS = {
   breaks: 'settings.markdown.breaks must be true or false',
   highlight: 'settings.markdown.highlight must be true or false',
   math: 'settings.markdown.math must be true or false',
+  diagrams: 'settings.markdown.diagrams must be true or false',
   css: 'settings.markdown.css must be a stylesheet as text',
   cssTooLarge: `settings.markdown.css is larger than ${kilobytes(MARKDOWN_LIMITS.cssBytes)}`,
   textTooLarge: `markdown is larger than ${megabytes(MARKDOWN_LIMITS.textBytes)}`,
@@ -183,6 +199,8 @@ export function markdownSettingsProblem(
     return at('highlight', MARKDOWN_REFUSALS.highlight);
   if (block['math'] !== undefined && typeof block['math'] !== 'boolean')
     return at('math', MARKDOWN_REFUSALS.math);
+  if (block['diagrams'] !== undefined && typeof block['diagrams'] !== 'boolean')
+    return at('diagrams', MARKDOWN_REFUSALS.diagrams);
   if (block['css'] !== undefined) {
     if (typeof block['css'] !== 'string')
       return at('css', MARKDOWN_REFUSALS.css);
@@ -220,6 +238,7 @@ export function resolveMarkdown(value: unknown): ResolvedMarkdown {
     breaks: block['breaks'] === true,
     highlight: block['highlight'] !== false,
     math: block['math'] === true,
+    diagrams: block['diagrams'] === true,
     css: typeof block['css'] === 'string' ? block['css'] : '',
   };
 }
@@ -259,6 +278,16 @@ export const MARKDOWN_MATH = {
 } as const;
 
 /**
+ * What draws diagrams (plan 33, decision 8), and its release; `rich/diagrams.spec.ts` holds it to
+ * the installed package, whose browser build the render-worker serves. A document with `diagrams`
+ * names it, because a new release may draw a diagram differently.
+ */
+export const MARKDOWN_DIAGRAMS = {
+  library: 'mermaid',
+  version: '12.3.0',
+} as const;
+
+/**
  * The revision of each theme's stylesheet. A change to a theme bumps its revision, so a render is
  * never deduplicated against a file in yesterday's look; `themes.spec.ts` holds each to a hash of
  * its CSS.
@@ -272,17 +301,20 @@ export const MARKDOWN_THEME_REVISIONS: Readonly<Record<MarkdownTheme, number>> =
 /**
  * How a render records its converter, its theme and the libraries its settings let it use, in
  * `engine_version` and the deduplication key, so that the key changes when one of them does:
- * `markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0, katex 0.19.1`. The settings
- * decide, not the text, so a document without code names highlight.js as well. A theme alone, as
- * callers before plan 33 pass it, stands for that theme with the other defaults.
+ * `markdown-it 15.0.3, rules 2, theme document 2, highlight.js 11.12.0, katex 0.19.1, mermaid 12.3.0`.
+ * The settings decide, not the text, so a document without code names highlight.js as well. A theme
+ * alone, as callers before plan 33 pass it, stands for that theme with the other defaults.
  */
 export function markdownVersion(
   markdown:
     | MarkdownTheme
-    | (Pick<ResolvedMarkdown, 'theme' | 'highlight'> & { math?: boolean }),
+    | (Pick<ResolvedMarkdown, 'theme' | 'highlight'> & {
+        math?: boolean;
+        diagrams?: boolean;
+      }),
 ): string {
   const { parser, version, rules } = MARKDOWN_CONVERTER;
-  const { theme, highlight, math } =
+  const { theme, highlight, math, diagrams } =
     typeof markdown === 'string'
       ? { ...resolveMarkdown({}), theme: markdown }
       : markdown;
@@ -296,5 +328,7 @@ export function markdownVersion(
       `${MARKDOWN_HIGHLIGHTER.library} ${MARKDOWN_HIGHLIGHTER.version}`,
     );
   if (math) parts.push(`${MARKDOWN_MATH.library} ${MARKDOWN_MATH.version}`);
+  if (diagrams)
+    parts.push(`${MARKDOWN_DIAGRAMS.library} ${MARKDOWN_DIAGRAMS.version}`);
   return parts.join(', ');
 }

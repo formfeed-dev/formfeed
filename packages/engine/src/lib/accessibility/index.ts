@@ -229,7 +229,9 @@ export function auditMessage(
     case 'image-alt':
       return 'The image has no alt attribute. Say what it shows, or write alt="" if it is decoration.';
     case 'figure-name':
-      return `The ${text(args['tag'])} has no text alternative. Give it an aria-label that says what it shows; the chart helper takes alt.`;
+      return args['diagram']
+        ? 'The diagram has no text alternative. Name it with accTitle, and say more with accDescr, each on a line of its own in the diagram.'
+        : `The ${text(args['tag'])} has no text alternative. Give it an aria-label that says what it shows; the chart helper takes alt.`;
     case 'heading-order':
       return args['previous'] === 0
         ? `The first heading is an h${text(args['level'])}. Start with an h1 and size it with CSS.`

@@ -59,6 +59,12 @@ export interface RichMarkdown {
    * that does not parse or is past a limit, naming the line of the document.
    */
   math?: MarkdownPlugin;
+  /**
+   * The rule and renderer of diagrams (plan 33, decisions 8 and 10): a ` ```mermaid ` fence becomes
+   * a figure that holds its source, which the page draws. It throws `MarkdownSyntaxError` for a
+   * document past the diagrams' limits.
+   */
+  diagrams?: MarkdownPlugin;
 }
 
 /** A markdown-it plugin a host hands in (plan 33). */
@@ -75,6 +81,8 @@ export interface MarkdownConvertOptions {
   highlight?: boolean;
   /** Formulas are typeset, where `rich` is there to typeset them (plan 33). */
   math?: boolean;
+  /** Mermaid fences become diagrams, where `rich` is there to read them (plan 33). */
+  diagrams?: boolean;
   /** What colours and typesets; code a thread cannot be sent, so the thread adds it itself. */
   rich?: RichMarkdown;
 }
@@ -460,7 +468,7 @@ function createParser(
   kind: Kind,
   mode: MarkdownHtmlMode,
   breaks: boolean,
-  math: MarkdownPlugin | undefined,
+  plugins: readonly MarkdownPlugin[],
 ): Parser {
   const md = new MarkdownIt('default', {
     html: true,
@@ -469,7 +477,7 @@ function createParser(
     typographer: false,
   });
   md.use(footnote);
-  if (math) md.use(math);
+  for (const plugin of plugins) md.use(plugin);
   // markdown-it asks with the address it decoded and encoded; links and pictures part afterwards
   md.validateLink = parseable;
   md.block.ruler.before('html_block', 'formfeed_page_break', pageBreakRule, {
@@ -536,27 +544,28 @@ function createParser(
 }
 
 const parsers = new Map<string, Parser>();
-/** The parsers made with a host's math rules, kept per plugin (plan 33). */
-const mathParsers = new WeakMap<MarkdownPlugin, Map<string, Parser>>();
+/** A number for each plugin a host handed in (plan 33), which the parsers' keys name them by. */
+const pluginIds = new WeakMap<MarkdownPlugin, number>();
+let nextPluginId = 1;
+const pluginId = (plugin: MarkdownPlugin): number => {
+  let id = pluginIds.get(plugin);
+  if (id === undefined) pluginIds.set(plugin, (id = nextPluginId++));
+  return id;
+};
 
 /**
- * One parser per kind, mode, line-break option and math plugin, made once: the rules keep nothing
- * between calls.
+ * One parser per kind, mode, line-break option and set of plugins, made once: the rules keep
+ * nothing between calls. A host's plugins are its module's functions, so their set stays small.
  */
 function parserFor(
   kind: Kind,
   mode: MarkdownHtmlMode,
   breaks: boolean,
-  math?: MarkdownPlugin,
+  plugins: readonly MarkdownPlugin[] = [],
 ): Parser {
-  const key = `${kind}:${mode}:${breaks}`;
-  let cache = parsers;
-  if (math) {
-    cache = mathParsers.get(math) ?? new Map<string, Parser>();
-    mathParsers.set(math, cache);
-  }
-  let md = cache.get(key);
-  if (!md) cache.set(key, (md = createParser(kind, mode, breaks, math)));
+  const key = `${kind}:${mode}:${breaks}:${plugins.map(pluginId).join(',')}`;
+  let md = parsers.get(key);
+  if (!md) parsers.set(key, (md = createParser(kind, mode, breaks, plugins)));
   return md;
 }
 
@@ -622,17 +631,26 @@ export async function markdownToHtml(
   text: string,
   options: MarkdownConvertOptions,
 ): Promise<ConvertedMarkdown> {
-  // the math rules come with the host, and only a document that asks for formulas gets them
-  const math = options.math ? options.rich?.math : undefined;
-  const md = parserFor('document', options.html, options.breaks === true, math);
+  // the rules of formulas and diagrams come with the host, and only a document that asks for them
+  // gets them
+  const plugins = [
+    options.math ? options.rich?.math : undefined,
+    options.diagrams ? options.rich?.diagrams : undefined,
+  ].filter((plugin): plugin is MarkdownPlugin => plugin !== undefined);
+  const md = parserFor(
+    'document',
+    options.html,
+    options.breaks === true,
+    plugins,
+  );
   let body = text;
   let frontMatter: FrontMatterMetadata = {};
   if (opensWithFrontMatter(text)) {
     const read = await readFrontMatter(text);
     if (read) {
-      // with formulas, an empty line stands for each of the block's, which markdown-it reads as
-      // nothing, so the line a formula's error names is the line of the text as it was sent
-      body = math ? '\n'.repeat(read.lines) + read.body : read.body;
+      // with formulas or diagrams, an empty line stands for each of the block's, which markdown-it
+      // reads as nothing, so the line an error names is the line of the text as it was sent
+      body = plugins.length ? '\n'.repeat(read.lines) + read.body : read.body;
       frontMatter = metadataText(
         read.metadata,
         options.kept,

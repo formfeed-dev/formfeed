@@ -5,7 +5,7 @@ import type { BrandContext } from './brand';
 import type { EinvoiceOptionsInput } from './einvoice/schema';
 import type { MarkdownSettings } from './markdown/settings';
 import { getEngine } from './engines';
-import { fitRuntime } from './generated/frames';
+import { diagramsRuntime, fitRuntime } from './generated/frames';
 import { escapeHtml } from './helpers';
 import type { EngineId, RenderContext } from './types';
 
@@ -261,6 +261,39 @@ export interface AssembleVendor {
    * addresses the host serves: added before the theme where the document holds a formula.
    */
   katex?: { css: string };
+  /**
+   * Mermaid's browser build for a Markdown document's diagrams (plan 33, decisions 10 and 11), at an
+   * address the host serves: added with the runner that draws them where the document holds one.
+   */
+  mermaid?: { src: string };
+}
+
+/**
+ * A diagram's figure in either theme: on a line of its own, centred, on one page where it fits. The
+ * print reset holds the picture to the page's width.
+ */
+const DIAGRAM_CSS =
+  '.ff-diagram { margin: 1em 0; text-align: center; break-inside: avoid; }';
+
+/**
+ * Mermaid in the head and the runner at the end of the body (`frame/diagrams.ts`), where the HTML
+ * holds a diagram's source and the host serves Mermaid. Both carry `data-formfeed`, so the
+ * render-worker waits no longer for a document whose only scripts are these.
+ */
+function diagramParts(
+  html: string,
+  vendor: AssembleVendor | undefined,
+): { style: string; head: string; body: string } {
+  if (!vendor?.mermaid || !html.includes('data-ff-mermaid'))
+    return { style: '', head: '', body: '' };
+  return {
+    // before the theme and the document's own CSS, which may restyle a figure
+    style: `<style data-formfeed="diagrams">${DIAGRAM_CSS}</style>\n`,
+    head: `<script data-formfeed="mermaid" src="${escapeHtml(vendor.mermaid.src)}"></script>
+`,
+    body: `<script data-formfeed="diagrams">${diagramsRuntime.replace(/<\/script/gi, '<\\/script')}</script>
+`,
+  };
 }
 
 /** Optional inputs that vary per host (preview frame vs. worker) rather than per template. */
@@ -385,6 +418,7 @@ export function assembleDocument(input: AssembleInput): string {
       ? `<style data-formfeed="katex">${input.vendor.katex.css.replace(/<\/style/gi, '<\\/style')}\n.katex svg { max-width: none; }</style>\n`
       : '';
   const charts = chartScripts(input.html, input.vendor);
+  const diagrams = diagramParts(input.html, input.vendor);
   // text that shrinks to fit its box (plan 16 §4.3); the render-worker calls it again before capturing
   const fit = input.html.includes('data-ff-fit')
     ? `<script data-formfeed="fit">${fitRuntime.replace(/<\/script/gi, '<\\/script')}</script>\n`
@@ -396,11 +430,11 @@ export function assembleDocument(input: AssembleInput): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${base}${title}${input.head ?? ''}
 ${fontStyle}${brandStyle}<style data-formfeed="reset">${printReset(settings, kind)}</style>
-${katex}${theme}${tailwind}<style data-formfeed="template">${input.css ?? ''}</style>
-${charts.head}</head>
+${katex}${diagrams.style}${theme}${tailwind}<style data-formfeed="template">${input.css ?? ''}</style>
+${charts.head}${diagrams.head}</head>
 <body class="formfeed-body formfeed-${kind}${input.mode === 'preview' ? ' formfeed-preview' : ''}">
 ${input.html}
-${charts.body}${fit}</body>
+${charts.body}${diagrams.body}${fit}</body>
 </html>
 `;
 }
