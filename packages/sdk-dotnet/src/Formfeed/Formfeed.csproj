@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
+    <AssemblyName>Formfeed</AssemblyName>
+    <RootNamespace>Formfeed</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- On .NET 10 the trimming and native AOT analyzers run, which the source-generated JSON keeps quiet. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <!-- The NuGet package. One version for every Formfeed package (plan 34, decision 6): the release
+       bumps it here, in FormfeedClient.Version and in tools/publish/packages.mjs. -->
+  <PropertyGroup>
+    <PackageId>Formfeed</PackageId>
+    <Version>0.3.29</Version>
+    <Authors>Formfeed</Authors>
+    <Company>Formfeed</Company>
+    <Product>Formfeed</Product>
+    <Copyright>Copyright (c) 2026 Philipp Staudt IT-Dienstleistungen</Copyright>
+    <Description>.NET client for the Formfeed API: PDFs and images from templates, HTML, URLs or Markdown, and tools for existing PDFs.</Description>
+    <PackageTags>formfeed;pdf;pdf-generation;templates;html-to-pdf;zugferd;e-invoice</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://formfeed.dev</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/formfeed-dev/formfeed</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- Source Link and paths of a CI build where the build runs in a checkout (the public repository's
+       release); in Docker the mounted worktree has no repository Git can read. -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' != 'true'">
+    <EnableSourceLink>false</EnableSourceLink>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="10.0.15" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

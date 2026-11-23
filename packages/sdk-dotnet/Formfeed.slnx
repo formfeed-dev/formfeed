@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Formfeed/Formfeed.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Formfeed.Tests/Formfeed.Tests.csproj" />
+  </Folder>
+</Solution>

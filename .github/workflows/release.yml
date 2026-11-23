@@ -154,6 +154,126 @@ jobs:
           packages-dir: packages/sdk-python/dist
           skip-existing: true
 
+  # The .NET, Java and Ruby SDKs (plan 34) publish from here too, each only once its registry is set
+  # up: NuGet when the repository variable NUGET_USER names the nuget.org account whose trusted
+  # publishing policy names this workflow, Maven Central when the Central Portal token and the GPG key
+  # are secrets of the `release` environment, RubyGems when the variable RUBYGEMS_PUBLISH is `true`
+  # (after the pending trusted publisher for the gem exists). Until then each job is skipped, and a
+  # release publishes the other packages as before. The Go SDK needs nothing here: the module proxy
+  # reads the tags of its mirror, formfeed-dev/formfeed-go.
+  nuget:
+    if: vars.NUGET_USER != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check the version against the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' packages/sdk-dotnet/src/Formfeed/Formfeed.csproj)
+          [ "$version" = "${GITHUB_REF_NAME#v}" ] || { echo "Formfeed.csproj is $version but the tag is $GITHUB_REF_NAME" >&2; exit 1; }
+      # on the runner rather than in Docker: GITHUB_ACTIONS switches on Source Link and the
+      # deterministic CI build
+      - run: dotnet pack packages/sdk-dotnet/src/Formfeed -c Release -o dist/nuget
+      - name: NuGet login (the workflow's OIDC token for a key valid one hour)
+        if: env.DRY_RUN != 'true'
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+      # the symbols package beside it goes along; a version nuget.org has already is left alone
+      - name: Publish to NuGet
+        if: env.DRY_RUN != 'true'
+        run: dotnet nuget push "dist/nuget/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+  maven:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    env:
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      MAVEN_GPG_KEY: ${{ secrets.MAVEN_GPG_KEY }}
+      MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+    steps:
+      - name: Check for the Central Portal token
+        id: account
+        run: |
+          if [ -n "$MAVEN_CENTRAL_USERNAME" ] && [ -n "$MAVEN_GPG_KEY" ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::MAVEN_CENTRAL_USERNAME or MAVEN_GPG_KEY is not set, so dev.formfeed:formfeed is not published (plan 34)'
+          fi
+      - uses: actions/checkout@v5
+        if: steps.account.outputs.present == 'true'
+      - name: Check the version against the tag
+        if: steps.account.outputs.present == 'true' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version=$(sed -n '0,/<version>/s:.*<version>\(.*\)</version>.*:\1:p' packages/sdk-java/pom.xml)
+          [ "$version" = "${GITHUB_REF_NAME#v}" ] || { echo "pom.xml is $version but the tag is $GITHUB_REF_NAME" >&2; exit 1; }
+      # in the image the SDK's checks use (Maven 3.10, which its plugins need); the release profile signs
+      # with the key from MAVEN_GPG_KEY and uploads to the Central Portal, waiting until it is published
+      - name: Publish to Maven Central
+        if: steps.account.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          printf '%s\n' '<settings><servers><server><id>central</id>' \
+            '<username>${env.MAVEN_CENTRAL_USERNAME}</username><password>${env.MAVEN_CENTRAL_PASSWORD}</password>' \
+            '</server></servers></settings>' > "$RUNNER_TEMP/settings.xml"
+          goals=(deploy)
+          if [ "$DRY_RUN" = "true" ]; then goals=(verify -Dgpg.skip); fi
+          docker run --rm -v "$PWD:/repo" -v "$RUNNER_TEMP/settings.xml:/settings.xml:ro" \
+            -e MAVEN_CENTRAL_USERNAME -e MAVEN_CENTRAL_PASSWORD -e MAVEN_GPG_KEY -e MAVEN_GPG_PASSPHRASE \
+            -w /repo/packages/sdk-java maven:3-eclipse-temurin-25 \
+            mvn -B -ntp -s /settings.xml -Prelease "${goals[@]}"
+
+  rubygems:
+    if: vars.RUBYGEMS_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Check the version against the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/.*VERSION = "\(.*\)".*/\1/p' packages/sdk-ruby/lib/formfeed/version.rb)
+          [ "$version" = "${GITHUB_REF_NAME#v}" ] || { echo "version.rb is $version but the tag is $GITHUB_REF_NAME" >&2; exit 1; }
+      - run: gem build formfeed.gemspec
+        working-directory: packages/sdk-ruby
+      # the credentials step rubygems/release-gem runs, without its `rake release`, which would tag and
+      # push a branch from a tag checkout
+      - name: RubyGems credentials (the workflow's OIDC token)
+        if: env.DRY_RUN != 'true'
+        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+      - name: Publish to RubyGems
+        if: env.DRY_RUN != 'true'
+        working-directory: packages/sdk-ruby
+        run: |
+          set -euo pipefail
+          version=$(ruby -r ./lib/formfeed/version -e 'print Formfeed::VERSION')
+          if gem info formfeed --remote --exact --version "$version" | grep -q "formfeed ($version)"; then
+            echo "formfeed $version is already published"
+          else
+            gem push "formfeed-$version.gem"
+          fi
+
   # The official MCP registry lists the server under io.github.formfeed-dev: the registry trusts this
   # repository's OIDC token for its owner's namespace, and checks that the npm package it names carries
   # the same `mcpName`, so it runs after npm. A version the registry already has is left alone.

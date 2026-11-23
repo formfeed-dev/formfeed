@@ -1,0 +1,138 @@
+{
+  "$comment": "Every operation of openapi.yaml (packages/api-types/fixtures/sdk/operations.json) and the method of this SDK that calls it, as client.Service.MethodAsync(), or why it has none. Held by packages/api-types/src/lib/sdk-fixtures.spec.ts and tests/Formfeed.Tests/OperationsTests.cs (plan 34).",
+  "operations": {
+    "createRender": "Renders.CreateAsync",
+    "listRenders": "Renders.ListAsync",
+    "getRender": "Renders.GetAsync",
+    "getRenderResult": {
+      "none": "the Location of a 202 for Power Automate and Logic Apps; Renders.WaitForAsync() polls getRender"
+    },
+    "getRenderInput": "Renders.GetInputAsync",
+    "deleteRenderOutputs": "Renders.DeleteOutputsAsync",
+    "createBatch": "Renders.CreateBatchAsync",
+    "getJob": "Jobs.GetAsync",
+    "listTemplates": "Templates.ListAsync",
+    "createTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "getTemplate": "Templates.GetAsync",
+    "updateTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "archiveTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "listTemplateVersions": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "createTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "getTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "downloadTemplateFile": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "publishTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "listTemplateChannels": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "setTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "deleteTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "promoteTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "rollbackTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "getTemplateSchema": "Templates.GetSchemaAsync",
+    "validateTemplate": "Templates.ValidateAsync",
+    "listFiles": "Files.ListAsync",
+    "uploadFile": "Files.UploadAsync",
+    "getFile": "Files.GetAsync",
+    "deleteFile": "Files.DeleteAsync",
+    "getBrand": {
+      "none": "the brand kit, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "listPartials": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "getPartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "putPartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "deletePartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "startDeviceLogin": {
+      "none": "the device login of formfeed login, which the CLI makes"
+    },
+    "claimDeviceLogin": {
+      "none": "the device login of formfeed login, which the CLI makes"
+    },
+    "getAccount": "Account.GetAsync",
+    "getUsage": "Account.GetUsageAsync",
+    "deleteWorkspace": {
+      "none": "deleting a workspace, later and on demand (plan 34, decision 2); FormfeedClient.RequestAsync() reaches it"
+    },
+    "getStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "putStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "deleteStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "testStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "redeliverStorage": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "mergePdf": "Pdf.MergeAsync",
+    "protectPdf": "Pdf.ProtectAsync",
+    "convertOfficeToPdf": "Pdf.ConvertAsync",
+    "watermarkPdf": "Pdf.WatermarkAsync",
+    "splitPdf": "Pdf.SplitAsync",
+    "compressPdf": "Pdf.CompressAsync",
+    "pdfToImage": "Pdf.ToImageAsync",
+    "redactPdf": "Pdf.RedactAsync",
+    "fillPdfForm": "Pdf.FillAsync",
+    "pdfInfo": "Pdf.GetInfoAsync",
+    "validateEinvoice": "Einvoices.ValidateAsync",
+    "listWebhooks": "Webhooks.ListAsync",
+    "createWebhook": "Webhooks.CreateAsync",
+    "updateWebhook": "Webhooks.UpdateAsync",
+    "deleteWebhook": "Webhooks.DeleteAsync",
+    "testWebhook": "Webhooks.TestAsync",
+    "startListenSession": {
+      "none": "listen sessions, which the command line's formfeed listen holds"
+    },
+    "endListenSession": {
+      "none": "listen sessions, which the command line's formfeed listen holds"
+    },
+    "resendWebhookEvent": "Webhooks.ResendAsync",
+    "compatApitemplateCreatePdf": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreateImage": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreatePdfFromHtml": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreatePdfFromUrl": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    }
+  }
+}

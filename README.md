@@ -32,9 +32,10 @@ Node 22 or newer and pnpm (the version in `package.json`, `corepack enable` pick
 
 ```bash
 pnpm install
-pnpm nx run-many -t lint test --exclude sdk-python,sdk-php,sdk-laravel   # TypeScript packages
+pnpm nx run-many -t lint test --exclude sdk-python,sdk-php,sdk-laravel,sdk-dotnet,sdk-java,sdk-go,sdk-ruby   # TypeScript packages
 pnpm nx run-many -t bundle smoke                     # build, pack and try every npm package
 pnpm nx run-many -t lint test -p sdk-php sdk-laravel   # PHP packages, in Docker
+pnpm nx run-many -t lint test -p sdk-dotnet sdk-java sdk-go sdk-ruby   # .NET, Java, Go and Ruby, in Docker
 cd packages/sdk-python && pip install pytest httpx pydantic && python -m pytest -q
 ```
 

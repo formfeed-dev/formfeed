@@ -1,0 +1,138 @@
+{
+  "$comment": "Every operation of openapi.yaml (packages/api-types/fixtures/sdk/operations.json) and the method of this SDK that calls it, as client.Service.Method, or why it has none. Held by packages/api-types/src/lib/sdk-fixtures.spec.ts and operations_test.go (plan 34).",
+  "operations": {
+    "createRender": "Renders.Create",
+    "listRenders": "Renders.List",
+    "getRender": "Renders.Get",
+    "getRenderResult": {
+      "none": "the Location of a 202 for Power Automate and Logic Apps; Renders.WaitFor() polls getRender"
+    },
+    "getRenderInput": "Renders.Input",
+    "deleteRenderOutputs": "Renders.DeleteOutputs",
+    "createBatch": "Renders.Batch",
+    "getJob": "Jobs.Get",
+    "listTemplates": "Templates.List",
+    "createTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "getTemplate": "Templates.Get",
+    "updateTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "archiveTemplate": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "listTemplateVersions": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "createTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "getTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "downloadTemplateFile": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "publishTemplateVersion": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "listTemplateChannels": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "setTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "deleteTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "promoteTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "rollbackTemplateChannel": {
+      "none": "template authoring, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "getTemplateSchema": "Templates.Schema",
+    "validateTemplate": "Templates.Validate",
+    "listFiles": "Files.List",
+    "uploadFile": "Files.Upload",
+    "getFile": "Files.Get",
+    "deleteFile": "Files.Delete",
+    "getBrand": {
+      "none": "the brand kit, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "listPartials": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "getPartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "putPartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "deletePartial": {
+      "none": "shared partials, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "startDeviceLogin": {
+      "none": "the device login of formfeed login, which the CLI makes"
+    },
+    "claimDeviceLogin": {
+      "none": "the device login of formfeed login, which the CLI makes"
+    },
+    "getAccount": "Account.Get",
+    "getUsage": "Account.Usage",
+    "deleteWorkspace": {
+      "none": "deleting a workspace, later and on demand (plan 34, decision 2); Client.Request() reaches it"
+    },
+    "getStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "putStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "deleteStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "testStorageConnection": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "redeliverStorage": {
+      "none": "a workspace's own storage, which owners and admins set up in the app"
+    },
+    "mergePdf": "PDF.Merge",
+    "protectPdf": "PDF.Protect",
+    "convertOfficeToPdf": "PDF.Convert",
+    "watermarkPdf": "PDF.Watermark",
+    "splitPdf": "PDF.Split",
+    "compressPdf": "PDF.Compress",
+    "pdfToImage": "PDF.ToImage",
+    "redactPdf": "PDF.Redact",
+    "fillPdfForm": "PDF.Fill",
+    "pdfInfo": "PDF.Info",
+    "validateEinvoice": "Einvoices.Validate",
+    "listWebhooks": "Webhooks.List",
+    "createWebhook": "Webhooks.Create",
+    "updateWebhook": "Webhooks.Update",
+    "deleteWebhook": "Webhooks.Delete",
+    "testWebhook": "Webhooks.Test",
+    "startListenSession": {
+      "none": "listen sessions, which the command line's formfeed listen holds"
+    },
+    "endListenSession": {
+      "none": "listen sessions, which the command line's formfeed listen holds"
+    },
+    "resendWebhookEvent": "Webhooks.Resend",
+    "compatApitemplateCreatePdf": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreateImage": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreatePdfFromHtml": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    },
+    "compatApitemplateCreatePdfFromUrl": {
+      "none": "apitemplate.io's API, for callers who switched without changing their code"
+    }
+  }
+}

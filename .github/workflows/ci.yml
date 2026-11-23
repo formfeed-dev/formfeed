@@ -29,7 +29,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # lint and unit tests, then build every npm package and try it the way a user installs it
-      - run: pnpm nx run-many -t lint test bundle smoke --exclude sdk-python,sdk-php,sdk-laravel
+      - run: pnpm nx run-many -t lint test bundle smoke --exclude sdk-python,sdk-php,sdk-laravel,sdk-dotnet,sdk-java,sdk-go,sdk-ruby
 
   python:
     runs-on: ubuntu-latest
@@ -79,3 +79,81 @@ jobs:
         run: |
           node packages/sdk-php/scripts/php.mjs lint
           node packages/sdk-php/scripts/php.mjs --package sdk-laravel lint
+
+  # .NET, Java, Go and Ruby run in their official images too (each package's docker/), on the
+  # oldest runtime the SDK supports and on the newest
+  dotnet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        dotnet: ['10.0', '11.0']
+    env:
+      DOTNET: ${{ matrix.dotnet }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: node packages/sdk-dotnet/scripts/dotnet.mjs test
+      - if: matrix.dotnet == '10.0'
+        run: node packages/sdk-dotnet/scripts/dotnet.mjs lint
+
+  java:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['11', '25']
+    env:
+      JAVA: ${{ matrix.java }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: node packages/sdk-java/scripts/java.mjs test
+      - if: matrix.java == '25'
+        run: node packages/sdk-java/scripts/java.mjs lint
+
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.26', '1.27']
+    env:
+      GO: ${{ matrix.go }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: node packages/sdk-go/scripts/go.mjs test
+      - run: node packages/sdk-go/scripts/go.mjs lint
+
+  ruby:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ['3.3', '4.0']
+    env:
+      RUBY: ${{ matrix.ruby }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: node packages/sdk-ruby/scripts/ruby.mjs test
+      - if: matrix.ruby == '3.3'
+        run: node packages/sdk-ruby/scripts/ruby.mjs lint
+      - run: node packages/sdk-ruby/scripts/ruby.mjs build

@@ -23,7 +23,7 @@ final class Einvoices
      *
      * @param string|null $rules `auto`, `factur-x`, `xrechnung` or `en16931`; the render's own when null
      *
-     * @return array<string, mixed> the report: verdict, rules, findings and versions
+     * @return array<string, mixed> the report: `result`, the `checks` with their findings, `validator`, `rules` and `versions`
      */
     public function validate(Render|Upload|string $source, ?string $rules = null, ?string $idempotencyKey = null): array
     {

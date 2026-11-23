@@ -1,0 +1,65 @@
+{
+  "name": "sdk-ruby",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/sdk-ruby/lib",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/lib/**/*",
+        "{projectRoot}/test/**/*",
+        "{projectRoot}/Gemfile",
+        "{projectRoot}/Rakefile",
+        "{projectRoot}/operations.json",
+        "{workspaceRoot}/packages/api-types/fixtures/**/*",
+        "{workspaceRoot}/tools/publish/packages.mjs",
+        "{projectRoot}/scripts/ruby.mjs",
+        "{projectRoot}/docker/Dockerfile",
+        { "env": "RUBY" }
+      ],
+      "options": {
+        "command": "node packages/sdk-ruby/scripts/ruby.mjs test"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/lib/**/*",
+        "{projectRoot}/test/**/*",
+        "{projectRoot}/Gemfile",
+        "{projectRoot}/Rakefile",
+        "{projectRoot}/formfeed.gemspec",
+        "{projectRoot}/.rubocop.yml",
+        "{projectRoot}/scripts/ruby.mjs",
+        "{projectRoot}/docker/Dockerfile",
+        { "env": "RUBY" }
+      ],
+      "options": {
+        "command": "node packages/sdk-ruby/scripts/ruby.mjs lint"
+      }
+    },
+    "fix": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node packages/sdk-ruby/scripts/ruby.mjs fix"
+      }
+    },
+    "gem": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/lib/**/*",
+        "{projectRoot}/formfeed.gemspec",
+        "{projectRoot}/README.md",
+        "{projectRoot}/LICENSE",
+        "{projectRoot}/scripts/ruby.mjs",
+        "{projectRoot}/docker/Dockerfile",
+        { "env": "RUBY" }
+      ],
+      "options": {
+        "command": "node packages/sdk-ruby/scripts/ruby.mjs build"
+      }
+    }
+  }
+}

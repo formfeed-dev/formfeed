@@ -1,0 +1,21 @@
+<Project>
+  <!-- What the library and its tests share: the language, nullable references and the analyzers
+       that `lint` holds as errors (scripts/dotnet.mjs). -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <Deterministic>true</Deterministic>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- In Docker the build goes to a folder of the container, so the mounted repository gets no
+       bin/ or obj/ owned by root (scripts/dotnet.mjs sets FORMFEED_ARTIFACTS). -->
+  <PropertyGroup Condition="'$(FORMFEED_ARTIFACTS)' != ''">
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(FORMFEED_ARTIFACTS)</ArtifactsPath>
+  </PropertyGroup>
+</Project>

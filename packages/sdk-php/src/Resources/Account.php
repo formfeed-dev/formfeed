@@ -13,7 +13,7 @@ final class Account
     public function __construct(private readonly Transport $transport) {}
 
     /**
-     * The key's organisation, workspace, plan and scopes.
+     * The key's workspace and organisation, its environment, and the plan with the period's units and limits.
      *
      * @return array<string, mixed>
      */

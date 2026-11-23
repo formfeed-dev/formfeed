@@ -78,7 +78,7 @@ final class Templates
      *
      * @param array{version?: string|int, data?: array<string, mixed>} $input
      *
-     * @return array<string, mixed> `valid`, and the `errors` and `warnings` found
+     * @return array<string, mixed> `ok`, the `template` checked and the `diagnostics` found
      */
     public function validate(string $idOrSlug, array $input = []): array
     {

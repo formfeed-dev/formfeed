@@ -1,0 +1,50 @@
+{
+  "name": "sdk-dotnet",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/sdk-dotnet/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/tests/**/*",
+        "{projectRoot}/Formfeed.slnx",
+        "{projectRoot}/Directory.Build.props",
+        "{projectRoot}/global.json",
+        "{projectRoot}/operations.json",
+        "{workspaceRoot}/packages/api-types/fixtures/**/*",
+        "{workspaceRoot}/tools/publish/packages.mjs",
+        "{projectRoot}/scripts/dotnet.mjs",
+        "{projectRoot}/docker/Dockerfile",
+        { "env": "DOTNET" }
+      ],
+      "options": {
+        "command": "node packages/sdk-dotnet/scripts/dotnet.mjs test"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/tests/**/*",
+        "{projectRoot}/Formfeed.slnx",
+        "{projectRoot}/Directory.Build.props",
+        "{projectRoot}/.editorconfig",
+        "{projectRoot}/scripts/dotnet.mjs",
+        "{projectRoot}/docker/Dockerfile",
+        { "env": "DOTNET" }
+      ],
+      "options": {
+        "command": "node packages/sdk-dotnet/scripts/dotnet.mjs lint"
+      }
+    },
+    "fix": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node packages/sdk-dotnet/scripts/dotnet.mjs fix"
+      }
+    }
+  }
+}
