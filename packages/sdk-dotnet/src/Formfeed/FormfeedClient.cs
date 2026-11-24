@@ -25,7 +25,7 @@ namespace Formfeed;
 public sealed class FormfeedClient : IDisposable
 {
     /// <summary>The release of this SDK, which every Formfeed package shares.</summary>
-    public const string Version = "0.3.29";
+    public const string Version = "0.3.30";
 
     private readonly Transport transport;
 
