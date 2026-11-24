@@ -58,8 +58,9 @@ type Render struct {
 	Form *FormFill `json:"form"`
 	// Timings are the milliseconds per phase of a render that succeeded (compile_ms, render_ms, …).
 	Timings map[string]int64 `json:"timings"`
-	// Error is why a failed render failed; nil unless Status is failed.
-	Error *RenderError `json:"error"`
+	// Error is why a failed render failed. It is a value, so it reads without a nil check: its Code
+	// is empty unless Status is failed, and empty too where the API named no reason.
+	Error RenderError `json:"error"`
 	// Meta is the meta of the request, unchanged.
 	Meta        map[string]any `json:"meta"`
 	CreatedAt   string         `json:"created_at"`

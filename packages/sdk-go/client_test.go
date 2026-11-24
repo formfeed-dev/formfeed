@@ -987,6 +987,30 @@ func TestTheModelsReadALaterAPI(t *testing.T) {
 	}
 }
 
+// A failed render's error reads without a nil check, as the README and the docs read it right
+// after the status: an error the API left out, sent as null or sent as another type is the zero
+// RenderError, so render.Error.Code is empty and nothing panics.
+func TestARenderErrorReadsWithoutANilCheck(t *testing.T) {
+	failed := with(render(), map[string]any{"status": "failed", "download_url": nil})
+	cases := map[string]map[string]any{
+		"left out":     failed,
+		"null":         with(failed, map[string]any{"error": nil}),
+		"another type": with(failed, map[string]any{"error": "render failed"}),
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := stubbed(t, always(jsonAnswer(200, body)))
+			r, err := h.Renders.Get(ctx, "rnd_1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Status != "failed" || r.Error.Code != "" || r.Error.Message != "" || r.Error.Details != nil {
+				t.Fatalf("error %+v", r.Error)
+			}
+		})
+	}
+}
+
 // One version for every package (plan 34, decision 6): the release bumps this one too.
 func TestTheVersionIsTheReleasesOne(t *testing.T) {
 	data, err := os.ReadFile(repoPath(t, "..", "tools", "publish", "packages.mjs"))
