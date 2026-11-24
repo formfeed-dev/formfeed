@@ -11,14 +11,14 @@ Maven:
 <dependency>
   <groupId>dev.formfeed</groupId>
   <artifactId>formfeed</artifactId>
-  <version>0.3.30</version>
+  <version>0.3.31</version>
 </dependency>
 ```
 
 Gradle:
 
 ```kotlin
-implementation("dev.formfeed:formfeed:0.3.30")
+implementation("dev.formfeed:formfeed:0.3.31")
 ```
 
 ## Render a document

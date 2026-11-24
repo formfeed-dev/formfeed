@@ -25,7 +25,7 @@
   },
   "require": {
     "php": ">=8.3",
-    "formfeed/sdk": "^0.3.30",
+    "formfeed/sdk": "^0.3.31",
     "illuminate/contracts": "^12.0 || ^13.0",
     "illuminate/http": "^12.0 || ^13.0",
     "illuminate/routing": "^12.0 || ^13.0",
@@ -43,7 +43,7 @@
       "url": "../sdk-php",
       "options": {
         "versions": {
-          "formfeed/sdk": "0.3.30"
+          "formfeed/sdk": "0.3.31"
         }
       }
     }

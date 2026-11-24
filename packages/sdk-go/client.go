@@ -10,7 +10,7 @@ import (
 
 // Version is the release of this SDK, the one every Formfeed SDK and package shares. The module's
 // tags carry it (v0.3.x), and the User-Agent names its major and minor number.
-const Version = "0.3.30"
+const Version = "0.3.31"
 
 const (
 	userAgent      = "formfeed-sdk-go/0.3"

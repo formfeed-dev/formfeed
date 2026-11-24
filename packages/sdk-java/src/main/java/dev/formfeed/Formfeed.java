@@ -26,7 +26,7 @@ import java.util.function.DoubleSupplier;
  */
 public final class Formfeed {
   /** The release of this SDK, the same for every Formfeed package. */
-  public static final String VERSION = "0.3.30";
+  public static final String VERSION = "0.3.31";
 
   private static final Map<String, String> HOSTS =
       Map.of(
