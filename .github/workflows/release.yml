@@ -157,8 +157,10 @@ jobs:
   # The .NET, Java and Ruby SDKs (plan 34) publish from here too, each only once its registry is set
   # up: NuGet when the repository variable NUGET_USER names the nuget.org account whose trusted
   # publishing policy names this workflow, Maven Central when the Central Portal token and the GPG key
-  # are secrets of the `release` environment, RubyGems when the variable RUBYGEMS_PUBLISH is `true`
-  # (after the pending trusted publisher for the gem exists). Until then each job is skipped, and a
+  # are secrets of the `release` environment, RubyGems when the variable RUBYGEMS_OWNER holds the id
+  # of the rubygems.org account that owns the gem (shown on its Pending Trusted Publishers page; the
+  # first push through a pending trusted publisher must name it, and a pending publisher is valid for
+  # about 12 hours, so it is made right before the tag). Until then each job is skipped, and a
   # release publishes the other packages as before. The Go SDK needs nothing here: the module proxy
   # reads the tags of its mirror, formfeed-dev/formfeed-go.
   nuget:
@@ -237,7 +239,7 @@ jobs:
             mvn -B -ntp -s /settings.xml -Prelease "${goals[@]}"
 
   rubygems:
-    if: vars.RUBYGEMS_PUBLISH == 'true'
+    if: vars.RUBYGEMS_OWNER != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release
@@ -258,10 +260,14 @@ jobs:
       - run: gem build formfeed.gemspec
         working-directory: packages/sdk-ruby
       # the credentials step rubygems/release-gem runs, without its `rake release`, which would tag and
-      # push a branch from a tag checkout
+      # push a branch from a tag checkout. `owner` (2.2.0 and later) names the account the first push
+      # of a new gem goes to, which RubyGems requires of a pending trusted publisher; the action leaves
+      # it out of the request when it is empty, and a gem that exists needs none
       - name: RubyGems credentials (the workflow's OIDC token)
         if: env.DRY_RUN != 'true'
-        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+        uses: rubygems/configure-rubygems-credentials@c6ca7f4bac0e29c9bde8eeae0a0a986b27efa05f # v2.2.0
+        with:
+          owner: ${{ vars.RUBYGEMS_OWNER }}
       - name: Publish to RubyGems
         if: env.DRY_RUN != 'true'
         working-directory: packages/sdk-ruby
