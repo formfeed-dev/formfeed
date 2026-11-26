@@ -16,7 +16,7 @@
        bumps it here, in FormfeedClient.Version and in tools/publish/packages.mjs. -->
   <PropertyGroup>
     <PackageId>Formfeed</PackageId>
-    <Version>0.3.31</Version>
+    <Version>0.3.32</Version>
     <Authors>Formfeed</Authors>
     <Company>Formfeed</Company>
     <Product>Formfeed</Product>
