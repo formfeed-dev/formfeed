@@ -11,6 +11,7 @@ for generating PDFs and images from templates. Documentation lives at
 | [`formfeed/sdk`](packages/sdk-php)                       | [Packagist](https://packagist.org/packages/formfeed/sdk)             | PHP client over any PSR-18 HTTP client                                                                                                                                                                                                 |
 | [`formfeed/laravel`](packages/sdk-laravel)               | [Packagist](https://packagist.org/packages/formfeed/laravel)         | Laravel package: settings from `.env`, the `Formfeed` facade, a webhook middleware and `Formfeed::fake()` for tests                                                                                                                    |
 | [`github.com/formfeed-dev/formfeed-go`](packages/sdk-go) | [pkg.go.dev](https://pkg.go.dev/github.com/formfeed-dev/formfeed-go) | Go client on the standard library alone, `context.Context` first, a `net/http` webhook handler                                                                                                                                         |
+| [`formfeed`](packages/sdk-ruby)                          | [RubyGems](https://rubygems.org/gems/formfeed)                       | Ruby client on the standard library alone, Ruby 3.3 and newer                                                                                                                                                                          |
 | [`formfeed`](packages/cli)                               | [npm](https://www.npmjs.com/package/formfeed)                        | CLI: templates as files, offline preview and validation, renders through the API                                                                                                                                                       |
 | [`@formfeed/engine`](packages/engine)                    | [npm](https://www.npmjs.com/package/@formfeed/engine)                | The template engine (Jinja2, Liquid, Handlebars) the API and the editor use                                                                                                                                                            |
 | [`@formfeed/devkit`](packages/devkit)                    | [npm](https://www.npmjs.com/package/@formfeed/devkit)                | Template folders, project config and local rendering                                                                                                                                                                                   |
@@ -20,9 +21,10 @@ for generating PDFs and images from templates. Documentation lives at
 
 Every npm package is built and published from this repository by
 [GitHub Actions](.github/workflows/release.yml) with
-[provenance](https://docs.npmjs.com/generating-provenance-statements), and the Python package with
-[trusted publishing](https://docs.pypi.org/trusted-publishers/), so each release can be traced to
-the commit and workflow run it came from. Packagist reads the PHP packages from repositories of their
+[provenance](https://docs.npmjs.com/generating-provenance-statements), the Python package with
+[trusted publishing](https://docs.pypi.org/trusted-publishers/) and the Ruby gem with RubyGems'
+[trusted publishing](https://guides.rubygems.org/trusted-publishing/), so each release can be traced
+to the commit and workflow run it came from. Packagist reads the PHP packages from repositories of their
 own, [formfeed-php](https://github.com/formfeed-dev/formfeed-php) and
 [formfeed-laravel](https://github.com/formfeed-dev/formfeed-laravel), which are tagged with every
 release. The Go module lives in a repository of its own as well,
